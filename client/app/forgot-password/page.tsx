@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ApiError } from "@/types/api";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -22,6 +23,7 @@ export default function ForgotPasswordPage() {
 
   const [email, setEmail] = useState("");
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated && user) {
@@ -31,6 +33,7 @@ export default function ForgotPasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
 
     try {
       const response = await forgotPasswordMutation.mutateAsync({ email });
@@ -39,9 +42,12 @@ export default function ForgotPasswordPage() {
         response.message || "Password reset link sent to your email.",
         "DISPATCHED"
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
       const errorMsg =
-        err?.error || err?.message || "Failed to process password reset request.";
+        apiErr?.error ||
+        (err instanceof Error ? err.message : "Failed to process password reset request.");
+      setErrorMessage(errorMsg);
       toast.error(errorMsg, "REQUEST FAILED");
     }
   };
@@ -88,7 +94,10 @@ export default function ForgotPasswordPage() {
                   <Button
                     variant="outline"
                     className="w-full h-10 text-xs font-semibold"
-                    onClick={() => setIsSuccess(false)}
+                    onClick={() => {
+                      setIsSuccess(false);
+                      setErrorMessage(null);
+                    }}
                   >
                     Send to Another Email
                   </Button>
@@ -103,6 +112,11 @@ export default function ForgotPasswordPage() {
             ) : (
               <form onSubmit={handleSubmit}>
                 <CardContent className="space-y-4">
+                  {errorMessage && (
+                    <Alert variant="error" title="REQUEST FAILED">
+                      {errorMessage}
+                    </Alert>
+                  )}
                   <Input
                     label="Registered Email"
                     type="email"
@@ -110,7 +124,11 @@ export default function ForgotPasswordPage() {
                     autoComplete="email"
                     placeholder="name@event.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    error={errorMessage || undefined}
                     helperText="Password reset token will be delivered via secure SMTP."
                   />
                 </CardContent>

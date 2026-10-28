@@ -2,7 +2,7 @@ import React from "react";
 import { cn } from "@/lib/utils";
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: "solid" | "outline" | "subtle" | "blue" | "coral";
+  variant?: "solid" | "outline" | "subtle" | "blue" | "coral" | "emerald";
   size?: "sm" | "md";
 }
 
@@ -18,6 +18,7 @@ export function Badge({
     subtle: "bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] border border-[var(--card-line)]",
     blue: "bg-[var(--color-blue)] text-white shadow-[0_4px_12px_rgba(131,162,219,0.3)]",
     coral: "bg-[var(--color-coral)] text-white shadow-[0_4px_12px_rgba(206,105,105,0.3)]",
+    emerald: "bg-[var(--color-emerald)] text-white shadow-[0_4px_12px_rgba(46,184,138,0.3)]",
   };
 
   const sizeStyles = {

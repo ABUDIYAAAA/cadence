@@ -1,7 +1,7 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSetupPassword } from "@/hooks/use-auth";
 import { useToast } from "@/providers/toast-provider";
@@ -11,9 +11,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ApiError } from "@/types/api";
 
 function SetupPasswordForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const urlToken = searchParams.get("token") || "";
 
@@ -28,12 +28,6 @@ function SetupPasswordForm() {
 
   const effectiveToken = urlToken.trim() || manualToken.trim();
   const hasUrlToken = Boolean(urlToken.trim());
-
-  useEffect(() => {
-    if (urlToken) {
-      setManualToken(urlToken);
-    }
-  }, [urlToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +47,7 @@ function SetupPasswordForm() {
 
     if (password !== confirmPassword) {
       setValidationError("Passwords do not match.");
-      toast.error("Password confirmation does not match.", "VALIDATION ERROR");
+      toast.error("Passwords do not match.", "VALIDATION ERROR");
       return;
     }
 
@@ -69,9 +63,11 @@ function SetupPasswordForm() {
         response.message || "Account activated! You can now log in.",
         "ACCOUNT CONFIGURED"
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
       const errorMsg =
-        err?.error || err?.message || "Failed to set up account. Token may be invalid or expired.";
+        apiErr?.error ||
+        (err instanceof Error ? err.message : "Failed to set up account. Token may be invalid or expired.");
       toast.error(errorMsg, "SETUP FAILED");
       setValidationError(errorMsg);
     }
@@ -85,14 +81,14 @@ function SetupPasswordForm() {
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
-                  Activate Account
+                  Configure Account
                 </CardTitle>
                 <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-                  ONBOARDING
+                  ACTIVATION
                 </Badge>
               </div>
               <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
-                First-time activation. Configure a password to access your Cadence workspace.
+                Enter your invitation token and set your account password.
               </CardDescription>
             </CardHeader>
 
@@ -100,14 +96,15 @@ function SetupPasswordForm() {
               <div>
                 <CardContent className="space-y-4">
                   <Alert variant="success" title="ACCOUNT ACTIVATED">
-                    Your password has been saved and your account is active. Please sign in to proceed.
+                    Your password has been configured successfully. You may now log
+                    in to your Cadence portal.
                   </Alert>
                 </CardContent>
 
-                <CardFooter className="flex flex-col gap-2 pt-3">
+                <CardFooter className="pt-3">
                   <Link href="/login" className="w-full">
                     <Button variant="primary" className="w-full h-11 text-sm font-semibold">
-                      Proceed to Login →
+                      Proceed to Login
                     </Button>
                   </Link>
                 </CardFooter>
@@ -115,31 +112,37 @@ function SetupPasswordForm() {
             ) : (
               <form onSubmit={handleSubmit}>
                 <CardContent className="space-y-4">
-                  {hasUrlToken ? (
-                    <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3 text-xs flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)]">
-                          Security Verification
+                  {!hasUrlToken ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-[var(--ink-primary)]">
+                          Invitation Setup Token
                         </span>
-                        <p className="font-semibold text-[var(--ink-primary)]">Invitation Token Attached</p>
+                        <Badge variant="solid" size="sm">
+                          REQUIRED
+                        </Badge>
                       </div>
-                      <Badge variant="solid" size="sm">
-                        VERIFIED
-                      </Badge>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
+
                       <Alert variant="warning" title="INVITATION TOKEN">
-                        Paste the activation token from your event invitation email below.
+                        No token was found in your URL. Please paste the invitation
+                        token sent by your administrator.
                       </Alert>
+
                       <Input
-                        label="Activation Token"
-                        type="text"
+                        label="Token"
                         required
-                        placeholder="Paste token from invite..."
+                        placeholder="Paste setup token here"
                         value={manualToken}
                         onChange={(e) => setManualToken(e.target.value)}
+                        error={!effectiveToken && validationError ? validationError : undefined}
                       />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between p-3 rounded-[14px] bg-[var(--card-solid)] border border-[var(--card-line)] text-xs">
+                      <span className="text-[var(--ink-secondary)]">Token Attached</span>
+                      <span className="font-mono text-[var(--color-blue)] font-semibold truncate max-w-[200px]">
+                        {urlToken.slice(0, 10)}...{urlToken.slice(-6)}
+                      </span>
                     </div>
                   )}
 
@@ -150,14 +153,14 @@ function SetupPasswordForm() {
                   )}
 
                   <Input
-                    label="Create Password"
+                    label="Choose Password"
                     type="password"
                     required
                     autoComplete="new-password"
-                    placeholder="Minimum 8 characters"
+                    placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    helperText="Must be at least 8 characters long"
+                    helperText="Minimum 8 characters with at least one letter and number."
                   />
 
                   <Input
@@ -165,9 +168,14 @@ function SetupPasswordForm() {
                     type="password"
                     required
                     autoComplete="new-password"
-                    placeholder="Re-type password"
+                    placeholder="••••••••"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
+                    error={
+                      confirmPassword && password !== confirmPassword
+                        ? "Passwords do not match"
+                        : undefined
+                    }
                   />
                 </CardContent>
 
@@ -178,7 +186,7 @@ function SetupPasswordForm() {
                     className="w-full h-11 text-sm font-semibold"
                     isLoading={setupPasswordMutation.isPending}
                   >
-                    Complete Setup & Activate
+                    Activate Account
                   </Button>
 
                   <div className="flex w-full justify-center text-xs text-[var(--ink-secondary)] pt-2 border-t border-[var(--card-line)]">
@@ -186,7 +194,7 @@ function SetupPasswordForm() {
                       href="/login"
                       className="hover:text-[var(--ink-primary)] underline transition-colors"
                     >
-                      Already activated? Sign In →
+                      ← Back to Sign In
                     </Link>
                   </div>
                 </CardFooter>

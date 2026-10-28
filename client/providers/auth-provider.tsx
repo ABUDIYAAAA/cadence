@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo } from "react";
+import React, { createContext, useContext, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { UserResponse, UserRole } from "@/types/auth";
 import { useCurrentUser, useLogout } from "@/hooks/use-auth";
 import { unsubscribePush } from "@/lib/push-notifications";
@@ -21,6 +22,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const { data: userData, isLoading, isError, refetch } = useCurrentUser();
   const logoutMutation = useLogout();
 
@@ -32,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isVolunteer = role === "volunteer";
   const isParticipant = role === "participant";
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     // 1. Attempt push notification cleanup with strict 400ms timeout
     // Must NEVER block or hang the user logout
     try {
@@ -51,12 +53,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // 3. Invalidate auth cookies and revoke refresh token on backend
       await logoutMutation.mutateAsync();
-      window.location.href = "/login";
+      router.push("/login");
     } catch (err) {
       console.error("Logout error", err);
-      window.location.href = "/login";
+      router.push("/login");
     }
-  };
+  }, [logoutMutation, router]);
+
+  const refetchUser = useCallback(() => {
+    refetch();
+  }, [refetch]);
 
   const value = useMemo(
     () => ({
@@ -69,11 +75,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isVolunteer,
       isParticipant,
       logout: handleLogout,
-      refetchUser: () => {
-        refetch();
-      },
+      refetchUser,
     }),
-    [user, isLoading, role, isAdmin, isJudge, isVolunteer, isParticipant]
+    [user, isLoading, role, isAdmin, isJudge, isVolunteer, isParticipant, handleLogout, refetchUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ApiError } from "@/types/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,6 +23,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Redirect to role dashboard if already logged in
   useEffect(() => {
@@ -31,6 +34,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
 
     try {
       const response = await loginMutation.mutateAsync({ email, password });
@@ -39,9 +43,12 @@ export default function LoginPage() {
         "AUTHENTICATED"
       );
       router.replace(getDashboardRoute(response.user.role));
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
       const errorMsg =
-        err?.error || err?.message || "Invalid email or password. Please try again.";
+        apiErr?.error ||
+        (err instanceof Error ? err.message : "Invalid email or password. Please try again.");
+      setErrorMessage(errorMsg);
       toast.error(errorMsg, "AUTHENTICATION FAILED");
     }
   };
@@ -77,6 +84,11 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit}>
               <CardContent className="space-y-4">
+                {errorMessage && (
+                  <Alert variant="error" title="AUTHENTICATION FAILED">
+                    {errorMessage}
+                  </Alert>
+                )}
                 <Input
                   label="Email"
                   type="email"
@@ -84,7 +96,11 @@ export default function LoginPage() {
                   autoComplete="email"
                   placeholder="name@event.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  error={errorMessage ? "" : undefined}
                 />
 
                 <div className="space-y-1">
@@ -105,7 +121,11 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     placeholder="••••••••"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    error={errorMessage ? "" : undefined}
                   />
                 </div>
               </CardContent>

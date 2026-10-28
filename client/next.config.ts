@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  devIndicators: false,
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
@@ -11,6 +12,18 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/auth/:path*",
+        destination: "/:path*",
+      },
+      {
+        source: "/setup-account",
+        destination: "/setup-password",
+      },
+    ];
   },
 };
 

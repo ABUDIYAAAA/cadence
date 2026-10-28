@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { User, LogOut, LayoutDashboard, Bell, Sun, Moon } from "lucide-react";
+import { LogOut, LayoutDashboard, Bell, Sun, Moon } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -24,9 +24,13 @@ export function Navbar() {
   const [isDark, setIsDark] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Sync dark mode state with document class
+  // Sync dark mode state with document class asynchronously
   useEffect(() => {
-    setIsDark(document.documentElement.classList.contains("dark"));
+    const isDarkMode = document.documentElement.classList.contains("dark");
+    const frame = requestAnimationFrame(() => {
+      setIsDark(isDarkMode);
+    });
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   const toggleTheme = () => {
@@ -220,7 +224,7 @@ export function Navbar() {
 
                 {/* Dropdown Menu (Floating Glass Card) */}
                 {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-64 rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
+                  <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
                     {/* User Profile Header */}
                     <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[14px] border border-[var(--card-line)] mb-1.5">
                       <div className="flex items-center justify-between mb-1">

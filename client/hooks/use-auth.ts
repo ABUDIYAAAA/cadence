@@ -3,8 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authService } from "@/services/auth.service";
 import {
+  AuthResponse,
   ForgotPasswordRequest,
   LoginRequest,
+  MessageResponse,
   ResetPasswordRequest,
   SetupPasswordRequest,
   UserResponse,
@@ -25,7 +27,7 @@ export function useCurrentUser() {
 export function useLogin() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<AuthResponse, ApiError, LoginRequest>({
     mutationFn: (payload: LoginRequest) => authService.login(payload),
     onSuccess: (data) => {
       queryClient.setQueryData(AUTH_QUERY_KEY, data.user);
@@ -36,7 +38,7 @@ export function useLogin() {
 export function useLogout() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<MessageResponse, ApiError, void>({
     mutationFn: () => authService.logout(),
     onSuccess: () => {
       queryClient.setQueryData(AUTH_QUERY_KEY, null);
@@ -46,19 +48,19 @@ export function useLogout() {
 }
 
 export function useSetupPassword() {
-  return useMutation({
+  return useMutation<MessageResponse, ApiError, SetupPasswordRequest>({
     mutationFn: (payload: SetupPasswordRequest) => authService.setupPassword(payload),
   });
 }
 
 export function useForgotPassword() {
-  return useMutation({
+  return useMutation<MessageResponse, ApiError, ForgotPasswordRequest>({
     mutationFn: (payload: ForgotPasswordRequest) => authService.forgotPassword(payload),
   });
 }
 
 export function useResetPassword() {
-  return useMutation({
+  return useMutation<MessageResponse, ApiError, ResetPasswordRequest>({
     mutationFn: (payload: ResetPasswordRequest) => authService.resetPassword(payload),
   });
 }

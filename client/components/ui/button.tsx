@@ -23,7 +23,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const baseStyles =
-      "inline-flex items-center justify-center font-sans font-semibold tracking-tight select-none cursor-pointer outline-none transition-all duration-[130ms] ease-[cubic-bezier(0.25,1,0.35,1)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50";
+      "inline-flex items-center justify-center font-sans font-semibold tracking-tight select-none cursor-pointer outline-none transition-[transform,opacity,background-color,border-color,box-shadow] duration-[130ms] ease-[cubic-bezier(0.25,1,0.35,1)] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50";
 
     const variantStyles = {
       primary:
@@ -41,10 +41,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     };
 
     const sizeStyles = {
-      sm: "h-8 px-3 text-xs gap-1.5 rounded-[10px]",
+      sm: "relative h-8 px-3 text-xs gap-1.5 rounded-[10px] before:absolute before:-inset-1.5 before:content-['']",
       md: "h-[38px] px-4 text-xs gap-2 rounded-[14px]",
       lg: "h-11 px-6 text-sm gap-2.5 rounded-[14px]",
-      icon: "h-[38px] w-[38px] p-0 rounded-full",
+      icon: "relative h-[38px] w-[38px] p-0 rounded-full before:absolute before:-inset-1 before:content-['']",
     };
 
     return (

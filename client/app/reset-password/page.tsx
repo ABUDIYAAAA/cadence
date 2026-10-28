@@ -1,7 +1,7 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useResetPassword } from "@/hooks/use-auth";
 import { useToast } from "@/providers/toast-provider";
@@ -11,9 +11,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ApiError } from "@/types/api";
 
 function ResetPasswordForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const urlToken = searchParams.get("token") || "";
 
@@ -29,12 +29,6 @@ function ResetPasswordForm() {
   // Active token is either from URL query param or manual entry
   const effectiveToken = urlToken.trim() || manualToken.trim();
   const hasUrlToken = Boolean(urlToken.trim());
-
-  useEffect(() => {
-    if (urlToken) {
-      setManualToken(urlToken);
-    }
-  }, [urlToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,7 +48,7 @@ function ResetPasswordForm() {
 
     if (password !== confirmPassword) {
       setValidationError("Passwords do not match.");
-      toast.error("Password confirmation does not match.", "VALIDATION ERROR");
+      toast.error("Passwords do not match.", "VALIDATION ERROR");
       return;
     }
 
@@ -67,12 +61,14 @@ function ResetPasswordForm() {
 
       setIsSuccess(true);
       toast.success(
-        response.message || "Password successfully changed. You can now log in.",
-        "PASSWORD UPDATED"
+        response.message || "Password has been successfully updated.",
+        "PASSWORD RESET"
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
       const errorMsg =
-        err?.error || err?.message || "Failed to reset password. The link or token may be expired.";
+        apiErr?.error ||
+        (err instanceof Error ? err.message : "Failed to reset password. Please try again.");
       toast.error(errorMsg, "RESET FAILED");
       setValidationError(errorMsg);
     }
@@ -86,14 +82,14 @@ function ResetPasswordForm() {
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
-                  Reset Password
+                  Create New Password
                 </CardTitle>
                 <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-                  CREDENTIALS
+                  SECURITY
                 </Badge>
               </div>
               <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
-                Enter a new secure password for your Cadence account.
+                Enter your security token and configure a new password.
               </CardDescription>
             </CardHeader>
 
@@ -101,14 +97,15 @@ function ResetPasswordForm() {
               <div>
                 <CardContent className="space-y-4">
                   <Alert variant="success" title="PASSWORD RESET SUCCESSFUL">
-                    Your account password has been updated. You can now sign in with your new credentials.
+                    Your password has been changed. You can now use your new password
+                    to access your account.
                   </Alert>
                 </CardContent>
 
-                <CardFooter className="flex flex-col gap-2 pt-3">
+                <CardFooter className="pt-3">
                   <Link href="/login" className="w-full">
                     <Button variant="primary" className="w-full h-11 text-sm font-semibold">
-                      Proceed to Login →
+                      Sign In Now
                     </Button>
                   </Link>
                 </CardFooter>
@@ -116,32 +113,37 @@ function ResetPasswordForm() {
             ) : (
               <form onSubmit={handleSubmit}>
                 <CardContent className="space-y-4">
-                  {/* Token status banner */}
-                  {hasUrlToken ? (
-                    <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3 text-xs flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)]">
-                          Security Verification
+                  {!hasUrlToken ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-[var(--ink-primary)]">
+                          Security Verification Token
                         </span>
-                        <p className="font-semibold text-[var(--ink-primary)]">Reset Token Attached</p>
+                        <Badge variant="solid" size="sm">
+                          REQUIRED
+                        </Badge>
                       </div>
-                      <Badge variant="solid" size="sm">
-                        VERIFIED
-                      </Badge>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
+
                       <Alert variant="warning" title="TOKEN REQUIRED">
-                        No reset token detected in the URL. Please enter the token from your reset email below.
+                        No reset token was detected in your link. Please paste the
+                        token provided in your reset email.
                       </Alert>
+
                       <Input
-                        label="Security Token"
-                        type="text"
+                        label="Reset Token"
                         required
-                        placeholder="Paste 64-character token..."
+                        placeholder="Paste reset token from email"
                         value={manualToken}
                         onChange={(e) => setManualToken(e.target.value)}
+                        error={!effectiveToken && validationError ? validationError : undefined}
                       />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between p-3 rounded-[14px] bg-[var(--card-solid)] border border-[var(--card-line)] text-xs">
+                      <span className="text-[var(--ink-secondary)]">Token Attached</span>
+                      <span className="font-mono text-[var(--color-blue)] font-semibold truncate max-w-[200px]">
+                        {urlToken.slice(0, 10)}...{urlToken.slice(-6)}
+                      </span>
                     </div>
                   )}
 
@@ -156,10 +158,10 @@ function ResetPasswordForm() {
                     type="password"
                     required
                     autoComplete="new-password"
-                    placeholder="Minimum 8 characters"
+                    placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    helperText="Must be at least 8 characters long"
+                    helperText="Minimum 8 characters with at least one letter and number."
                   />
 
                   <Input
@@ -167,9 +169,14 @@ function ResetPasswordForm() {
                     type="password"
                     required
                     autoComplete="new-password"
-                    placeholder="Re-type password"
+                    placeholder="••••••••"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
+                    error={
+                      confirmPassword && password !== confirmPassword
+                        ? "Passwords do not match"
+                        : undefined
+                    }
                   />
                 </CardContent>
 
@@ -180,7 +187,7 @@ function ResetPasswordForm() {
                     className="w-full h-11 text-sm font-semibold"
                     isLoading={resetPasswordMutation.isPending}
                   >
-                    Set New Password
+                    Update Password
                   </Button>
 
                   <div className="flex w-full justify-center text-xs text-[var(--ink-secondary)] pt-2 border-t border-[var(--card-line)]">

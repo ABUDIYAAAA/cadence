@@ -37,7 +37,7 @@
   /* Typography Ink */
   --ink-primary: #10141A;
   --ink-secondary: #586375;
-  --ink-tertiary: #929EB2;
+  --ink-tertiary: #5F6B7E;
   --ink-inverse: #FFFFFF;
 
   /* Radii */
@@ -91,7 +91,7 @@ html.dark {
 
   --ink-primary: #FFFFFF;
   --ink-secondary: #9DA8BA;
-  --ink-tertiary: #657083;
+  --ink-tertiary: #8A96AA;
   --ink-inverse: #10141A;
 
   --shadow-container: 0 16px 36px -10px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
@@ -226,6 +226,12 @@ body {
   background: var(--color-coral);
   color: #FFFFFF;
   box-shadow: 0 4px 12px rgba(206, 105, 105, 0.3);
+}
+
+.pill-emerald {
+  background: var(--color-emerald);
+  color: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(46, 184, 138, 0.3);
 }
 
 .pill-subtle {

@@ -49,7 +49,7 @@ export function TableRow({
   return (
     <tr
       className={cn(
-        "group transition-all duration-150 ease-out",
+        "group transition-colors duration-150 ease-out",
         className
       )}
       {...props}

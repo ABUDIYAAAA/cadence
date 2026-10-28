@@ -33,15 +33,25 @@ const (
 	ActionTicketIssued        = "ticket.issued"
 	ActionTicketCheckIn       = "ticket.check_in"
 	ActionTicketDuplicateScan = "ticket.duplicate_scan"
+
+	// Judging actions
+	ActionJudgingRoundCreate   = "judging.round_create"
+	ActionJudgingRoundActivate = "judging.round_activate"
+	ActionJudgingSlotStart     = "judging.slot_start"
+	ActionJudgingScoreLock     = "judging.score_lock"
+	ActionJudgingSlotComplete  = "judging.slot_complete"
 )
 
 // Standardized target type constants
 const (
-	TargetUser    = "user"
-	TargetTeam    = "team"
-	TargetSession = "session"
-	TargetAuth    = "auth"
-	TargetTicket  = "ticket"
+	TargetUser         = "user"
+	TargetTeam         = "team"
+	TargetSession      = "session"
+	TargetAuth         = "auth"
+	TargetTicket       = "ticket"
+	TargetJudgingRound = "judging_round"
+	TargetJudgingSlot  = "judging_slot"
+	TargetJudgingPanel = "judging_panel"
 )
 
 // Event encapsulates a structured domain action to be recorded in the audit trail.

@@ -17,6 +17,7 @@ import (
 	"devclubxnst.com/cadence/internal/mailer"
 	"devclubxnst.com/cadence/internal/modules/audit"
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/judging"
 	"devclubxnst.com/cadence/internal/modules/teams"
 	"devclubxnst.com/cadence/internal/modules/tickets"
 	"devclubxnst.com/cadence/internal/modules/users"
@@ -159,12 +160,18 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	ticketsService := tickets.NewService(ticketsRepo, cfg, mailQueue, auditQueue)
 	ticketsHandler := tickets.NewHandler(ticketsService)
 
+	// Judging, Scoring & Queue Tracking module initialization
+	judgingRepo := judging.NewRepository(dbPool)
+	judgingService := judging.NewService(judgingRepo, auditQueue)
+	judgingHandler := judging.NewHandler(judgingService)
+
 	// Mount API v1
 	router.Route("/api/v1", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
 		users.RegisterRoutes(r, usersHandler, authMiddleware)
 		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
 		tickets.RegisterRoutes(r, ticketsHandler, authMiddleware)
+		judging.RegisterRoutes(r, judgingHandler, authMiddleware)
 		audit.RegisterRoutes(r, auditHandler, authMiddleware)
 	})
 

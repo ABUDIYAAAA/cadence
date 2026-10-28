@@ -160,7 +160,29 @@ func (s *Service) ConfigureSlots(
 }
 
 // UpdateSlotLinks modifies external project URLs for a slot.
-func (s *Service) UpdateSlotLinks(ctx context.Context, slotID string, links map[string]string) error {
+// If the caller is not an admin, verifies that the user belongs to the team assigned to this slot.
+func (s *Service) UpdateSlotLinks(
+	ctx context.Context,
+	slotID string,
+	actorID, actorRole string,
+	links map[string]string,
+) error {
+	if actorRole != "admin" {
+		allowed, err := s.repo.CanUserUpdateSlotLinks(ctx, slotID, actorID)
+		if err != nil {
+			return fmt.Errorf("verify slot permission: %w", err)
+		}
+		if !allowed {
+			exists, err := s.repo.SlotExists(ctx, slotID)
+			if err != nil {
+				return fmt.Errorf("verify slot exists: %w", err)
+			}
+			if !exists {
+				return ErrSlotNotFound
+			}
+			return ErrUnauthorizedSlot
+		}
+	}
 	return s.repo.UpdateSlotLinks(ctx, slotID, links)
 }
 
@@ -170,7 +192,24 @@ func (s *Service) GetJudgePanels(ctx context.Context, judgeID string) ([]JudgePa
 }
 
 // GetJudgeSlotDetails retrieves full evaluation view for a single slot, with counter info.
-func (s *Service) GetJudgeSlotDetails(ctx context.Context, slotID string, judgeID string) (*JudgeSlotDetails, error) {
+// Verifies that the judge is assigned to this slot's panel unless an admin.
+func (s *Service) GetJudgeSlotDetails(ctx context.Context, slotID string, judgeID, judgeRole string) (*JudgeSlotDetails, error) {
+	if judgeRole != "admin" {
+		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, judgeID)
+		if err != nil {
+			return nil, fmt.Errorf("verify judge assignment: %w", err)
+		}
+		if !assigned {
+			exists, err := s.repo.SlotExists(ctx, slotID)
+			if err != nil {
+				return nil, fmt.Errorf("verify slot exists: %w", err)
+			}
+			if !exists {
+				return nil, ErrSlotNotFound
+			}
+			return nil, ErrJudgeNotAssigned
+		}
+	}
 	return s.repo.GetJudgeSlotDetails(ctx, slotID, judgeID)
 }
 
@@ -181,6 +220,23 @@ func (s *Service) StartSlot(
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
+	if actorRole != "admin" {
+		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, actorID)
+		if err != nil {
+			return fmt.Errorf("verify judge assignment: %w", err)
+		}
+		if !assigned {
+			exists, err := s.repo.SlotExists(ctx, slotID)
+			if err != nil {
+				return fmt.Errorf("verify slot exists: %w", err)
+			}
+			if !exists {
+				return ErrSlotNotFound
+			}
+			return ErrJudgeNotAssigned
+		}
+	}
+
 	if err := s.repo.StartSlot(ctx, slotID); err != nil {
 		return err
 	}
@@ -203,9 +259,25 @@ func (s *Service) StartSlot(
 func (s *Service) SubmitScores(
 	ctx context.Context,
 	slotID string,
-	judgeID string,
+	judgeID, judgeRole string,
 	req SubmitScoresRequest,
 ) error {
+	if judgeRole != "admin" {
+		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, judgeID)
+		if err != nil {
+			return fmt.Errorf("verify judge assignment: %w", err)
+		}
+		if !assigned {
+			exists, err := s.repo.SlotExists(ctx, slotID)
+			if err != nil {
+				return fmt.Errorf("verify slot exists: %w", err)
+			}
+			if !exists {
+				return ErrSlotNotFound
+			}
+			return ErrJudgeNotAssigned
+		}
+	}
 	return s.repo.UpsertScores(ctx, slotID, judgeID, req.Scores)
 }
 
@@ -216,6 +288,23 @@ func (s *Service) LockScores(
 	judgeID, judgeEmail, judgeRole string,
 	ip, userAgent string,
 ) error {
+	if judgeRole != "admin" {
+		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, judgeID)
+		if err != nil {
+			return fmt.Errorf("verify judge assignment: %w", err)
+		}
+		if !assigned {
+			exists, err := s.repo.SlotExists(ctx, slotID)
+			if err != nil {
+				return fmt.Errorf("verify slot exists: %w", err)
+			}
+			if !exists {
+				return ErrSlotNotFound
+			}
+			return ErrJudgeNotAssigned
+		}
+	}
+
 	if err := s.repo.LockJudgeScorecard(ctx, slotID, judgeID); err != nil {
 		return err
 	}
@@ -241,6 +330,23 @@ func (s *Service) CompleteSlot(
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
+	if actorRole != "admin" {
+		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, actorID)
+		if err != nil {
+			return fmt.Errorf("verify judge assignment: %w", err)
+		}
+		if !assigned {
+			exists, err := s.repo.SlotExists(ctx, slotID)
+			if err != nil {
+				return fmt.Errorf("verify slot exists: %w", err)
+			}
+			if !exists {
+				return ErrSlotNotFound
+			}
+			return ErrJudgeNotAssigned
+		}
+	}
+
 	allLocked, err := s.repo.CheckAllPanelJudgesLocked(ctx, slotID)
 	if err != nil {
 		return err

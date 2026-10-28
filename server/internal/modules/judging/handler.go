@@ -195,6 +195,12 @@ func (h *Handler) HandleConfigureSlots(w http.ResponseWriter, r *http.Request) {
 
 // HandleUpdateSlotLinks updates repository, presentation, or PRD links for a slot.
 func (h *Handler) HandleUpdateSlotLinks(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	slotID := chi.URLParam(r, "slotId")
 	if slotID == "" {
 		utils.ErrorJSON(w, http.StatusBadRequest, "slot ID is required")
@@ -212,9 +218,13 @@ func (h *Handler) HandleUpdateSlotLinks(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.service.UpdateSlotLinks(r.Context(), slotID, req.SubmissionLinks); err != nil {
+	if err := h.service.UpdateSlotLinks(r.Context(), slotID, claims.UserID, claims.Role, req.SubmissionLinks); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		if errors.Is(err, ErrUnauthorizedSlot) {
+			utils.ErrorJSON(w, http.StatusForbidden, "you can only update submission links for your own team")
 			return
 		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update links: "+err.Error())
@@ -258,10 +268,14 @@ func (h *Handler) HandleGetJudgeSlotDetails(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	details, err := h.service.GetJudgeSlotDetails(r.Context(), slotID, claims.UserID)
+	details, err := h.service.GetJudgeSlotDetails(r.Context(), slotID, claims.UserID, claims.Role)
 	if err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		if errors.Is(err, ErrJudgeNotAssigned) {
+			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
 			return
 		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to get slot details: "+err.Error())
@@ -289,6 +303,14 @@ func (h *Handler) HandleStartSlot(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 
 	if err := h.service.StartSlot(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
+		if errors.Is(err, ErrSlotNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		if errors.Is(err, ErrJudgeNotAssigned) {
+			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to start slot: "+err.Error())
 		return
 	}
@@ -324,7 +346,15 @@ func (h *Handler) HandleSubmitScores(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.SubmitScores(r.Context(), slotID, claims.UserID, req); err != nil {
+	if err := h.service.SubmitScores(r.Context(), slotID, claims.UserID, claims.Role, req); err != nil {
+		if errors.Is(err, ErrSlotNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		if errors.Is(err, ErrJudgeNotAssigned) {
+			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
+			return
+		}
 		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -353,6 +383,14 @@ func (h *Handler) HandleLockScores(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 
 	if err := h.service.LockScores(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
+		if errors.Is(err, ErrSlotNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		if errors.Is(err, ErrJudgeNotAssigned) {
+			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
+			return
+		}
 		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -381,6 +419,14 @@ func (h *Handler) HandleCompleteSlot(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 
 	if err := h.service.CompleteSlot(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
+		if errors.Is(err, ErrSlotNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		if errors.Is(err, ErrJudgeNotAssigned) {
+			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
+			return
+		}
 		if errors.Is(err, ErrNotAllJudgesLocked) {
 			utils.ErrorJSON(w, http.StatusConflict, err.Error())
 			return

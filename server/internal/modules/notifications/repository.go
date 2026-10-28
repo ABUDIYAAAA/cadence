@@ -2,9 +2,14 @@ package notifications
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	ErrSubscriptionNotFound = errors.New("push subscription not found")
 )
 
 type PushSubscriptionRecord struct {
@@ -44,7 +49,20 @@ func (r *Repository) UpsertSubscription(
 	return nil
 }
 
-// DeleteSubscription removes a push subscription endpoint (used for unsubscribe or 404/410 pruning).
+// DeleteUserSubscription removes a push subscription endpoint belonging to the specified user.
+func (r *Repository) DeleteUserSubscription(ctx context.Context, userID, endpoint string) error {
+	query := `DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2;`
+	res, err := r.db.Exec(ctx, query, endpoint, userID)
+	if err != nil {
+		return fmt.Errorf("delete user push subscription: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+// DeleteSubscription removes a push subscription endpoint (used for pruning 404/410 by worker).
 func (r *Repository) DeleteSubscription(ctx context.Context, endpoint string) error {
 	query := `DELETE FROM push_subscriptions WHERE endpoint = $1;`
 	_, err := r.db.Exec(ctx, query, endpoint)

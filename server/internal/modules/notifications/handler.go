@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -48,6 +49,11 @@ func (h *Handler) HandleSubscribe(w http.ResponseWriter, r *http.Request) {
 	ip := r.RemoteAddr
 
 	if err := h.service.Subscribe(r.Context(), claims.UserID, req, &ua, ip); err != nil {
+		if errors.Is(err, ErrInvalidPushScheme) || errors.Is(err, ErrInvalidPushHost) ||
+			errors.Is(err, ErrPushCustomPort) || errors.Is(err, ErrPushPrivateNetwork) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to register push subscription: "+err.Error())
 		return
 	}
@@ -80,6 +86,10 @@ func (h *Handler) HandleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	ip := r.RemoteAddr
 
 	if err := h.service.Unsubscribe(r.Context(), claims.UserID, req, &ua, ip); err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "push subscription not found")
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to remove push subscription: "+err.Error())
 		return
 	}

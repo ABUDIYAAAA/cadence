@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -183,10 +184,42 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 
 			q.logger.Info("Web Push worker ready", slog.Int("worker", workerID))
 
+			safeTransport := &http.Transport{
+				DialContext: func(dialCtx context.Context, network, addr string) (net.Conn, error) {
+					host, _, err := net.SplitHostPort(addr)
+					if err != nil {
+						return nil, err
+					}
+					ips, err := (&net.Resolver{}).LookupIP(dialCtx, "ip", host)
+					if err != nil {
+						return nil, err
+					}
+					for _, ip := range ips {
+						if IsRestrictedIP(ip) {
+							return nil, fmt.Errorf("connection to restricted IP blocked: %s", ip.String())
+						}
+					}
+					dialer := &net.Dialer{
+						Timeout:   5 * time.Second,
+						KeepAlive: 30 * time.Second,
+					}
+					return dialer.DialContext(dialCtx, network, addr)
+				},
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   5 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			}
+
 			options := &webpush.Options{
 				Subscriber: q.cfg.VAPIDSubject,
 				VAPIDKeys:  q.vapidKeys,
 				TTL:        86400, // 24 hours
+				HTTPClient: &http.Client{
+					Transport: safeTransport,
+					Timeout:   10 * time.Second,
+				},
 			}
 
 			for {

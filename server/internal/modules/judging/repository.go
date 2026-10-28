@@ -12,9 +12,11 @@ import (
 )
 
 var (
-	ErrRoundNotFound = errors.New("judging round not found")
-	ErrPanelNotFound = errors.New("judging panel not found")
-	ErrSlotNotFound  = errors.New("judging slot not found")
+	ErrRoundNotFound       = errors.New("judging round not found")
+	ErrPanelNotFound       = errors.New("judging panel not found")
+	ErrSlotNotFound        = errors.New("judging slot not found")
+	ErrUnauthorizedSlot    = errors.New("unauthorized: you do not have permission to update links for this slot")
+	ErrJudgeNotAssigned    = errors.New("forbidden: judge is not assigned to evaluate this panel")
 )
 
 type Repository struct {
@@ -268,6 +270,42 @@ func (r *Repository) UpdateSlotLinks(ctx context.Context, slotID string, links m
 		return ErrSlotNotFound
 	}
 	return nil
+}
+
+// SlotExists verifies if a judging slot exists.
+func (r *Repository) SlotExists(ctx context.Context, slotID string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM judging_slots WHERE id = $1);`
+	err := r.db.QueryRow(ctx, query, slotID).Scan(&exists)
+	return exists, err
+}
+
+// CanUserUpdateSlotLinks verifies if the user belongs to the team assigned to slotID.
+func (r *Repository) CanUserUpdateSlotLinks(ctx context.Context, slotID, userID string) (bool, error) {
+	var allowed bool
+	query := `
+		SELECT EXISTS (
+			SELECT 1 FROM judging_slots s
+			JOIN users u ON u.team_id = s.team_id
+			WHERE s.id = $1 AND u.id = $2
+		);
+	`
+	err := r.db.QueryRow(ctx, query, slotID, userID).Scan(&allowed)
+	return allowed, err
+}
+
+// IsJudgeAssignedToSlot checks if judgeID is mapped to the panel evaluating slotID.
+func (r *Repository) IsJudgeAssignedToSlot(ctx context.Context, slotID, judgeID string) (bool, error) {
+	var assigned bool
+	query := `
+		SELECT EXISTS (
+			SELECT 1 FROM judging_slots s
+			JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
+			WHERE s.id = $1 AND pj.judge_id = $2
+		);
+	`
+	err := r.db.QueryRow(ctx, query, slotID, judgeID).Scan(&assigned)
+	return assigned, err
 }
 
 // GetJudgePanels returns panels where judgeID is an assigned evaluator.

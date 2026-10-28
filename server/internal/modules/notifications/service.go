@@ -3,12 +3,133 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"time"
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/pkg/audit"
 )
+
+var (
+	ErrInvalidPushScheme  = errors.New("push endpoint must use https scheme")
+	ErrInvalidPushHost    = errors.New("push endpoint must have a valid hostname")
+	ErrPushCustomPort     = errors.New("push endpoint cannot use custom ports")
+	ErrPushPrivateNetwork = errors.New("push endpoint cannot target loopback, private, or internal network addresses")
+)
+
+// ValidatePushEndpoint ensures that the push endpoint uses HTTPS, has no custom ports,
+// and does not resolve to any loopback, private RFC 1918, link-local, or cloud metadata IP addresses.
+func ValidatePushEndpoint(rawURL string) error {
+	u, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid push endpoint URL: %w", err)
+	}
+
+	if !strings.EqualFold(u.Scheme, "https") {
+		return ErrInvalidPushScheme
+	}
+
+	hostname := u.Hostname()
+	if hostname == "" {
+		return ErrInvalidPushHost
+	}
+
+	// Reject custom ports; standard push gateways operate on standard 443
+	port := u.Port()
+	if port != "" && port != "443" {
+		return ErrPushCustomPort
+	}
+
+	// If hostname is directly an IP literal
+	if ip := net.ParseIP(hostname); ip != nil {
+		if IsRestrictedIP(ip) {
+			return ErrPushPrivateNetwork
+		}
+	} else {
+		// Resolve DNS hostname
+		ips, err := net.LookupIP(hostname)
+		if err != nil {
+			return fmt.Errorf("cannot resolve push endpoint hostname: %w", err)
+		}
+		if len(ips) == 0 {
+			return errors.New("push endpoint hostname did not resolve to any IP address")
+		}
+		for _, ip := range ips {
+			if IsRestrictedIP(ip) {
+				return ErrPushPrivateNetwork
+			}
+		}
+	}
+
+	return nil
+}
+
+// IsRestrictedIP checks if an IP belongs to loopback, private RFC 1918, link-local, carrier-grade NAT, or metadata ranges.
+func IsRestrictedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+
+	if ipv4 := ip.To4(); ipv4 != nil {
+		// 0.0.0.0/8 (current network)
+		if ipv4[0] == 0 {
+			return true
+		}
+		// 100.64.0.0/10 (Carrier-grade NAT)
+		if ipv4[0] == 100 && (ipv4[1]&0xc0) == 64 {
+			return true
+		}
+		// 169.254.0.0/16 (Link-local / Cloud metadata: 169.254.169.254)
+		if ipv4[0] == 169 && ipv4[1] == 254 {
+			return true
+		}
+		// 192.0.0.0/24 (IETF Protocol Assignments)
+		if ipv4[0] == 192 && ipv4[1] == 0 && ipv4[2] == 0 {
+			return true
+		}
+		// 192.0.2.0/24 (TEST-NET-1)
+		if ipv4[0] == 192 && ipv4[1] == 0 && ipv4[2] == 2 {
+			return true
+		}
+		// 198.18.0.0/15 (Benchmarking)
+		if ipv4[0] == 198 && (ipv4[1]&0xfe) == 18 {
+			return true
+		}
+		// 198.51.100.0/24 (TEST-NET-2)
+		if ipv4[0] == 198 && ipv4[1] == 51 && ipv4[2] == 100 {
+			return true
+		}
+		// 203.0.113.0/24 (TEST-NET-3)
+		if ipv4[0] == 203 && ipv4[1] == 0 && ipv4[2] == 113 {
+			return true
+		}
+		// 240.0.0.0/4 (Reserved)
+		if (ipv4[0] & 0xf0) == 240 {
+			return true
+		}
+		// 255.255.255.255/32 (Broadcast)
+		if ipv4[0] == 255 && ipv4[1] == 255 && ipv4[2] == 255 && ipv4[3] == 255 {
+			return true
+		}
+	} else {
+		// IPv4-mapped IPv6 check
+		if len(ip) == net.IPv6len && ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0 &&
+			ip[4] == 0 && ip[5] == 0 && ip[6] == 0 && ip[7] == 0 &&
+			ip[8] == 0 && ip[9] == 0 && ip[10] == 0xff && ip[11] == 0xff {
+			return IsRestrictedIP(net.IPv4(ip[12], ip[13], ip[14], ip[15]))
+		}
+	}
+
+	return false
+}
 
 type Service struct {
 	repo       *Repository
@@ -47,6 +168,10 @@ func (s *Service) Subscribe(
 	userAgent *string,
 	ip string,
 ) error {
+	if err := ValidatePushEndpoint(req.Endpoint); err != nil {
+		return err
+	}
+
 	if err := s.repo.UpsertSubscription(ctx, userID, req.Endpoint, req.Keys.P256dh, req.Keys.Auth, userAgent); err != nil {
 		return err
 	}
@@ -73,7 +198,7 @@ func (s *Service) Unsubscribe(
 	userAgent *string,
 	ip string,
 ) error {
-	if err := s.repo.DeleteSubscription(ctx, req.Endpoint); err != nil {
+	if err := s.repo.DeleteUserSubscription(ctx, userID, req.Endpoint); err != nil {
 		return err
 	}
 

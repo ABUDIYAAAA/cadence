@@ -3,8 +3,10 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/ratelimit"
@@ -262,11 +264,9 @@ func (h *Handler) clearAuthCookies(w http.ResponseWriter) {
 }
 
 func getClientIP(r *http.Request) string {
-	if xForwardedFor := r.Header.Get("X-Forwarded-For"); xForwardedFor != "" {
-		return xForwardedFor
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
 	}
-	if xRealIP := r.Header.Get("X-Real-IP"); xRealIP != "" {
-		return xRealIP
-	}
-	return r.RemoteAddr
+	return strings.TrimSpace(r.RemoteAddr)
 }

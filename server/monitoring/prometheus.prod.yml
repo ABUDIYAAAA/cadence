@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'cadence-api'
+    metrics_path: '/metrics'
+    bearer_token_file: '/run/secrets/scrape_token'
+    static_configs:
+      - targets: ['backend:8083']
+        labels:
+          service: 'cadence-backend'
+          environment: 'production'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

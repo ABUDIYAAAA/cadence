@@ -1,0 +1,120 @@
+name: Production Deploy
+
+on:
+  workflow_run:
+    workflows: ["Backend CI"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Backend to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Public repo security guard: ONLY deploy when Backend CI succeeded on a direct push to main (never on pull_request)
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    environment: production
+
+    steps:
+      - name: Configure SSH key and known_hosts
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync repository & write production .env on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+          ENV_CONTENT: ${{ secrets.ENV }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "${VPS_USERNAME}@${VPS_HOST}" \
+            "REPO_URL='${REPO_URL}' TARGET_SHA='${TARGET_SHA}' bash -s" << 'EOF'
+          set -euo pipefail
+          mkdir -p "$HOME/projects"
+          if [ ! -d "$HOME/projects/cadence/.git" ]; then
+            git clone "$REPO_URL" "$HOME/projects/cadence"
+          fi
+          cd "$HOME/projects/cadence"
+          git fetch --prune origin
+          # Deploy the exact commit SHA that passed Backend CI & E2E tests
+          git checkout --force "$TARGET_SHA"
+          EOF
+
+          # Stream production .env over encrypted SSH stdin with 0600 permissions (never echoed in logs)
+          printf '%s\n' "$ENV_CONTENT" | ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "${VPS_USERNAME}@${VPS_HOST}" \
+            "umask 077 && cat > \"\$HOME/projects/cadence/server/.env\" && chmod 600 \"\$HOME/projects/cadence/server/.env\""
+
+      - name: Build, run migrations, replace containers, and prune old images
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "${VPS_USERNAME}@${VPS_HOST}" 'bash -s' << 'EOF'
+          set -euo pipefail
+          cd "$HOME/projects/cadence/server"
+
+          # Load .env into shell environment so Docker Compose secrets (METRICS_SCRAPE_TOKEN) and variables resolve cleanly
+          set -a
+          . ./.env
+          set +a
+
+          # 1. Start stateful infrastructure services and wait for healthchecks
+          docker compose -f docker-compose.prod.yml up -d db redis rabbitmq
+
+          # 2. Build latest backend image
+          docker compose -f docker-compose.prod.yml build --pull backend
+
+          # 3. Run database migrations (and seed admin if configured) before replacing the running backend container
+          docker compose -f docker-compose.prod.yml run --rm --entrypoint /app/cadence-migrate backend
+          if [ -n "${SEED_ADMIN_EMAIL:-}" ] && [ -n "${SEED_ADMIN_PASSWORD:-}" ]; then
+            docker compose -f docker-compose.prod.yml run --rm --entrypoint /app/cadence-seed backend
+          fi
+
+          # 4. Replace application and monitoring containers
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+          # 5. Verify backend /health responds 200 OK
+          APP_PORT="${PORT:-8083}"
+          for i in $(seq 1 20); do
+            if curl -fsS "http://127.0.0.1:${APP_PORT}/health" >/dev/null 2>&1; then
+              echo "Backend health check passed on port ${APP_PORT}"
+              break
+            fi
+            if [ "$i" -eq 20 ]; then
+              echo "Backend failed health check after 20 attempts" >&2
+              docker compose -f docker-compose.prod.yml logs --tail=50 backend >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # 6. Prune dangling/old images
+          docker image prune -f
+          EOF
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

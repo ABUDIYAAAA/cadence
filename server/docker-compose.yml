@@ -9,7 +9,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - cadence_db_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
@@ -30,8 +30,8 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - cadence_rabbitmq_data:/var/lib/rabbitmq
 
 volumes:
-  db_data:
-  rabbitmq_data:
+  cadence_db_data:
+  cadence_rabbitmq_data:

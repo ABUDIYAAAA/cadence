@@ -22,10 +22,11 @@ var (
 
 // Job represents an email task serialized into RabbitMQ.
 type Job struct {
-	To       string         `json:"to"`
-	Subject  string         `json:"subject"`
-	Template string         `json:"template"`
-	Data     map[string]any `json:"data"`
+	To          string         `json:"to"`
+	Subject     string         `json:"subject"`
+	Template    string         `json:"template"`
+	Data        map[string]any `json:"data"`
+	Attachments []Attachment   `json:"attachments,omitempty"`
 }
 
 // Queue manages RabbitMQ publishing and background consumer goroutines.
@@ -131,6 +132,27 @@ func (q *Queue) SendResetPasswordEmail(ctx context.Context, to, name, resetURL s
 	})
 }
 
+// SendTicketEmail enqueues an event entry ticket email job with the QR PNG attached.
+func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName, ticketCode string, qrPNG []byte) error {
+	return q.Enqueue(ctx, Job{
+		To:       to,
+		Subject:  fmt.Sprintf("Your Entry Ticket for %s", eventName),
+		Template: "ticket",
+		Data: map[string]any{
+			"Name":       name,
+			"EventName":  eventName,
+			"TicketCode": ticketCode,
+		},
+		Attachments: []Attachment{
+			{
+				Filename:    "ticket_qr.png",
+				ContentType: "image/png",
+				Data:        qrPNG,
+			},
+		},
+	})
+}
+
 // StartConsumers spins up a pool of background goroutines to consume and dispatch email jobs.
 func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 	var wg sync.WaitGroup
@@ -192,7 +214,7 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 					}
 
 					sendCtx, sendCancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err := q.mailer.Send(sendCtx, job.To, job.Subject, job.Template, job.Data)
+					err := q.mailer.SendWithAttachments(sendCtx, job.To, job.Subject, job.Template, job.Data, job.Attachments)
 					sendCancel()
 
 					if err != nil {

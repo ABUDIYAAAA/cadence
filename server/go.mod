@@ -26,6 +26,7 @@ require (
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/rabbitmq/amqp091-go v1.16.0 // indirect
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/wneessen/go-mail v0.8.1 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect

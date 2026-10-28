@@ -18,6 +18,7 @@ import (
 	"devclubxnst.com/cadence/internal/modules/audit"
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/internal/modules/teams"
+	"devclubxnst.com/cadence/internal/modules/tickets"
 	"devclubxnst.com/cadence/internal/modules/users"
 	"devclubxnst.com/cadence/internal/ratelimit"
 	"devclubxnst.com/cadence/pkg/logger"
@@ -153,11 +154,17 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Audit module initialization
 	auditHandler := audit.NewHandler(auditRepo)
 
+	// Tickets & Attendance module initialization
+	ticketsRepo := tickets.NewRepository(dbPool)
+	ticketsService := tickets.NewService(ticketsRepo, cfg, mailQueue, auditQueue)
+	ticketsHandler := tickets.NewHandler(ticketsService)
+
 	// Mount API v1
 	router.Route("/api/v1", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
 		users.RegisterRoutes(r, usersHandler, authMiddleware)
 		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
+		tickets.RegisterRoutes(r, ticketsHandler, authMiddleware)
 		audit.RegisterRoutes(r, auditHandler, authMiddleware)
 	})
 

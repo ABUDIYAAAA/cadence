@@ -1,6 +1,7 @@
 package mailer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -8,6 +9,13 @@ import (
 	"devclubxnst.com/cadence/internal/config"
 	"github.com/wneessen/go-mail"
 )
+
+// Attachment defines a file attachment for an email message.
+type Attachment struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Data        []byte `json:"data"`
+}
 
 type Mailer struct {
 	client         *mail.Client
@@ -51,8 +59,8 @@ func NewMailer(cfg *config.Config, engine *TemplateEngine) (*Mailer, error) {
 	}, nil
 }
 
-// Send renders the template with injection protection and dispatches the email via SMTP.
-func (m *Mailer) Send(ctx context.Context, to, subject, templateName string, data any) error {
+// SendWithAttachments renders the template with injection protection and dispatches the email with attachments via SMTP.
+func (m *Mailer) SendWithAttachments(ctx context.Context, to, subject, templateName string, data any, attachments []Attachment) error {
 	if err := ValidateHeaderField(to); err != nil {
 		return fmt.Errorf("invalid recipient header: %w", err)
 	}
@@ -83,11 +91,26 @@ func (m *Mailer) Send(ctx context.Context, to, subject, templateName string, dat
 	msg.Subject(subject)
 	msg.SetBodyString(mail.TypeTextHTML, htmlBody)
 
+	for _, att := range attachments {
+		var opts []mail.FileOption
+		if att.ContentType != "" {
+			opts = append(opts, mail.WithFileContentType(mail.ContentType(att.ContentType)))
+		}
+		if err := msg.AttachReader(att.Filename, bytes.NewReader(att.Data), opts...); err != nil {
+			return fmt.Errorf("attach file %s: %w", att.Filename, err)
+		}
+	}
+
 	if err := m.client.DialAndSendWithContext(ctx, msg); err != nil {
 		return fmt.Errorf("dispatch email via smtp: %w", err)
 	}
 
 	return nil
+}
+
+// Send renders the template with injection protection and dispatches the email via SMTP without attachments.
+func (m *Mailer) Send(ctx context.Context, to, subject, templateName string, data any) error {
+	return m.SendWithAttachments(ctx, to, subject, templateName, data, nil)
 }
 
 // Close gracefully closes the mail client connection pool.

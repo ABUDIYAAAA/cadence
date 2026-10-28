@@ -28,6 +28,11 @@ const (
 	ActionTeamDelete       = "team.delete"
 	ActionTeamAddMember    = "team.add_member"
 	ActionTeamRemoveMember = "team.remove_member"
+
+	// Ticket actions
+	ActionTicketIssued        = "ticket.issued"
+	ActionTicketCheckIn       = "ticket.check_in"
+	ActionTicketDuplicateScan = "ticket.duplicate_scan"
 )
 
 // Standardized target type constants
@@ -36,6 +41,7 @@ const (
 	TargetTeam    = "team"
 	TargetSession = "session"
 	TargetAuth    = "auth"
+	TargetTicket  = "ticket"
 )
 
 // Event encapsulates a structured domain action to be recorded in the audit trail.

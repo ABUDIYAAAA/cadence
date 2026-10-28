@@ -13,11 +13,13 @@ import {
   Award,
   Ticket,
   FileText,
+  Bell,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { UserRole } from "@/types/auth";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -25,49 +27,58 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
-  adminOnly?: boolean;
+  roles?: UserRole[];
 }
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isVolunteer } = useAuth();
   const [isOpenMobile, setIsOpenMobile] = useState(false);
 
   const dashboardHref = user ? getDashboardRoute(user.role) : "/dashboard";
 
-  const adminNavItems: NavItem[] = [
+  const allNavItems: NavItem[] = [
     {
       label: "Users",
       href: "/dashboard/users",
       icon: Users,
-      adminOnly: true,
+      roles: ["admin"],
     },
     {
       label: "Teams",
       href: "/dashboard/teams",
       icon: Layers,
-      badge: "Beta",
-      adminOnly: true,
+      roles: ["admin", "volunteer", "judge"],
+    },
+    {
+      label: "Broadcast",
+      href: "/dashboard/admin/notifications",
+      icon: Bell,
+      roles: ["admin"],
     },
     {
       label: "Judging",
       href: "/dashboard/judging",
       icon: Award,
-      adminOnly: true,
+      roles: ["admin", "judge"],
     },
     {
       label: "Tickets",
       href: "/dashboard/tickets",
       icon: Ticket,
-      adminOnly: true,
+      roles: ["admin", "volunteer", "participant"],
     },
     {
       label: "Audit Logs",
       href: "/dashboard/audit",
       icon: FileText,
-      adminOnly: true,
+      roles: ["admin"],
     },
   ];
+
+  const visibleNavItems = allNavItems.filter((item) =>
+    !item.roles || (user?.role && item.roles.includes(user.role))
+  );
 
   const isActive = (href: string) => {
     if (href === "/dashboard" || href === dashboardHref) {
@@ -75,6 +86,12 @@ export function Sidebar() {
     }
     return pathname.startsWith(href);
   };
+
+  const sectionTitle = isAdmin
+    ? "Admin Operations"
+    : isVolunteer
+    ? "Volunteer Operations"
+    : "Event Operations";
 
   const navContent = (
     <div className="flex flex-col h-full justify-between font-mono">
@@ -108,17 +125,17 @@ export function Sidebar() {
           </nav>
         </div>
 
-        {/* Admin Navigation */}
-        {isAdmin && (
+        {/* Dynamic Operations Navigation */}
+        {visibleNavItems.length > 0 && (
           <div>
             <div className="flex items-center justify-between px-3 mb-2">
               <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-semibold">
-                Admin Operations
+                {sectionTitle}
               </span>
               <Shield className="h-3 w-3 text-neutral-400" />
             </div>
             <nav className="space-y-1">
-              {adminNavItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const active = isActive(item.href);
                 const Icon = item.icon;
                 return (

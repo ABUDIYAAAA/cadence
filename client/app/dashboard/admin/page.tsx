@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Users, ArrowRight, ShieldCheck, Mail, UserPlus, Activity, FileSpreadsheet } from "lucide-react";
+import { Users, ArrowRight, ShieldCheck, Mail, UserPlus, Activity, FileSpreadsheet, Bell, Send, Radio, Layers, Ticket, QrCode, Scan } from "lucide-react";
 import { RoleDashboard } from "@/components/dashboard/role-dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,42 @@ export default function AdminDashboardPage() {
       description="Full administrative access to manage events, participants, scoring rounds, panels, and tickets."
     >
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Push & Broadcast Notifications Card */}
+        <Card className="hover:border-black transition-colors">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bell className="h-5 w-5 text-black" />
+                <CardTitle className="text-sm">Push & Broadcast</CardTitle>
+              </div>
+              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+                Admin
+              </span>
+            </div>
+            <CardDescription>
+              Publish real-time announcements, emergency alerts, and room calls via RabbitMQ Web Push and in-app feeds.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2 text-xs text-neutral-600">
+              <Radio className="h-3.5 w-3.5" />
+              <span>Target: Broadcast, Role, Team, or Direct User</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-neutral-600">
+              <Send className="h-3.5 w-3.5" />
+              <span>Delivery tracking & read receipts history</span>
+            </div>
+            <div className="pt-2">
+              <Link href="/dashboard/admin/notifications">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                  <span>Open Notification Console</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Users Management Quick Card */}
         <Card className="hover:border-black transition-colors">
           <CardHeader>
@@ -80,6 +116,78 @@ export default function AdminDashboardPage() {
               <Link href="/dashboard/audit">
                 <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
                   <span>View Audit Trail</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Squads & Teams Card */}
+        <Card className="hover:border-black transition-colors">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="h-5 w-5 text-black" />
+                <CardTitle className="text-sm">Teams & Squads</CardTitle>
+              </div>
+              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+                Admin
+              </span>
+            </div>
+            <CardDescription>
+              Organize hackathon squads, manage participant allocations, designate leaders, and inspect team rosters.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2 text-xs text-neutral-600">
+              <Users className="h-3.5 w-3.5" />
+              <span>Full roster member management & leader promotion</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-neutral-600">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              <span>Safe member detachment upon squad dissolution</span>
+            </div>
+            <div className="pt-2">
+              <Link href="/dashboard/teams">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                  <span>Open Teams Manager</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Ticketing & Gate Operations Card */}
+        <Card className="hover:border-black transition-colors">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Ticket className="h-5 w-5 text-black" />
+                <CardTitle className="text-sm">Tickets & Gate Check-In</CardTitle>
+              </div>
+              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+                Admin
+              </span>
+            </div>
+            <CardDescription>
+              Bulk QR pass issuance, domain-filtered distribution, live camera scanner, and real-time attendance analytics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2 text-xs text-neutral-600">
+              <QrCode className="h-3.5 w-3.5" />
+              <span>Multi-select QR dispatch with excluded domain filtering</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-neutral-600">
+              <Scan className="h-3.5 w-3.5" />
+              <span>Instant camera scanning & duplicate detection</span>
+            </div>
+            <div className="pt-2">
+              <Link href="/dashboard/tickets">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                  <span>Open Ticketing Console</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
               </Link>

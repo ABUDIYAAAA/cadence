@@ -32,7 +32,7 @@ export function isPushSupported(): boolean {
 }
 
 /**
- * Registers the Cadence Service Worker.
+ * Registers the Cadence Service Worker safely without hanging.
  */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!isPushSupported()) return null;
@@ -41,7 +41,9 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     const registration = await navigator.serviceWorker.register("/sw.js", {
       scope: "/",
     });
-    await navigator.serviceWorker.ready;
+    // Wait for SW ready with a 2-second timeout race
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000));
+    await Promise.race([navigator.serviceWorker.ready, timeout]);
     return registration;
   } catch (err) {
     console.warn("Failed to register service worker:", err);
@@ -132,16 +134,17 @@ export async function syncPushSubscription(options: {
 
 /**
  * Unsubscribes from push notifications both in the browser and backend.
- * Crucial on user logout so notifications destined for this account
- * are never delivered to subsequent users sharing this browser/device.
+ * Uses navigator.serviceWorker.getRegistration() to avoid hanging on `.ready`.
  */
 export async function unsubscribePush(): Promise<boolean> {
   if (!isPushSupported()) return false;
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
+    // getRegistration immediately returns active registration or undefined (NEVER hangs)
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return true;
 
+    const subscription = await registration.pushManager.getSubscription();
     if (subscription) {
       // 1. Tell backend to delete subscription for this user
       try {
@@ -159,7 +162,7 @@ export async function unsubscribePush(): Promise<boolean> {
     }
     return true;
   } catch (err) {
-    console.error("Failed to unsubscribe push:", err);
+    console.warn("Failed to unsubscribe push:", err);
     return false;
   }
 }

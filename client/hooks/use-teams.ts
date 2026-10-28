@@ -67,6 +67,7 @@ export function useDeleteTeam() {
     mutationFn: (id: string) => teamsService.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: TEAMS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 }
@@ -87,6 +88,7 @@ export function useAddTeamMember() {
         queryKey: [...TEAMS_QUERY_KEY, "detail", variables.teamId],
       });
       queryClient.invalidateQueries({ queryKey: [...TEAMS_QUERY_KEY, "list"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 }
@@ -102,6 +104,7 @@ export function useRemoveTeamMember() {
         queryKey: [...TEAMS_QUERY_KEY, "detail", variables.teamId],
       });
       queryClient.invalidateQueries({ queryKey: [...TEAMS_QUERY_KEY, "list"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 }

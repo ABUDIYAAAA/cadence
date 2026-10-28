@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { User, LogOut, LayoutDashboard, Bell } from "lucide-react";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { useNotificationsContext } from "@/providers/notification-provider";
@@ -85,10 +86,14 @@ export function Navbar() {
           )}
         </div>
 
-        {/* Right Section: User Icon Dropdown */}
-        <div className="flex items-center gap-3">
+        {/* Right Section: Notification Bell + User Icon Dropdown */}
+        <div className="flex items-center gap-2.5">
           {isAuthenticated && user ? (
-            <div className="relative" ref={dropdownRef}>
+            <>
+              {/* Notification Bell with Unread Dot & Feed Dropdown */}
+              <NotificationBell />
+
+              <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
                 onClick={() => setDropdownOpen((prev) => !prev)}
@@ -169,6 +174,7 @@ export function Navbar() {
                 </div>
               )}
             </div>
+            </>
           ) : (
             <Link href="/login">
               <Button variant="primary" size="sm" className="text-xs h-8">

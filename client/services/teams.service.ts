@@ -42,16 +42,16 @@ export const teamsService = {
     return data;
   },
 
-  async addMember(teamId: string, payload: AddMemberRequest): Promise<TeamDetailResponse> {
-    const { data } = await apiClient.post<TeamDetailResponse>(
+  async addMember(teamId: string, payload: AddMemberRequest): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
       `/teams/${teamId}/members`,
       payload
     );
     return data;
   },
 
-  async removeMember(teamId: string, userId: string): Promise<TeamDetailResponse> {
-    const { data } = await apiClient.delete<TeamDetailResponse>(
+  async removeMember(teamId: string, userId: string): Promise<MessageResponse> {
+    const { data } = await apiClient.delete<MessageResponse>(
       `/teams/${teamId}/members/${userId}`
     );
     return data;

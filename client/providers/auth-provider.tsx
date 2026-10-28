@@ -31,9 +31,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isParticipant = role === "participant";
 
   const handleLogout = async () => {
+    // 1. Attempt push notification cleanup with strict 400ms timeout
+    // Must NEVER block or hang the user logout
     try {
-      // 1. Clean up push notification subscription (deregister from server & browser)
-      await unsubscribePush();
+      const pushCleanupPromise = unsubscribePush();
+      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 400));
+      await Promise.race([pushCleanupPromise, timeoutPromise]);
     } catch (pushErr) {
       console.warn("Push subscription cleanup error during logout:", pushErr);
     }

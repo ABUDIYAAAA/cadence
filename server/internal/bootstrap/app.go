@@ -3,7 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -15,10 +15,12 @@ import (
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/database"
 	"devclubxnst.com/cadence/internal/mailer"
+	"devclubxnst.com/cadence/internal/modules/audit"
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/internal/modules/teams"
 	"devclubxnst.com/cadence/internal/modules/users"
 	"devclubxnst.com/cadence/internal/ratelimit"
+	"devclubxnst.com/cadence/pkg/logger"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
@@ -29,18 +31,22 @@ type Application struct {
 	Redis         *redis.Client
 	Mailer        *mailer.Mailer
 	MailQueue     *mailer.Queue
+	AuditQueue    *audit.Queue
 	Limiter       *ratelimit.Limiter
 	LoginGuard    *ratelimit.LoginGuard
+	Logger        *slog.Logger
 	Router        *chi.Mux
 	CookieManager *utils.CookieManager
 }
 
-// NewApplication boots config, database, redis, rabbitmq mailer, middleware, and module routes.
+// NewApplication boots config, database, redis, rabbitmq queues, structured logger, and module routes.
 func NewApplication(ctx context.Context) (*Application, error) {
 	cfg, err := config.NewConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+
+	appLogger := logger.NewLogger(cfg.IsProduction())
 
 	dbPool, err := database.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -56,6 +62,16 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	limiter := ratelimit.NewLimiter(redisClient)
 	loginGuard := ratelimit.NewLoginGuard(redisClient)
 
+	// Initialize audit trail repository and RabbitMQ queue
+	auditRepo := audit.NewRepository(dbPool)
+	auditQueue, err := audit.NewQueue(cfg.RabbitMQURL, auditRepo, appLogger)
+	if err != nil {
+		appLogger.Warn("RabbitMQ audit queue connection failed; audit logging disabled", slog.Any("error", err))
+	} else {
+		// Launch 3 background consumer goroutines for audit log ingestion
+		auditQueue.StartConsumers(ctx, 3)
+	}
+
 	// Initialize mailer template engine and SMTP transport
 	templateEngine, err := mailer.NewTemplateEngine()
 	if err != nil {
@@ -70,7 +86,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Initialize RabbitMQ mail queue producer and background consumer pool
 	mailQueue, err := mailer.NewQueue(cfg.RabbitMQURL, mailClient)
 	if err != nil {
-		log.Printf("[WARN] RabbitMQ not reachable (%v). Mail queue disabled.", err)
+		appLogger.Warn("RabbitMQ mail queue connection failed; mail queue disabled", slog.Any("error", err))
 	} else {
 		// Launch 3 background consumer goroutines in separate threads of execution
 		mailQueue.StartConsumers(ctx, 3)
@@ -85,10 +101,10 @@ func NewApplication(ctx context.Context) (*Application, error) {
 
 	router := chi.NewRouter()
 
-	// Base middlewares
+	// Base middlewares with structured slog logging
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
-	router.Use(middleware.Logger)
+	router.Use(logger.HTTPMiddleware(appLogger))
 	router.Use(middleware.Recoverer)
 
 	// Secure headers middleware
@@ -118,27 +134,31 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		})
 	})
 
-	// Auth module initialization with instant Redis blocklist verification
+	// Auth module initialization with instant Redis blocklist verification and audit recording
 	authRepo := auth.NewRepository(dbPool)
-	authService := auth.NewService(authRepo, cfg, mailQueue)
+	authService := auth.NewService(authRepo, cfg, mailQueue, auditQueue)
 	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard)
 	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
 
 	// Users module initialization
 	usersRepo := users.NewRepository(dbPool)
-	usersService := users.NewService(usersRepo, cfg, mailQueue, redisClient)
+	usersService := users.NewService(usersRepo, cfg, mailQueue, redisClient, auditQueue)
 	usersHandler := users.NewHandler(usersService)
 
 	// Teams module initialization
 	teamsRepo := teams.NewRepository(dbPool)
-	teamsService := teams.NewService(teamsRepo)
+	teamsService := teams.NewService(teamsRepo, auditQueue)
 	teamsHandler := teams.NewHandler(teamsService)
+
+	// Audit module initialization
+	auditHandler := audit.NewHandler(auditRepo)
 
 	// Mount API v1
 	router.Route("/api/v1", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
 		users.RegisterRoutes(r, usersHandler, authMiddleware)
 		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
+		audit.RegisterRoutes(r, auditHandler, authMiddleware)
 	})
 
 	return &Application{
@@ -147,8 +167,10 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		Redis:         redisClient,
 		Mailer:        mailClient,
 		MailQueue:     mailQueue,
+		AuditQueue:    auditQueue,
 		Limiter:       limiter,
 		LoginGuard:    loginGuard,
+		Logger:        appLogger,
 		Router:        router,
 		CookieManager: cookieManager,
 	}, nil

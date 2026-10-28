@@ -9,6 +9,7 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/redis/go-redis/v9"
 )
@@ -22,6 +23,7 @@ type Service struct {
 	cfg         *config.Config
 	emailSender auth.EmailSender
 	redis       *redis.Client
+	auditor     audit.Recorder
 }
 
 func NewService(
@@ -29,12 +31,14 @@ func NewService(
 	cfg *config.Config,
 	emailSender auth.EmailSender,
 	redis *redis.Client,
+	auditor audit.Recorder,
 ) *Service {
 	return &Service{
 		repo:        repo,
 		cfg:         cfg,
 		emailSender: emailSender,
 		redis:       redis,
+		auditor:     auditor,
 	}
 }
 
@@ -124,6 +128,31 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 		}
 	}
 
+	if s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserBulkImport,
+			TargetType:  audit.TargetUser,
+			Description: fmt.Sprintf("Bulk import completed: %d created, %d skipped, %d invites sent", resp.TotalCreated, resp.SkippedCount, resp.InvitesDispatched),
+			Metadata: map[string]any{
+				"total_processed":    resp.TotalProcessed,
+				"total_created":      resp.TotalCreated,
+				"skipped_count":      resp.SkippedCount,
+				"invites_dispatched": resp.InvitesDispatched,
+			},
+		})
+	}
+
 	return resp, nil
 }
 
@@ -140,7 +169,33 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserD
 		}
 		return nil, errors.New("failed to create user")
 	}
-	return s.repo.GetUserByID(ctx, bulkResp.Users[0].ID)
+
+	user, err := s.repo.GetUserByID(ctx, bulkResp.Users[0].ID)
+	if err == nil && s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserCreate,
+			TargetType:  audit.TargetUser,
+			TargetID:    &user.ID,
+			Description: fmt.Sprintf("Created user %s (%s)", user.Email, user.Role),
+			Metadata: map[string]any{
+				"email":     user.Email,
+				"role":      user.Role,
+				"team_name": user.TeamName,
+			},
+		})
+	}
+
+	return user, err
 }
 
 func (s *Service) ListUsers(ctx context.Context, filter UserFilter) (*PaginatedUsersResponse, error) {
@@ -174,10 +229,30 @@ func (s *Service) GetUserByID(ctx context.Context, id string) (*UserDetailRespon
 }
 
 func (s *Service) UpdateUser(ctx context.Context, id string, req UpdateUserRequest) (*UserDetailResponse, error) {
-	return s.repo.UpdateUser(ctx, id, req)
+	user, err := s.repo.UpdateUser(ctx, id, req)
+	if err == nil && s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserUpdate,
+			TargetType:  audit.TargetUser,
+			TargetID:    &id,
+			Description: fmt.Sprintf("Updated user profile %s", user.Email),
+		})
+	}
+	return user, err
 }
 
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
+	user, _ := s.repo.GetUserByID(ctx, id)
 	if err := s.repo.SoftDeleteUser(ctx, id); err != nil {
 		return err
 	}
@@ -186,6 +261,29 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	if s.redis != nil {
 		blockedKey := fmt.Sprintf("blocked:user:%s", id)
 		_ = s.redis.Set(ctx, blockedKey, "deleted", 24*time.Hour).Err()
+	}
+
+	if s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		email := id
+		if user != nil {
+			email = user.Email
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserDelete,
+			TargetType:  audit.TargetUser,
+			TargetID:    &id,
+			Description: fmt.Sprintf("Administrator removed and blocked user %s", email),
+		})
 	}
 
 	return nil
@@ -200,7 +298,30 @@ func (s *Service) SendInvite(ctx context.Context, userID string) error {
 		return ErrPasswordAlreadyConfigured
 	}
 
-	return s.dispatchSetupInvite(ctx, user.ID, user.Email, user.Name)
+	if err := s.dispatchSetupInvite(ctx, user.ID, user.Email, user.Name); err != nil {
+		return err
+	}
+
+	if s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserSendInvite,
+			TargetType:  audit.TargetUser,
+			TargetID:    &user.ID,
+			Description: fmt.Sprintf("Dispatched setup invite email to %s", user.Email),
+		})
+	}
+
+	return nil
 }
 
 func (s *Service) BulkSendInvites(ctx context.Context, req BulkInviteRequest) (int, error) {
@@ -226,6 +347,24 @@ func (s *Service) BulkSendInvites(ctx context.Context, req BulkInviteRequest) (i
 		}
 	}
 
+	if s.auditor != nil && dispatched > 0 {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserSendInvite,
+			TargetType:  audit.TargetUser,
+			Description: fmt.Sprintf("Dispatched %d setup invite emails in bulk", dispatched),
+		})
+	}
+
 	return dispatched, nil
 }
 
@@ -247,11 +386,28 @@ func (s *Service) TriggerResetPassword(ctx context.Context, userID string) error
 		return err
 	}
 
-	// Invalidate previous refresh tokens
-	_ = s.repo.SoftDeleteUser // or revoke
 	if s.emailSender != nil {
 		resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s", s.cfg.FrontendURL, rawToken)
 		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
+	}
+
+	if s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserResetTrigger,
+			TargetType:  audit.TargetUser,
+			TargetID:    &user.ID,
+			Description: fmt.Sprintf("Administrator triggered password recovery email for %s", user.Email),
+		})
 	}
 
 	return nil

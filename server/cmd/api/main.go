@@ -26,6 +26,9 @@ func main() {
 	if app.MailQueue != nil {
 		defer app.MailQueue.Close()
 	}
+	if app.AuditQueue != nil {
+		defer app.AuditQueue.Close()
+	}
 	defer app.Mailer.Close()
 
 	server := &http.Server{

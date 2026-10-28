@@ -16,6 +16,9 @@ import (
 	"devclubxnst.com/cadence/internal/database"
 	"devclubxnst.com/cadence/internal/mailer"
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/teams"
+	"devclubxnst.com/cadence/internal/modules/users"
+	"devclubxnst.com/cadence/internal/ratelimit"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
@@ -26,6 +29,8 @@ type Application struct {
 	Redis         *redis.Client
 	Mailer        *mailer.Mailer
 	MailQueue     *mailer.Queue
+	Limiter       *ratelimit.Limiter
+	LoginGuard    *ratelimit.LoginGuard
 	Router        *chi.Mux
 	CookieManager *utils.CookieManager
 }
@@ -46,6 +51,10 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect redis client: %w", err)
 	}
+
+	// Initialize rate limiter and login brute-force guard
+	limiter := ratelimit.NewLimiter(redisClient)
+	loginGuard := ratelimit.NewLoginGuard(redisClient)
 
 	// Initialize mailer template engine and SMTP transport
 	templateEngine, err := mailer.NewTemplateEngine()
@@ -85,12 +94,18 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Secure headers middleware
 	router.Use(secureHeadersMiddleware(cfg.IsProduction()))
 
+	// Cryptographically signed Device ID injection (isolates devices behind NAT)
+	router.Use(ratelimit.DeviceIDMiddleware(cookieManager))
+
+	// Stateless Redis-backed sliding window rate limiter
+	router.Use(ratelimit.RateLimitMiddleware(limiter, cfg, cookieManager))
+
 	// Cross-Origin Resource Sharing using frontend URL from .env
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{cfg.FrontendURL},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
+		ExposedHeaders:   []string{"Link", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -103,15 +118,27 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		})
 	})
 
-	// Auth module initialization
+	// Auth module initialization with instant Redis blocklist verification
 	authRepo := auth.NewRepository(dbPool)
 	authService := auth.NewService(authRepo, cfg, mailQueue)
-	authHandler := auth.NewHandler(authService, cookieManager, cfg)
-	authMiddleware := auth.AuthMiddleware(cfg, cookieManager)
+	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard)
+	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
+
+	// Users module initialization
+	usersRepo := users.NewRepository(dbPool)
+	usersService := users.NewService(usersRepo, cfg, mailQueue, redisClient)
+	usersHandler := users.NewHandler(usersService)
+
+	// Teams module initialization
+	teamsRepo := teams.NewRepository(dbPool)
+	teamsService := teams.NewService(teamsRepo)
+	teamsHandler := teams.NewHandler(teamsService)
 
 	// Mount API v1
 	router.Route("/api/v1", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
+		users.RegisterRoutes(r, usersHandler, authMiddleware)
+		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
 	})
 
 	return &Application{
@@ -120,6 +147,8 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		Redis:         redisClient,
 		Mailer:        mailClient,
 		MailQueue:     mailQueue,
+		Limiter:       limiter,
+		LoginGuard:    loginGuard,
 		Router:        router,
 		CookieManager: cookieManager,
 	}, nil

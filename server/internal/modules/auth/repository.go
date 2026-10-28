@@ -34,6 +34,7 @@ type User struct {
 type RefreshToken struct {
 	ID        string
 	UserID    string
+	DeviceID  string
 	TokenHash string
 	FamilyID  string
 	ParentID  *string
@@ -123,12 +124,12 @@ func (r *Repository) UpdatePassword(ctx context.Context, userID, passwordHash st
 
 func (r *Repository) CreateRefreshToken(ctx context.Context, s *RefreshToken) error {
 	query := `
-		INSERT INTO refresh_tokens (user_id, token_hash, family_id, parent_id, user_agent, ip_address, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO refresh_tokens (user_id, device_id, token_hash, family_id, parent_id, user_agent, ip_address, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at
 	`
 	err := r.db.QueryRow(ctx, query,
-		s.UserID, s.TokenHash, s.FamilyID, s.ParentID, s.UserAgent, s.IPAddress, s.ExpiresAt,
+		s.UserID, s.DeviceID, s.TokenHash, s.FamilyID, s.ParentID, s.UserAgent, s.IPAddress, s.ExpiresAt,
 	).Scan(&s.ID, &s.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert refresh token: %w", err)
@@ -138,14 +139,14 @@ func (r *Repository) CreateRefreshToken(ctx context.Context, s *RefreshToken) er
 
 func (r *Repository) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*RefreshToken, error) {
 	query := `
-		SELECT id, user_id, token_hash, family_id, parent_id, user_agent, ip_address,
+		SELECT id, user_id, device_id, token_hash, family_id, parent_id, user_agent, ip_address,
 		       is_revoked, expires_at, created_at, revoked_at
 		FROM refresh_tokens
 		WHERE token_hash = $1
 	`
 	var s RefreshToken
 	err := r.db.QueryRow(ctx, query, tokenHash).Scan(
-		&s.ID, &s.UserID, &s.TokenHash, &s.FamilyID, &s.ParentID, &s.UserAgent, &s.IPAddress,
+		&s.ID, &s.UserID, &s.DeviceID, &s.TokenHash, &s.FamilyID, &s.ParentID, &s.UserAgent, &s.IPAddress,
 		&s.IsRevoked, &s.ExpiresAt, &s.CreatedAt, &s.RevokedAt,
 	)
 	if err != nil {
@@ -166,6 +167,19 @@ func (r *Repository) RevokeRefreshToken(ctx context.Context, tokenHash string) e
 	_, err := r.db.Exec(ctx, query, tokenHash)
 	if err != nil {
 		return fmt.Errorf("revoke refresh token: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) RevokeDeviceSessions(ctx context.Context, userID, deviceID string) error {
+	query := `
+		UPDATE refresh_tokens
+		SET is_revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+		WHERE user_id = $1 AND device_id = $2 AND is_revoked = FALSE
+	`
+	_, err := r.db.Exec(ctx, query, userID, deviceID)
+	if err != nil {
+		return fmt.Errorf("revoke device sessions: %w", err)
 	}
 	return nil
 }

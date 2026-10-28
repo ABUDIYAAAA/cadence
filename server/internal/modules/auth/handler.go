@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"devclubxnst.com/cadence/internal/config"
+	"devclubxnst.com/cadence/internal/ratelimit"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
@@ -13,17 +15,24 @@ type Handler struct {
 	service       *Service
 	cookieManager *utils.CookieManager
 	cfg           *config.Config
+	loginGuard    *ratelimit.LoginGuard
 }
 
-func NewHandler(service *Service, cookieManager *utils.CookieManager, cfg *config.Config) *Handler {
+func NewHandler(
+	service *Service,
+	cookieManager *utils.CookieManager,
+	cfg *config.Config,
+	loginGuard *ratelimit.LoginGuard,
+) *Handler {
 	return &Handler{
 		service:       service,
 		cookieManager: cookieManager,
 		cfg:           cfg,
+		loginGuard:    loginGuard,
 	}
 }
 
-// HandleLogin authenticates the user and sets signed access & refresh cookies.
+// HandleLogin authenticates the user and sets signed access & refresh cookies bound to this device.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -36,13 +45,28 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	deviceID := ratelimit.GetDeviceID(r.Context())
+
+	// Check device + target email failed login rate limit
+	if h.loginGuard != nil {
+		allowed, ttl, err := h.loginGuard.CheckAllowed(r.Context(), deviceID, req.Email)
+		if err == nil && !allowed {
+			w.Header().Set("Retry-After", strconv.FormatInt(int64(ttl.Seconds()), 10))
+			utils.ErrorJSON(w, http.StatusTooManyRequests, "too many failed login attempts for this account on this device; please try again later")
+			return
+		}
+	}
+
 	userAgent := r.UserAgent()
 	ip := getClientIP(r)
 
-	user, accessToken, refreshToken, err := h.service.Login(r.Context(), req, userAgent, ip)
+	user, accessToken, refreshToken, err := h.service.Login(r.Context(), req, deviceID, userAgent, ip)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrInvalidCredentials):
+			if h.loginGuard != nil {
+				_ = h.loginGuard.RecordFailure(r.Context(), deviceID, req.Email)
+			}
 			utils.ErrorJSON(w, http.StatusUnauthorized, "invalid email or password")
 		case errors.Is(err, ErrPasswordNotSet):
 			utils.ErrorJSON(w, http.StatusForbidden, "password not set; please use the setup link sent by admin")
@@ -52,6 +76,11 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			utils.ErrorJSON(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
+	}
+
+	// Clear failed login counter upon successful authentication
+	if h.loginGuard != nil {
+		_ = h.loginGuard.ResetSuccess(r.Context(), deviceID, req.Email)
 	}
 
 	h.setAuthCookies(w, accessToken, refreshToken)
@@ -75,10 +104,11 @@ func (h *Handler) HandleSetupPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	deviceID := ratelimit.GetDeviceID(r.Context())
 	userAgent := r.UserAgent()
 	ip := getClientIP(r)
 
-	user, accessToken, refreshToken, err := h.service.SetupPassword(r.Context(), req, userAgent, ip)
+	user, accessToken, refreshToken, err := h.service.SetupPassword(r.Context(), req, deviceID, userAgent, ip)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrTokenNotFound):
@@ -156,7 +186,7 @@ func (h *Handler) HandleResetPassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleRefreshToken rotates the access and refresh token cookies.
+// HandleRefreshToken rotates the access and refresh token cookies bound to this verified device.
 func (h *Handler) HandleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	rawRefreshToken, err := h.cookieManager.GetSignedCookie(r, "refresh_token")
 	if err != nil {
@@ -164,13 +194,16 @@ func (h *Handler) HandleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	deviceID := ratelimit.GetDeviceID(r.Context())
 	userAgent := r.UserAgent()
 	ip := getClientIP(r)
 
-	newAccess, newRefresh, err := h.service.RefreshToken(r.Context(), rawRefreshToken, userAgent, ip)
+	newAccess, newRefresh, err := h.service.RefreshToken(r.Context(), rawRefreshToken, deviceID, userAgent, ip)
 	if err != nil {
 		h.clearAuthCookies(w)
 		switch {
+		case errors.Is(err, ErrTokenDeviceMismatch):
+			utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized device: session does not belong to this machine")
 		case errors.Is(err, ErrTokenReplayDetect):
 			utils.ErrorJSON(w, http.StatusUnauthorized, "session compromised; logged out")
 		case errors.Is(err, ErrTokenExpired):

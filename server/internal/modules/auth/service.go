@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	ErrInactiveUser      = errors.New("user account is inactive")
-	ErrPasswordNotSet    = errors.New("password has not been configured yet")
-	ErrTokenExpired      = errors.New("token has expired")
-	ErrTokenAlreadyUsed  = errors.New("token has already been used")
-	ErrSessionRevoked    = errors.New("session has been revoked")
-	ErrTokenReplayDetect = errors.New("token replay detected: session compromised")
+	ErrInactiveUser         = errors.New("user account is inactive")
+	ErrPasswordNotSet       = errors.New("password has not been configured yet")
+	ErrTokenExpired         = errors.New("token has expired")
+	ErrTokenAlreadyUsed     = errors.New("token has already been used")
+	ErrSessionRevoked       = errors.New("session has been revoked")
+	ErrTokenReplayDetect    = errors.New("token replay detected: session compromised")
+	ErrTokenDeviceMismatch  = errors.New("device mismatch: session does not belong to this device")
 )
 
 type EmailSender interface {
@@ -39,7 +40,7 @@ func NewService(repo *Repository, cfg *config.Config, emailSender EmailSender) *
 	}
 }
 
-func (s *Service) Login(ctx context.Context, req LoginRequest, userAgent, ip string) (*UserResponse, string, string, error) {
+func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
 	user, err := s.repo.GetUserByEmail(ctx, req.Email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
@@ -60,7 +61,10 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, userAgent, ip str
 		return nil, "", "", ErrInvalidCredentials
 	}
 
-	accessToken, refreshToken, err := s.createSession(ctx, user, nil, nil, userAgent, ip)
+	// Deduplicate active sessions on this specific device
+	_ = s.repo.RevokeDeviceSessions(ctx, user.ID, deviceID)
+
+	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, userAgent, ip)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -68,7 +72,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, userAgent, ip str
 	return toUserResponse(user), accessToken, refreshToken, nil
 }
 
-func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, userAgent, ip string) (*UserResponse, string, string, error) {
+func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
 	tokenHash := utils.HashToken(req.Token)
 	resetToken, err := s.repo.GetResetTokenByHash(ctx, tokenHash, "initial_setup")
 	if err != nil {
@@ -108,7 +112,7 @@ func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, u
 	user.IsPasswordConfigured = true
 	user.TokenVersion++
 
-	accessToken, refreshToken, err := s.createSession(ctx, user, nil, nil, userAgent, ip)
+	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, userAgent, ip)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -193,11 +197,17 @@ func (s *Service) ResetPassword(ctx context.Context, req ResetPasswordRequest) e
 	return nil
 }
 
-func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, userAgent, ip string) (string, string, error) {
+func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, userAgent, ip string) (string, string, error) {
 	tokenHash := utils.HashToken(rawRefreshToken)
 	session, err := s.repo.GetRefreshTokenByHash(ctx, tokenHash)
 	if err != nil {
 		return "", "", ErrTokenNotFound
+	}
+
+	// Anti-Hijacking check: verify token is being refreshed from the same signed device that received it
+	if session.DeviceID != deviceID {
+		_ = s.repo.RevokeAllUserTokens(ctx, session.UserID)
+		return "", "", ErrTokenDeviceMismatch
 	}
 
 	// Replay attack detection: if token is already revoked, compromise detected
@@ -224,10 +234,10 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, userAgent, 
 		return "", "", err
 	}
 
-	// Issue rotated token under same family
+	// Issue rotated token bound to the same device & family
 	familyID := session.FamilyID
 	parentID := &session.ID
-	newAccess, newRefresh, err := s.createSession(ctx, user, &familyID, parentID, userAgent, ip)
+	newAccess, newRefresh, err := s.createSession(ctx, user, deviceID, &familyID, parentID, userAgent, ip)
 	if err != nil {
 		return "", "", err
 	}
@@ -248,7 +258,7 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*UserResponse, erro
 	return toUserResponse(user), nil
 }
 
-func (s *Service) createSession(ctx context.Context, user *User, familyID *string, parentID *string, userAgent, ip string) (string, string, error) {
+func (s *Service) createSession(ctx context.Context, user *User, deviceID string, familyID *string, parentID *string, userAgent, ip string) (string, string, error) {
 	accessToken, err := utils.GenerateAccessToken(
 		user.ID,
 		user.Email,
@@ -268,6 +278,7 @@ func (s *Service) createSession(ctx context.Context, user *User, familyID *strin
 
 	session := &RefreshToken{
 		UserID:    user.ID,
+		DeviceID:  deviceID,
 		TokenHash: utils.HashToken(rawRefreshToken),
 		ParentID:  parentID,
 		UserAgent: &userAgent,

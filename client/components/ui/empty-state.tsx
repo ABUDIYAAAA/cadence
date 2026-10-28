@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
+import { Inbox } from "lucide-react";
 
 interface EmptyStateProps {
   title: string;
@@ -19,22 +20,22 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center border border-dashed border-neutral-300 p-8 text-center font-mono",
+        "flex flex-col items-center justify-center rounded-[20px] border border-dashed border-[var(--color-blue-border)] bg-[var(--card-solid)]/70 backdrop-blur-md p-10 text-center font-sans",
         className
       )}
     >
-      {Icon ? (
-        <Icon className="mb-2 h-7 w-7 text-neutral-400" />
-      ) : (
-        <div className="mb-2 text-2xl font-light text-neutral-400">[—]</div>
-      )}
-      <h4 className="text-sm font-semibold uppercase tracking-wider text-black">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-blue-dim)] text-[var(--color-blue)]">
+        {Icon ? <Icon className="h-6 w-6" /> : <Inbox className="h-6 w-6" />}
+      </div>
+      <h4 className="text-sm font-extrabold tracking-tight text-[var(--ink-primary)]">
         {title}
       </h4>
       {description && (
-        <p className="mt-1 max-w-sm text-xs text-neutral-500">{description}</p>
+        <p className="mt-1.5 max-w-sm text-xs text-[var(--ink-secondary)] leading-relaxed">
+          {description}
+        </p>
       )}
-      {action && <div className="mt-4">{action}</div>}
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }

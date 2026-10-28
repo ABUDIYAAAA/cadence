@@ -69,51 +69,51 @@ export function RoundDetailDialog({
         </div>
       }
     >
-      <div className="space-y-4 font-mono text-xs max-h-[70vh] overflow-y-auto pr-1">
+      <div className="space-y-4 font-sans text-xs max-h-[70vh] overflow-y-auto pr-1">
         {/* Header Metadata */}
-        <div className="border border-neutral-300 divide-y divide-neutral-200 bg-neutral-50">
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Round Title</span>
-            <strong className="text-black">{round.name}</strong>
+        <div className="rounded-[16px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] bg-[var(--card-solid)] overflow-hidden">
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Round Title</span>
+            <strong className="text-[var(--ink-primary)]">{round.name}</strong>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Status</span>
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">Status</span>
             <Badge
-              variant={round.status === "active" ? "solid" : "subtle"}
+              variant={round.status === "active" ? "blue" : "subtle"}
               size="sm"
             >
               {round.status}
             </Badge>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500 flex items-center gap-1">
-              <Users className="h-3.5 w-3.5 text-neutral-400" />
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)] flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Queue Staging Buffer</span>
             </span>
-            <span className="font-bold text-black">{round.buffer_size} Teams</span>
+            <span className="font-bold text-[var(--ink-primary)]">{round.buffer_size} Teams</span>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500 flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5 text-neutral-400" />
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)] flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Slot Duration</span>
             </span>
-            <span className="font-bold text-black">{round.slot_duration_mins} Minutes per team</span>
+            <span className="font-bold text-[var(--ink-primary)]">{round.slot_duration_mins} Minutes per team</span>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Established</span>
-            <span>{new Date(round.created_at).toLocaleString()}</span>
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Established</span>
+            <span className="font-mono text-[var(--ink-primary)]">{new Date(round.created_at).toLocaleString()}</span>
           </div>
         </div>
 
         {/* Criteria Rubrics */}
-        <div className="border border-neutral-300 bg-white overflow-hidden space-y-1">
-          <div className="p-2.5 bg-neutral-100 border-b border-neutral-300 font-bold uppercase text-[11px] flex items-center justify-between">
+        <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] overflow-hidden space-y-1">
+          <div className="p-3 bg-[var(--card-solid-subtle)] border-b border-[var(--card-line)] font-bold uppercase text-[11px] text-[var(--ink-primary)] flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Award className="h-3.5 w-3.5" />
+              <Award className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Scoring Criteria & Weightings</span>
             </span>
           </div>
@@ -124,7 +124,7 @@ export function RoundDetailDialog({
               <Skeleton className="h-16 w-full" />
             </div>
           ) : roundDetail.criteria.length === 0 ? (
-            <div className="p-4 text-center text-neutral-400 italic">
+            <div className="p-4 text-center text-[var(--ink-tertiary)] italic">
               No evaluation criteria loaded for this round.
             </div>
           ) : (
@@ -142,10 +142,10 @@ export function RoundDetailDialog({
                 {roundDetail.criteria.map((c, idx) => (
                   <TableRow key={c.id || idx}>
                     <TableCell className="font-bold">{c.order_index || idx + 1}</TableCell>
-                    <TableCell className="font-bold text-black">{c.name}</TableCell>
-                    <TableCell>{c.max_score} pts</TableCell>
-                    <TableCell>×{c.weight}</TableCell>
-                    <TableCell className="text-neutral-600 text-[11px]">
+                    <TableCell className="font-bold text-[var(--ink-primary)]">{c.name}</TableCell>
+                    <TableCell className="text-[var(--ink-primary)]">{c.max_score} pts</TableCell>
+                    <TableCell className="text-[var(--ink-primary)]">×{c.weight}</TableCell>
+                    <TableCell className="text-[var(--ink-secondary)] text-[11px]">
                       {c.description || "—"}
                     </TableCell>
                   </TableRow>

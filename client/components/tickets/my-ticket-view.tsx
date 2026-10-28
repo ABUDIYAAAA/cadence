@@ -2,20 +2,21 @@
 
 import React from "react";
 import { useMyTicket } from "@/hooks/use-tickets";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useAuth } from "@/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle2, Clock } from "lucide-react";
 
 export function MyTicketView() {
+  const { user } = useAuth();
   const { data: ticket, isLoading, error } = useMyTicket();
 
   if (isLoading) {
     return (
-      <div className="space-y-4 font-mono max-w-md mx-auto">
-        <Skeleton className="h-8 w-1/3" />
-        <Skeleton className="h-64 w-full" />
+      <div className="space-y-4 font-sans max-w-md mx-auto">
+        <Skeleton className="h-8 w-1/3 rounded-xl" />
+        <Skeleton className="h-96 w-full rounded-[24px]" />
       </div>
     );
   }
@@ -34,63 +35,84 @@ export function MyTicketView() {
     : `data:image/png;base64,${ticket.qr_code_base64}`;
 
   return (
-    <div className="max-w-md mx-auto font-mono">
-      <Card className="border-2 border-black text-center shadow-xl">
-        <CardHeader className="border-b border-black pb-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
-              OFFICIAL ENTRY PASS
-            </span>
-            <Badge
-              variant={ticket.is_checked_in ? "solid" : "outline"}
-              size="sm"
-            >
-              {ticket.is_checked_in ? "CHECKED IN" : "VALID PASS"}
-            </Badge>
+    <div className="max-w-md mx-auto font-sans">
+      <div className="rounded-[24px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] overflow-hidden">
+        {/* Pass Top Bar */}
+        <div className="p-5 sm:p-6 bg-[var(--card-solid-subtle)] border-b border-[var(--card-line)] flex items-center justify-between">
+          <div>
+            <div className="font-bold text-sm text-[var(--ink-primary)] tracking-tight">
+              Cadence Hackathon
+            </div>
+            <div className="text-xs text-[var(--ink-secondary)]">
+              Digital Admission Pass
+            </div>
           </div>
-          <CardTitle className="text-lg uppercase tracking-wider mt-2">
-            Cadence Hackathon Pass
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Present this QR code at the registration gate for admission.
-          </CardDescription>
-        </CardHeader>
+          <Badge
+            variant={ticket.is_checked_in ? "blue" : "outline"}
+            className="text-[10px] uppercase font-semibold tracking-wider"
+          >
+            {ticket.is_checked_in ? "CHECKED IN" : "VALID PASS"}
+          </Badge>
+        </div>
 
-        <CardContent className="pt-6 pb-6 space-y-4 flex flex-col items-center">
-          {/* QR Code Image */}
-          <div className="p-3 border-2 border-black bg-white inline-block">
+        {/* Pass QR Stage */}
+        <div className="p-6 sm:p-8 flex flex-col items-center bg-[var(--card-solid)]">
+          <div className="p-3 bg-white rounded-[20px] border border-[var(--card-line)] shadow-[0_4px_16px_rgba(24,32,48,0.06)]  inline-block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={qrImageSrc}
               alt="Cadence Entry QR Pass"
-              className="h-56 w-56 object-contain"
+              className="h-52 w-52 object-contain rounded-xl"
             />
           </div>
 
-          {/* Ticket Code */}
-          <div className="w-full border border-neutral-300 p-2 bg-neutral-50 text-xs font-mono break-all text-neutral-800">
-            {ticket.ticket_code}
+          <div className="text-center mt-5">
+            <div className="font-bold text-lg text-[var(--ink-primary)]">
+              {user?.name || "Participant"}
+            </div>
+            <div className="font-mono text-xs font-bold text-[var(--color-blue)] mt-0.5 tracking-wider">
+              {ticket.ticket_code}
+            </div>
+          </div>
+        </div>
+
+        {/* Pass Details Strip */}
+        <div className="border-t-2 border-dashed border-[var(--card-line)] p-5 sm:p-6 bg-[var(--card-solid-subtle)] flex flex-col gap-3 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[var(--ink-secondary)] font-medium">Gate Admission</span>
+            <span className="font-semibold text-[var(--ink-primary)]">Main Hall Entrance</span>
           </div>
 
-          {/* Check-In Status Detail */}
-          {ticket.is_checked_in ? (
-            <div className="flex items-center gap-1.5 text-xs text-black font-semibold border border-black p-2 bg-neutral-100 w-full justify-center">
-              <CheckCircle2 className="h-4 w-4 text-black" />
-              <span>
-                Checked In{" "}
-                {ticket.checked_in_at
-                  ? `on ${new Date(ticket.checked_in_at).toLocaleString()}`
-                  : ""}
+          <div className="flex items-center justify-between">
+            <span className="text-[var(--ink-secondary)] font-medium">Status</span>
+            {ticket.is_checked_in ? (
+              <span className="flex items-center gap-1.5 font-semibold text-[var(--ink-primary)]">
+                <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-blue)]" />
+                <span>
+                  Checked In{" "}
+                  {ticket.checked_in_at
+                    ? `(${new Date(ticket.checked_in_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+                    : ""}
+                </span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 font-semibold text-[var(--ink-secondary)]">
+                <Clock className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
+                <span>Awaiting Gate Check-In</span>
+              </span>
+            )}
+          </div>
+
+          {ticket.checked_in_at && (
+            <div className="flex items-center justify-between">
+              <span className="text-[var(--ink-secondary)] font-medium">Timestamp</span>
+              <span className="font-mono text-xs font-semibold text-[var(--ink-primary)]">
+                {new Date(ticket.checked_in_at).toLocaleString()}
               </span>
             </div>
-          ) : (
-            <div className="flex items-center gap-1.5 text-xs text-neutral-600 border border-neutral-200 p-2 bg-white w-full justify-center">
-              <Clock className="h-4 w-4 text-neutral-400" />
-              <span>Awaiting Gate Check-In</span>
-            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

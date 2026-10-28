@@ -73,7 +73,7 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
   );
 
   return (
-    <div className="border border-neutral-300 bg-white p-4 font-mono space-y-3">
+    <div className="space-y-3 font-sans">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {/* Search */}
         <div className="relative lg:col-span-2">
@@ -85,11 +85,11 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
             }
             className="pl-8 text-xs"
           />
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-400 pointer-events-none" />
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[var(--ink-tertiary)] pointer-events-none" />
           {filters.search && (
             <button
               onClick={() => onChange({ ...filters, search: "", page: 1 })}
-              className="absolute right-2.5 top-2.5 text-neutral-400 hover:text-black"
+              className="absolute right-2.5 top-2.5 text-[var(--ink-tertiary)] hover:text-[var(--ink-primary)] cursor-pointer"
               type="button"
             >
               <X className="h-4 w-4" />
@@ -152,7 +152,7 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
               Reset Filters
             </Button>
           ) : (
-            <div className="hidden lg:flex items-center text-[10px] text-neutral-400 gap-1 pl-1">
+            <div className="hidden lg:flex items-center text-[10px] text-[var(--ink-tertiary)] gap-1 pl-1">
               <Filter className="h-3 w-3" />
               <span>FILTER ACTIVE TRAIL</span>
             </div>
@@ -161,12 +161,12 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
       </div>
 
       {/* Date Range Sub-Bar */}
-      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-neutral-100 text-xs">
-        <span className="text-neutral-500 font-semibold text-[11px] uppercase">
+      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[var(--card-line)] text-xs">
+        <span className="text-[var(--ink-secondary)] font-semibold text-[11px] uppercase">
           Timestamp Range:
         </span>
         <div className="flex items-center gap-2">
-          <span className="text-neutral-400 text-[10px]">From</span>
+          <span className="text-[var(--ink-tertiary)] text-[10px]">From</span>
           <input
             type="date"
             value={filters.from_date ? filters.from_date.split("T")[0] : ""}
@@ -179,12 +179,12 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
                 page: 1,
               })
             }
-            className="h-8 border border-neutral-300 bg-white px-2 py-1 text-xs text-black font-mono focus:border-black focus:outline-none"
+            className="h-9 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] px-3 py-1 text-xs text-[var(--ink-primary)] font-mono focus:border-[var(--color-blue)] focus:outline-none"
           />
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-neutral-400 text-[10px]">To</span>
+          <span className="text-[var(--ink-tertiary)] text-xs">To</span>
           <input
             type="date"
             value={filters.to_date ? filters.to_date.split("T")[0] : ""}
@@ -197,7 +197,7 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
                 page: 1,
               })
             }
-            className="h-8 border border-neutral-300 bg-white px-2 py-1 text-xs text-black font-mono focus:border-black focus:outline-none"
+            className="h-9 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] px-3 py-1 text-xs text-[var(--ink-primary)] font-mono focus:border-[var(--color-blue)] focus:outline-none"
           />
         </div>
       </div>

@@ -4,7 +4,7 @@ import { Spinner } from "./spinner";
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "outline" | "ghost" | "destructive";
+  variant?: "primary" | "secondary" | "outline" | "ghost" | "destructive" | "blue";
   size?: "sm" | "md" | "lg" | "icon";
   isLoading?: boolean;
 }
@@ -23,26 +23,28 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const baseStyles =
-      "inline-flex items-center justify-center font-mono text-sm tracking-tight transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black disabled:pointer-events-none disabled:opacity-50 select-none cursor-pointer";
+      "inline-flex items-center justify-center font-sans font-semibold tracking-tight select-none cursor-pointer outline-none transition-all duration-[130ms] ease-[cubic-bezier(0.25,1,0.35,1)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50";
 
     const variantStyles = {
       primary:
-        "bg-black text-white hover:bg-neutral-800 active:bg-neutral-900 border border-black",
+        "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-[var(--shadow-dark)] hover:opacity-90 border border-transparent",
       secondary:
-        "bg-neutral-100 text-neutral-900 hover:bg-neutral-200 active:bg-neutral-300 border border-neutral-200",
+        "bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] border border-[var(--card-line)] hover:bg-[var(--card-solid)] hover:text-[var(--ink-primary)]",
       outline:
-        "bg-white text-black hover:bg-neutral-50 active:bg-neutral-100 border border-black",
+        "bg-[var(--card-solid)] text-[var(--ink-primary)] border border-[var(--card-line)] shadow-[var(--shadow-card)] hover:bg-[var(--card-solid-subtle)]",
       ghost:
-        "bg-transparent text-neutral-900 hover:bg-neutral-100 active:bg-neutral-200 border border-transparent",
+        "bg-transparent text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] border border-transparent",
       destructive:
-        "bg-black text-white border border-black hover:bg-neutral-900 active:bg-neutral-950 font-bold",
+        "bg-[var(--color-coral)] text-white shadow-[0_4px_14px_rgba(206,105,105,0.35)] hover:opacity-90 border border-transparent",
+      blue:
+        "bg-[var(--color-blue)] text-white shadow-[0_4px_14px_rgba(131,162,219,0.35)] hover:opacity-90 border border-transparent",
     };
 
     const sizeStyles = {
-      sm: "h-8 px-3 text-xs gap-1.5",
-      md: "h-9 px-4 text-sm gap-2",
-      lg: "h-11 px-6 text-base gap-2.5",
-      icon: "h-9 w-9 p-0",
+      sm: "h-8 px-3 text-xs gap-1.5 rounded-[10px]",
+      md: "h-[38px] px-4 text-xs gap-2 rounded-[14px]",
+      lg: "h-11 px-6 text-sm gap-2.5 rounded-[14px]",
+      icon: "h-[38px] w-[38px] p-0 rounded-full",
     };
 
     return (
@@ -57,7 +59,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         )}
         {...props}
       >
-        {isLoading && <Spinner size="sm" className="mr-1" />}
+        {isLoading && <Spinner size="sm" className="mr-1.5" />}
         {children}
       </button>
     );

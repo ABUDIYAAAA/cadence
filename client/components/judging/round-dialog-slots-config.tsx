@@ -111,10 +111,10 @@ export function RoundSlotsConfigDialog({
         </div>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4 font-mono text-xs">
+      <form onSubmit={handleSubmit} className="space-y-4 font-sans text-xs">
         {error && (
-          <div className="border border-black p-2 bg-neutral-100 font-bold">
-            ! {error}
+          <div className="rounded-[14px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] p-3 text-[var(--color-coral)] font-medium">
+            Notice: {error}
           </div>
         )}
 
@@ -131,8 +131,8 @@ export function RoundSlotsConfigDialog({
         />
 
         {/* Add Team Dropdown */}
-        <div className="space-y-1.5 pt-1 border-t border-neutral-200">
-          <label className="block text-[10px] uppercase font-bold text-neutral-600">
+        <div className="space-y-1.5 pt-1 border-t border-[var(--card-line)]">
+          <label className="block text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
             Enroll Team to Sequence
           </label>
           <Select
@@ -157,33 +157,33 @@ export function RoundSlotsConfigDialog({
         </div>
 
         {/* Slotted Teams List */}
-        <div className="space-y-1.5 border border-neutral-300 p-2.5 bg-neutral-50">
-          <div className="flex justify-between items-center text-[10px] uppercase font-bold text-neutral-600 border-b border-neutral-200 pb-1">
+        <div className="space-y-1.5 rounded-[16px] border border-[var(--card-line)] p-3 bg-[var(--card-solid-subtle)]">
+          <div className="flex justify-between items-center text-[10px] uppercase font-bold text-[var(--ink-secondary)] border-b border-[var(--card-line)] pb-1.5">
             <span>Slot Presentation Order</span>
             <span>{slottedTeamIds.length} Teams</span>
           </div>
 
           {slottedTeamIds.length === 0 ? (
-            <div className="p-4 text-center text-neutral-400 italic">
+            <div className="p-4 text-center text-[var(--ink-tertiary)] italic">
               No teams slotted yet. Select a team above to append to the presentation order.
             </div>
           ) : (
-            <div className="space-y-1 max-h-48 overflow-y-auto">
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {slottedTeamIds.map((teamId, index) => {
                 const team = availableTeams.find((t) => t.id === teamId);
                 return (
                   <div
                     key={teamId}
-                    className="flex items-center justify-between p-2 bg-white border border-neutral-200"
+                    className="flex items-center justify-between p-2.5 rounded-[10px] bg-[var(--card-solid)] border border-[var(--card-line)]"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-black text-xs min-w-5">
+                      <span className="font-bold text-[var(--ink-primary)] text-xs min-w-5">
                         #{index + 1}
                       </span>
                       <div>
-                        <strong className="text-black">{team ? team.name : teamId}</strong>
+                        <strong className="text-[var(--ink-primary)]">{team ? team.name : teamId}</strong>
                         {team?.leader_name && (
-                          <span className="text-[10px] text-neutral-500 ml-2">
+                          <span className="text-[10px] text-[var(--ink-secondary)] ml-2 font-mono">
                             (Lead: {team.leader_name})
                           </span>
                         )}
@@ -197,7 +197,7 @@ export function RoundSlotsConfigDialog({
                           size="sm"
                           type="button"
                           onClick={() => handleMoveUp(index)}
-                          className="h-6 w-6 p-0 text-neutral-500 hover:text-black"
+                          className="h-6 w-6 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                           title="Move up"
                         >
                           <ArrowUpDown className="h-3 w-3" />
@@ -208,7 +208,7 @@ export function RoundSlotsConfigDialog({
                         size="sm"
                         type="button"
                         onClick={() => handleRemoveSlot(index)}
-                        className="h-6 w-6 p-0 text-neutral-400 hover:text-black"
+                        className="h-6 w-6 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
                         title="Remove from slot"
                       >
                         <Trash2 className="h-3 w-3" />

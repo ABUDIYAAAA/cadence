@@ -50,14 +50,14 @@ export function UserDeleteDialog({
         </div>
       }
     >
-      <div className="space-y-4 font-mono text-xs">
-        <div className="border border-black p-3 bg-neutral-100 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-black shrink-0 mt-0.5" />
+      <div className="space-y-4 font-sans text-xs">
+        <div className="rounded-[16px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] p-3.5 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-[var(--color-coral)] shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-bold text-black">
+            <p className="font-bold text-[var(--color-coral)]">
               Immediate Session Eviction & Soft Deletion
             </p>
-            <p className="text-neutral-600 leading-relaxed">
+            <p className="text-[var(--color-coral)] leading-relaxed">
               Deleting this account will immediately revoke all active JWT tokens
               via the distributed Redis blocklist (&lt;1ms). The user will be
               instantly disconnected.
@@ -65,18 +65,18 @@ export function UserDeleteDialog({
           </div>
         </div>
 
-        <div className="border border-neutral-300 p-3 bg-neutral-50 space-y-1">
+        <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid-subtle)] space-y-1.5">
           <div>
-            <span className="text-neutral-500">Target Name: </span>
-            <strong className="text-black">{user.name}</strong>
+            <span className="text-[var(--ink-secondary)]">Target Name: </span>
+            <strong className="text-[var(--ink-primary)]">{user.name}</strong>
           </div>
           <div>
-            <span className="text-neutral-500">Target Email: </span>
-            <strong className="text-black">{user.email}</strong>
+            <span className="text-[var(--ink-secondary)]">Target Email: </span>
+            <strong className="text-[var(--ink-primary)] font-mono">{user.email}</strong>
           </div>
           <div>
-            <span className="text-neutral-500">Role: </span>
-            <span className="uppercase font-semibold">{user.role}</span>
+            <span className="text-[var(--ink-secondary)]">Role: </span>
+            <span className="uppercase font-semibold text-[var(--ink-primary)]">{user.role}</span>
           </div>
         </div>
       </div>

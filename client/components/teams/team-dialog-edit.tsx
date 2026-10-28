@@ -94,7 +94,7 @@ function TeamEditForm({
         ))}
       </Select>
 
-      <div className="flex justify-end gap-2 pt-3 border-t border-neutral-200">
+      <div className="flex justify-end gap-2 pt-3 border-t border-[var(--card-line)]">
         <Button
           variant="outline"
           size="sm"

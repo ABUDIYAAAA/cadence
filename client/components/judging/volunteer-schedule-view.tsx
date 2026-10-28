@@ -89,17 +89,19 @@ export function VolunteerScheduleView() {
   };
 
   return (
-    <div className="font-mono space-y-6">
+    <div className="font-sans space-y-6">
       {/* Volunteer Coordination Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-black pb-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <DoorOpen className="h-6 w-6 text-black" />
-            <h2 className="text-xl font-bold tracking-tight uppercase">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+              <DoorOpen className="h-5 w-5" />
+            </div>
+            <h2 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
               Volunteer Room & Staging Coordinator
             </h2>
           </div>
-          <p className="text-sm text-neutral-600 mt-1">
+          <p className="text-xs text-[var(--ink-secondary)] mt-1 ml-11">
             Real-time staging schedules, on-deck buffer queues, and room escort monitors for volunteers.
           </p>
         </div>
@@ -110,41 +112,41 @@ export function VolunteerScheduleView() {
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="flex items-center gap-1.5 border-black text-black hover:bg-neutral-100"
+            className="flex items-center gap-1.5 text-xs"
           >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            REFRESH SCHEDULE
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh Schedule
           </Button>
         </div>
       </div>
 
       {/* Metrics Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="border border-black p-3 bg-white">
-          <div className="text-[10px] uppercase text-neutral-500 font-semibold">Active Rooms</div>
-          <div className="text-xl font-bold text-black mt-1">
-            {stats.activeRooms} / {stats.totalRooms}
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
+          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider">Active Rooms</div>
+          <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">
+            {stats.activeRooms} <span className="text-sm font-normal text-[var(--ink-tertiary)]">/ {stats.totalRooms}</span>
           </div>
         </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-[10px] uppercase text-neutral-500 font-semibold flex items-center gap-1">
-            <Volume2 className="h-3.5 w-3.5 text-black" />
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
+          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider flex items-center gap-1">
+            <Volume2 className="h-3.5 w-3.5 text-[var(--color-coral)]" />
             Teams On-Deck
           </div>
-          <div className="text-xl font-bold text-black mt-1">{stats.onDeckCount}</div>
+          <div className="text-2xl font-bold font-mono text-[var(--color-coral)] mt-1">{stats.onDeckCount}</div>
         </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-[10px] uppercase text-neutral-500 font-semibold flex items-center gap-1">
-            <CheckCircle2 className="h-3.5 w-3.5 text-black" />
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
+          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider flex items-center gap-1">
+            <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-blue)]" />
             Evaluations Done
           </div>
-          <div className="text-xl font-bold text-black mt-1">
-            {stats.totalCompleted} / {stats.totalTeams}
+          <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">
+            {stats.totalCompleted} <span className="text-sm font-normal text-[var(--ink-tertiary)]">/ {stats.totalTeams}</span>
           </div>
         </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-[10px] uppercase text-neutral-500 font-semibold">Overall Progress</div>
-          <div className="text-xl font-bold text-black mt-1">
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
+          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider">Overall Progress</div>
+          <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">
             {stats.totalTeams > 0
               ? `${Math.round((stats.totalCompleted / stats.totalTeams) * 100)}%`
               : "0%"}
@@ -153,14 +155,14 @@ export function VolunteerScheduleView() {
       </div>
 
       {/* Toolbar Search & Filter */}
-      <div className="border border-black p-3 bg-white flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3 shadow-[var(--shadow-card)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-tertiary)]" />
           <Input
             placeholder="Search teams, rooms, or panels..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 border-black font-mono text-sm"
+            className="pl-9 text-xs"
           />
         </div>
 
@@ -170,7 +172,7 @@ export function VolunteerScheduleView() {
               variant={selectedRoom === "all" ? "primary" : "outline"}
               size="sm"
               onClick={() => setSelectedRoom("all")}
-              className="text-xs uppercase whitespace-nowrap"
+              className="text-xs whitespace-nowrap rounded-full h-8 px-3"
             >
               All Rooms
             </Button>
@@ -180,7 +182,7 @@ export function VolunteerScheduleView() {
                 variant={selectedRoom === room ? "primary" : "outline"}
                 size="sm"
                 onClick={() => setSelectedRoom(room)}
-                className="text-xs whitespace-nowrap"
+                className="text-xs whitespace-nowrap rounded-full h-8 px-3"
               >
                 {room}
               </Button>
@@ -224,38 +226,38 @@ function RoomScheduleCard({
       : 0;
 
   return (
-    <div className="border-2 border-black bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
+    <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-card)] flex flex-col justify-between overflow-hidden">
       {/* Card Header */}
-      <div className="border-b-2 border-black p-4 bg-neutral-50">
+      <div className="border-b border-[var(--card-line)] p-5 bg-[var(--card-solid-subtle)]">
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-base uppercase">{panel.room || "Room Unassigned"}</span>
-              <Badge variant="outline" className="border-black font-mono text-[10px] uppercase">
+              <span className="font-bold text-base text-[var(--ink-primary)]">{panel.room || "Room Unassigned"}</span>
+              <Badge variant="blue" className="text-[10px] uppercase font-semibold">
                 {panel.panel_name}
               </Badge>
             </div>
-            <div className="text-xs text-neutral-500 mt-0.5 truncate">
-              Round: <strong>{panel.round_name}</strong>
+            <div className="text-xs text-[var(--ink-secondary)] mt-1 truncate">
+              Round: <strong className="text-[var(--ink-primary)]">{panel.round_name}</strong>
             </div>
           </div>
 
           <div className="text-right">
-            <span className="text-xs font-bold font-mono">
+            <span className="text-xs font-bold font-mono text-[var(--ink-primary)]">
               {panel.completed_count} / {panel.total_count} Evaluated
             </span>
-            <div className="w-24 bg-neutral-200 h-1.5 border border-black mt-1 ml-auto overflow-hidden">
+            <div className="w-24 bg-[var(--card-line)] h-2 rounded-full mt-1.5 ml-auto overflow-hidden">
               <div
-                className="bg-black h-full transition-all"
+                className="bg-[#83A2DB] h-full rounded-full transition-all duration-300"
                 style={{ width: `${percentComplete}%` }}
               />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-3 text-[11px] text-neutral-600 font-mono">
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
+        <div className="flex items-center gap-3 mt-3 text-xs text-[var(--ink-secondary)]">
+          <span className="flex items-center gap-1 font-mono">
+            <Clock className="h-3 w-3 text-[var(--ink-tertiary)]" />
             {panel.slot_duration_mins}m per slot
           </span>
           <span>•</span>
@@ -264,27 +266,27 @@ function RoomScheduleCard({
       </div>
 
       {/* Card Body */}
-      <div className="p-4 space-y-4 flex-1">
+      <div className="p-5 space-y-4 flex-1">
         {/* 1. CURRENTLY PRESENTING TEAM */}
         <div>
-          <div className="text-[10px] uppercase font-bold text-neutral-600 mb-1 flex items-center gap-1">
-            <Play className="h-3 w-3 fill-black text-black" />
+          <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] mb-1.5 flex items-center gap-1.5 tracking-wider">
+            <Play className="h-3 w-3 fill-[#83A2DB] text-[var(--color-blue)]" />
             Currently In Room (Presenting)
           </div>
 
           {panel.active_team ? (
-            <div className="border-2 border-black p-3 bg-white flex items-start justify-between gap-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+            <div className="rounded-[16px] border border-[#83A2DB]/30 bg-[var(--color-blue-dim)] p-3.5 flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm uppercase">
+                  <span className="font-bold text-sm text-[var(--ink-primary)]">
                     {panel.active_team.team_name}
                   </span>
-                  <Badge variant="solid" className="bg-black text-white text-[9px] uppercase">
+                  <Badge variant="blue" className="text-[9px] uppercase font-semibold">
                     Slot #{panel.active_team.sequence_order}
                   </Badge>
                 </div>
-                <div className="text-xs text-neutral-500 mt-1 flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
+                <div className="text-xs text-[var(--ink-secondary)] mt-1 flex items-center gap-1 font-mono">
+                  <Clock className="h-3 w-3 text-[var(--ink-tertiary)]" />
                   Started at {formatTime(panel.active_team.actual_start_time)}
                 </div>
               </div>
@@ -299,17 +301,17 @@ function RoomScheduleCard({
                         target="_blank"
                         rel="noreferrer"
                         title={k}
-                        className="p-1 border border-black text-xs hover:bg-neutral-100 inline-flex items-center gap-1"
+                        className="p-1 px-2 rounded-lg border border-[#83A2DB]/30 text-xs bg-[var(--card-solid)] hover:text-[var(--color-blue)] transition-colors inline-flex items-center gap-1"
                       >
                         <span className="capitalize text-[10px] font-bold">{k}</span>
-                        <ExternalLink className="h-2.5 w-2.5" />
+                        <ExternalLink className="h-2.5 w-2.5 text-[var(--ink-tertiary)]" />
                       </a>
                     ))}
                   </div>
                 )}
             </div>
           ) : (
-            <div className="border border-dashed border-neutral-300 p-3 text-center text-xs text-neutral-400">
+            <div className="rounded-[14px] border border-dashed border-[var(--card-line)] p-3.5 text-center text-xs text-[var(--ink-tertiary)]">
               No team currently presenting in this room.
             </div>
           )}
@@ -317,16 +319,16 @@ function RoomScheduleCard({
 
         {/* 2. ON-DECK QUEUED TEAMS (BUFFER TO ESCORT) */}
         <div>
-          <div className="text-[10px] uppercase font-bold text-black mb-1 flex items-center justify-between">
-            <span className="flex items-center gap-1">
-              <Volume2 className="h-3.5 w-3.5 text-black" />
+          <div className="text-[10px] uppercase font-bold text-[var(--color-coral)] mb-1.5 flex items-center justify-between tracking-wider">
+            <span className="flex items-center gap-1.5">
+              <Volume2 className="h-3.5 w-3.5" />
               On-Deck Staging Buffer ({panel.queued_teams.length} Call-Ups)
             </span>
-            <span className="text-[9px] text-neutral-500">Escort to {panel.room}</span>
+            <span className="text-[9px] text-[var(--ink-tertiary)]">Escort to {panel.room}</span>
           </div>
 
           {panel.queued_teams.length === 0 ? (
-            <div className="text-xs text-neutral-400 italic p-2 border border-neutral-200 bg-neutral-50">
+            <div className="text-xs text-[var(--ink-tertiary)] italic p-3 rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
               Queue buffer is clear.
             </div>
           ) : (
@@ -334,21 +336,21 @@ function RoomScheduleCard({
               {panel.queued_teams.map((t, idx) => (
                 <div
                   key={t.slot_id}
-                  className="border border-black p-2 bg-neutral-50 flex items-center justify-between text-xs"
+                  className="rounded-[14px] border border-[#CE6969]/25 bg-[var(--color-coral-dim)] p-2.5 px-3 flex items-center justify-between text-xs"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 bg-black text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#CE6969] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
                       {idx + 1}
                     </span>
                     <div>
-                      <span className="font-bold uppercase">{t.team_name}</span>
-                      <span className="text-neutral-500 text-[10px] ml-1.5 font-mono">
+                      <span className="font-bold text-[var(--ink-primary)]">{t.team_name}</span>
+                      <span className="text-[var(--ink-tertiary)] text-[10px] ml-1.5 font-mono">
                         (Slot #{t.sequence_order})
                       </span>
                     </div>
                   </div>
 
-                  <div className="text-right text-[11px] font-mono text-neutral-600">
+                  <div className="text-right text-xs font-mono text-[var(--ink-secondary)]">
                     Est. {formatTime(t.estimated_start_time)}
                   </div>
                 </div>
@@ -360,23 +362,23 @@ function RoomScheduleCard({
         {/* 3. UPCOMING SCHEDULE */}
         {panel.upcoming_teams.length > 0 && (
           <div>
-            <div className="text-[10px] uppercase font-bold text-neutral-500 mb-1">
+            <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] mb-1.5 tracking-wider">
               Later in Schedule ({panel.upcoming_teams.length} Teams)
             </div>
 
-            <div className="border border-neutral-200 divide-y divide-neutral-200 max-h-32 overflow-y-auto">
+            <div className="rounded-[14px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] max-h-32 overflow-y-auto">
               {panel.upcoming_teams.map((t) => (
                 <div
                   key={t.slot_id}
-                  className="p-1.5 px-2.5 flex items-center justify-between text-xs bg-white text-neutral-700"
+                  className="p-2 px-3 flex items-center justify-between text-xs bg-[var(--card-solid)] text-[var(--ink-secondary)]"
                 >
                   <div className="flex items-center gap-2 truncate">
-                    <span className="text-neutral-400 text-[10px] font-mono">
+                    <span className="text-[var(--ink-tertiary)] text-[10px] font-mono">
                       #{t.sequence_order}
                     </span>
-                    <span className="truncate">{t.team_name}</span>
+                    <span className="truncate text-[var(--ink-primary)] font-medium">{t.team_name}</span>
                   </div>
-                  <span className="text-[10px] text-neutral-400 font-mono shrink-0">
+                  <span className="text-[10px] text-[var(--ink-tertiary)] font-mono shrink-0">
                     {formatTime(t.estimated_start_time)}
                   </span>
                 </div>
@@ -387,12 +389,12 @@ function RoomScheduleCard({
       </div>
 
       {/* Card Footer */}
-      <div className="border-t border-black p-2.5 bg-neutral-50 text-[11px] text-neutral-500 flex items-center justify-between font-mono">
-        <span className="flex items-center gap-1">
-          <Shield className="h-3 w-3" />
+      <div className="border-t border-[var(--card-line)] p-3 px-5 bg-[var(--card-solid-subtle)] text-xs text-[var(--ink-tertiary)] flex items-center justify-between">
+        <span className="flex items-center gap-1.5">
+          <Shield className="h-3 w-3 text-[var(--color-blue)]" />
           Live queue updates every 10s
         </span>
-        <span className="uppercase font-bold text-black">
+        <span className="uppercase font-semibold text-[var(--ink-secondary)] font-mono text-[10px]">
           Panel ID: {panel.panel_id.substring(0, 8)}...
         </span>
       </div>

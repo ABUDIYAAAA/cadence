@@ -78,118 +78,122 @@ function SetupPasswordForm() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-mono">
+    <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-sans">
       <div className="w-full max-w-md">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Activate Account</CardTitle>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
-                ONBOARDING
-              </span>
-            </div>
-            <CardDescription>
-              First-time activation. Configure a password to access your Cadence workspace.
-            </CardDescription>
-          </CardHeader>
+        <div className="translucent-container p-2 sm:p-3">
+          <Card className="border border-[var(--card-border)] shadow-none">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
+                  Activate Account
+                </CardTitle>
+                <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
+                  ONBOARDING
+                </Badge>
+              </div>
+              <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
+                First-time activation. Configure a password to access your Cadence workspace.
+              </CardDescription>
+            </CardHeader>
 
-          {isSuccess ? (
-            <div>
-              <CardContent className="space-y-4">
-                <Alert variant="success" title="ACCOUNT ACTIVATED">
-                  Your password has been saved and your account is active. Please sign in to proceed.
-                </Alert>
-              </CardContent>
-
-              <CardFooter className="flex flex-col gap-2">
-                <Link href="/login" className="w-full">
-                  <Button variant="primary" className="w-full">
-                    Proceed to Login →
-                  </Button>
-                </Link>
-              </CardFooter>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit}>
-              <CardContent className="space-y-4">
-                {hasUrlToken ? (
-                  <div className="border border-neutral-300 bg-neutral-50 p-3 text-xs flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] uppercase font-bold text-neutral-500">
-                        Security Verification
-                      </span>
-                      <p className="font-semibold text-black">Invitation Token Attached</p>
-                    </div>
-                    <Badge variant="solid" size="sm">
-                      VERIFIED
-                    </Badge>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Alert variant="warning" title="INVITATION TOKEN">
-                      Paste the activation token from your event invitation email below.
-                    </Alert>
-                    <Input
-                      label="Activation Token"
-                      type="text"
-                      required
-                      placeholder="Paste token from invite..."
-                      value={manualToken}
-                      onChange={(e) => setManualToken(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                {validationError && (
-                  <Alert variant="error" title="ERROR">
-                    {validationError}
+            {isSuccess ? (
+              <div>
+                <CardContent className="space-y-4">
+                  <Alert variant="success" title="ACCOUNT ACTIVATED">
+                    Your password has been saved and your account is active. Please sign in to proceed.
                   </Alert>
-                )}
+                </CardContent>
 
-                <Input
-                  label="Create Password"
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  placeholder="Minimum 8 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  helperText="Must be at least 8 characters long"
-                />
-
-                <Input
-                  label="Confirm Password"
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  placeholder="Re-type password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-              </CardContent>
-
-              <CardFooter className="flex flex-col gap-3">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="w-full"
-                  isLoading={setupPasswordMutation.isPending}
-                >
-                  Complete Setup & Activate
-                </Button>
-
-                <div className="flex w-full justify-center text-xs text-neutral-600 pt-1">
-                  <Link
-                    href="/login"
-                    className="hover:text-black underline transition-colors"
-                  >
-                    Already activated? Sign In →
+                <CardFooter className="flex flex-col gap-2 pt-3">
+                  <Link href="/login" className="w-full">
+                    <Button variant="primary" className="w-full h-11 text-sm font-semibold">
+                      Proceed to Login →
+                    </Button>
                   </Link>
-                </div>
-              </CardFooter>
-            </form>
-          )}
-        </Card>
+                </CardFooter>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                <CardContent className="space-y-4">
+                  {hasUrlToken ? (
+                    <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3 text-xs flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)]">
+                          Security Verification
+                        </span>
+                        <p className="font-semibold text-[var(--ink-primary)]">Invitation Token Attached</p>
+                      </div>
+                      <Badge variant="solid" size="sm">
+                        VERIFIED
+                      </Badge>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Alert variant="warning" title="INVITATION TOKEN">
+                        Paste the activation token from your event invitation email below.
+                      </Alert>
+                      <Input
+                        label="Activation Token"
+                        type="text"
+                        required
+                        placeholder="Paste token from invite..."
+                        value={manualToken}
+                        onChange={(e) => setManualToken(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  {validationError && (
+                    <Alert variant="error" title="ERROR">
+                      {validationError}
+                    </Alert>
+                  )}
+
+                  <Input
+                    label="Create Password"
+                    type="password"
+                    required
+                    autoComplete="new-password"
+                    placeholder="Minimum 8 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    helperText="Must be at least 8 characters long"
+                  />
+
+                  <Input
+                    label="Confirm Password"
+                    type="password"
+                    required
+                    autoComplete="new-password"
+                    placeholder="Re-type password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </CardContent>
+
+                <CardFooter className="flex flex-col gap-3 pt-3">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    className="w-full h-11 text-sm font-semibold"
+                    isLoading={setupPasswordMutation.isPending}
+                  >
+                    Complete Setup & Activate
+                  </Button>
+
+                  <div className="flex w-full justify-center text-xs text-[var(--ink-secondary)] pt-2 border-t border-[var(--card-line)]">
+                    <Link
+                      href="/login"
+                      className="hover:text-[var(--ink-primary)] underline transition-colors"
+                    >
+                      Already activated? Sign In →
+                    </Link>
+                  </div>
+                </CardFooter>
+              </form>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );
@@ -199,7 +203,7 @@ export default function SetupPasswordPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-mono">
+        <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-sans">
           <div className="w-full max-w-md">
             <SkeletonCard />
           </div>

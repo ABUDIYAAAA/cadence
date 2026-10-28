@@ -394,10 +394,10 @@ export function RoundCreateDialog({
         </div>
       }
     >
-      <div className="space-y-4 font-mono text-xs max-h-[68vh] overflow-y-auto pr-1">
+      <div className="space-y-4 font-sans text-xs max-h-[68vh] overflow-y-auto pr-1">
         {stepErrors && (
-          <div className="border border-black p-2.5 bg-neutral-100 font-bold text-neutral-900">
-            ! {stepErrors}
+          <div className="rounded-[14px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] p-3 text-[var(--color-coral)] font-medium">
+            Notice: {stepErrors}
           </div>
         )}
 
@@ -438,10 +438,10 @@ export function RoundCreateDialog({
             </div>
 
             {/* Criteria List */}
-            <div className="border border-neutral-300 p-3 bg-neutral-50 space-y-3">
-              <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
-                <span className="font-bold text-black uppercase text-[11px] flex items-center gap-1.5">
-                  <Award className="h-3.5 w-3.5" />
+            <div className="rounded-[16px] border border-[var(--card-line)] p-4 bg-[var(--card-solid-subtle)] space-y-3">
+              <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-2">
+                <span className="font-bold text-[var(--ink-primary)] uppercase text-[11px] flex items-center gap-1.5">
+                  <Award className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                   <span>Evaluation Criteria ({criteria.length})</span>
                 </span>
                 <Button
@@ -460,10 +460,10 @@ export function RoundCreateDialog({
                 {criteria.map((c, i) => (
                   <div
                     key={i}
-                    className="border border-neutral-300 bg-white p-2.5 space-y-2"
+                    className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3 space-y-2"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-[10px] uppercase text-neutral-500">
+                      <span className="font-bold text-[10px] uppercase text-[var(--ink-secondary)]">
                         Criterion #{i + 1}
                       </span>
                       {criteria.length > 1 && (
@@ -472,7 +472,7 @@ export function RoundCreateDialog({
                           size="sm"
                           type="button"
                           onClick={() => handleRemoveCriterion(i)}
-                          className="h-5 w-5 p-0 text-neutral-400 hover:text-black"
+                          className="h-5 w-5 p-0 text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)]"
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -523,7 +523,7 @@ export function RoundCreateDialog({
                       onChange={(e) =>
                         handleCriterionChange(i, "description", e.target.value)
                       }
-                      className="h-7 text-[11px] text-neutral-600"
+                      className="h-7 text-[11px] text-[var(--ink-secondary)]"
                     />
                   </div>
                 ))}
@@ -535,9 +535,9 @@ export function RoundCreateDialog({
         {/* STEP 2: Rooms / Panels & Judges */}
         {step === 2 && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-neutral-200">
-              <span className="font-bold text-black uppercase text-[11px] flex items-center gap-1.5">
-                <DoorOpen className="h-3.5 w-3.5" />
+            <div className="flex items-center justify-between pb-2 border-b border-[var(--card-line)]">
+              <span className="font-bold text-[var(--ink-primary)] uppercase text-[11px] flex items-center gap-1.5">
+                <DoorOpen className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                 <span>Panels & Presentation Rooms ({panels.length})</span>
               </span>
               <Button
@@ -556,10 +556,10 @@ export function RoundCreateDialog({
               {panels.map((p, pIdx) => (
                 <div
                   key={pIdx}
-                  className="border border-neutral-300 bg-white p-3 space-y-3"
+                  className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 space-y-3"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs uppercase text-black">
+                    <span className="font-bold text-xs uppercase text-[var(--ink-primary)]">
                       Room #{pIdx + 1}
                     </span>
                     {panels.length > 1 && (
@@ -567,7 +567,7 @@ export function RoundCreateDialog({
                         variant="ghost"
                         size="sm"
                         onClick={() => handleRemovePanel(pIdx)}
-                        className="h-5 w-5 p-0 text-neutral-400 hover:text-black"
+                        className="h-5 w-5 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -607,39 +607,39 @@ export function RoundCreateDialog({
                   </div>
 
                   {/* Assign Judges to this Panel */}
-                  <div className="space-y-1 pt-1 border-t border-neutral-100">
-                    <label className="block text-[10px] uppercase font-bold text-neutral-600">
+                  <div className="space-y-1 pt-1 border-t border-[var(--card-line)]">
+                    <label className="block text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
                       Assign Evaluators to this Room ({p.judge_ids.length} Selected) *
                     </label>
 
                     {usersLoading ? (
-                      <div className="text-neutral-400 text-xs">Loading registered judges...</div>
+                      <div className="text-[var(--ink-tertiary)] text-xs">Loading registered judges...</div>
                     ) : availableJudges.length === 0 ? (
-                      <div className="text-neutral-500 text-xs italic p-2 border border-neutral-200 bg-neutral-50">
+                      <div className="text-[var(--ink-secondary)] text-xs italic p-2 border border-[var(--card-line)] bg-[var(--card-solid-subtle)] rounded-[10px]">
                         No accounts with role &apos;judge&apos; found. You can promote users in the Users Directory.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto border border-neutral-200 p-2 bg-neutral-50">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto border border-[var(--card-line)] p-2 bg-[var(--card-solid-subtle)] rounded-[12px]">
                         {availableJudges.map((j) => {
                           const isAssigned = p.judge_ids.includes(j.id);
                           return (
                             <label
                               key={j.id}
-                              className={`flex items-center gap-2 p-1.5 border cursor-pointer select-none text-xs ${
+                              className={`flex items-center gap-2 p-2 rounded-[10px] border cursor-pointer select-none text-xs transition-all ${
                                 isAssigned
-                                  ? "border-black bg-white font-bold"
-                                  : "border-neutral-200 bg-white/70 text-neutral-700"
+                                  ? "border-[var(--color-blue)] bg-[var(--color-blue-dim)] text-[var(--ink-primary)] font-semibold"
+                                  : "border-[var(--card-line)] bg-[var(--card-solid)] text-[var(--ink-secondary)]"
                               }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isAssigned}
                                 onChange={() => handleToggleJudgeForPanel(pIdx, j.id)}
-                                className="accent-black h-3.5 w-3.5 rounded-none"
+                                className="accent-[#83A2DB] h-3.5 w-3.5 rounded"
                               />
                               <div className="truncate">
-                                <div>{j.name}</div>
-                                <div className="text-[10px] text-neutral-400 font-mono">
+                                <div className="text-xs font-semibold text-[var(--ink-primary)]">{j.name}</div>
+                                <div className="text-[10px] text-[var(--ink-tertiary)] font-mono">
                                   {j.email}
                                 </div>
                               </div>
@@ -657,14 +657,14 @@ export function RoundCreateDialog({
 
         {/* STEP 3: Choose Teams to put in round */}
         {step === 3 && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-neutral-200">
+          <div className="space-y-4 font-sans">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[var(--card-line)]">
               <div>
-                <span className="font-bold text-black uppercase text-[11px] flex items-center gap-1.5">
-                  <Layers className="h-3.5 w-3.5" />
+                <span className="font-bold text-[var(--ink-primary)] uppercase text-[11px] flex items-center gap-1.5">
+                  <Layers className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                   <span>Participating Squads ({selectedTeamIds.length} Selected)</span>
                 </span>
-                <p className="text-[10px] text-neutral-500 mt-0.5">
+                <p className="text-[10px] text-[var(--ink-secondary)] mt-0.5">
                   Choose which teams will compete in this round.
                 </p>
               </div>
@@ -701,33 +701,33 @@ export function RoundCreateDialog({
             </div>
 
             {teamsLoading ? (
-              <div className="text-neutral-400 text-xs">Loading registered teams...</div>
+              <div className="text-[var(--ink-tertiary)] text-xs">Loading registered teams...</div>
             ) : availableTeams.length === 0 ? (
-              <div className="text-neutral-500 text-xs italic p-4 border border-neutral-200 bg-neutral-50">
+              <div className="text-[var(--ink-secondary)] text-xs italic p-4 rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
                 No teams registered yet. Create teams first in the Teams tab.
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto border border-neutral-200 p-2 bg-neutral-50">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto rounded-[14px] border border-[var(--card-line)] p-2.5 bg-[var(--card-solid-subtle)]">
                 {availableTeams.map((t) => {
                   const isSelected = selectedTeamIds.includes(t.id);
                   return (
                     <label
                       key={t.id}
-                      className={`flex items-center gap-2 p-2 border cursor-pointer select-none text-xs ${
+                      className={`flex items-center gap-2 p-2.5 rounded-[10px] border cursor-pointer select-none text-xs transition-all ${
                         isSelected
-                          ? "border-black bg-white font-bold"
-                          : "border-neutral-200 bg-white/70 text-neutral-700"
+                          ? "border-[#83A2DB] bg-[var(--card-solid)] text-[var(--ink-primary)] font-semibold shadow-sm"
+                          : "border-[var(--card-line)] bg-[var(--card-solid)] text-[var(--ink-secondary)]"
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => handleToggleTeam(t.id)}
-                        className="accent-black h-4 w-4 rounded-none"
+                        className="accent-[#83A2DB] h-4 w-4 rounded"
                       />
                       <div className="truncate flex-1">
-                        <div className="font-bold text-black">{t.name}</div>
-                        <div className="text-[10px] text-neutral-500">
+                        <div className="font-bold text-[var(--ink-primary)]">{t.name}</div>
+                        <div className="text-[10px] text-[var(--ink-secondary)]">
                           {t.member_count} Members • {t.leader_name ? `Lead: ${t.leader_name}` : "No Leader"}
                         </div>
                       </div>
@@ -738,8 +738,8 @@ export function RoundCreateDialog({
             )}
 
             {/* Room Queue Distribution Preview */}
-            <div className="space-y-2 pt-2 border-t border-neutral-200">
-              <span className="font-bold text-black uppercase text-[11px]">
+            <div className="space-y-2 pt-2 border-t border-[var(--card-line)]">
+              <span className="font-bold text-[var(--ink-primary)] uppercase text-[11px]">
                 Sequential Slot Scheduling Across Rooms:
               </span>
 
@@ -747,24 +747,24 @@ export function RoundCreateDialog({
                 {panels.map((p, idx) => (
                   <div
                     key={idx}
-                    className="border border-neutral-300 p-2.5 bg-white space-y-1.5"
+                    className="rounded-[12px] border border-[var(--card-line)] p-3 bg-[var(--card-solid)] space-y-1.5"
                   >
                     <div className="flex justify-between items-center text-[11px] font-bold">
-                      <span className="text-black">{p.name} ({p.room})</span>
-                      <span className="bg-neutral-100 px-1.5 py-0.2 border border-neutral-300">
+                      <span className="text-[var(--ink-primary)]">{p.name} ({p.room})</span>
+                      <span className="bg-[var(--card-solid-subtle)] px-2 py-0.5 rounded-[6px] border border-[var(--card-line)] text-[var(--ink-secondary)]">
                         {p.assigned_team_ids.length} Teams
                       </span>
                     </div>
 
-                    <div className="text-[10px] text-neutral-600 divide-y divide-neutral-100 border border-neutral-100 max-h-24 overflow-y-auto">
+                    <div className="text-[10px] text-[var(--ink-secondary)] divide-y divide-[var(--card-line)] border border-[var(--card-line)] rounded-[8px] max-h-24 overflow-y-auto">
                       {p.assigned_team_ids.length === 0 ? (
-                        <div className="p-1 italic text-neutral-400">No teams assigned</div>
+                        <div className="p-1 italic text-[var(--ink-tertiary)]">No teams assigned</div>
                       ) : (
                         p.assigned_team_ids.map((teamId, seq) => {
                           const teamObj = availableTeams.find((t) => t.id === teamId);
                           return (
-                            <div key={teamId} className="p-1 flex justify-between">
-                              <span>Slot #{seq + 1}: <strong>{teamObj?.name || teamId}</strong></span>
+                            <div key={teamId} className="p-1.5 flex justify-between">
+                              <span>Slot #{seq + 1}: <strong className="text-[var(--ink-primary)]">{teamObj?.name || teamId}</strong></span>
                             </div>
                           );
                         })
@@ -779,58 +779,58 @@ export function RoundCreateDialog({
 
         {/* STEP 4: Review & Finalize */}
         {step === 4 && (
-          <div className="space-y-3 font-mono text-xs">
-            <div className="border border-black p-3 bg-neutral-100 flex items-start gap-2.5">
-              <CheckCircle2 className="h-5 w-5 text-black shrink-0 mt-0.5" />
+          <div className="space-y-3 font-sans text-xs">
+            <div className="rounded-[16px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-3.5 flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-[#2EB88A] shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold text-black uppercase">
+                <span className="font-bold text-[#2EB88A] uppercase">
                   Ready to Provision Judging Round
                 </span>
-                <p className="text-neutral-600 mt-0.5 text-[11px]">
+                <p className="text-[var(--color-emerald)] mt-0.5 text-[11px]">
                   Submitting will create the round, generate all rooms/panels, assign evaluators, and sequentialize team staging slots.
                 </p>
               </div>
             </div>
 
-            <div className="border border-neutral-300 divide-y divide-neutral-200 bg-neutral-50">
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Round Title</span>
-                <strong className="text-black">{roundName}</strong>
+            <div className="rounded-[16px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] bg-[var(--card-solid)] overflow-hidden">
+              <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+                <span className="text-[var(--ink-secondary)]">Round Title</span>
+                <strong className="text-[var(--ink-primary)]">{roundName}</strong>
               </div>
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Slot Duration</span>
-                <span className="font-bold">{slotDurationMins} Minutes per team</span>
+              <div className="flex justify-between p-3">
+                <span className="text-[var(--ink-secondary)]">Slot Duration</span>
+                <span className="font-bold text-[var(--ink-primary)]">{slotDurationMins} Minutes per team</span>
               </div>
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Queue Buffer Depth</span>
-                <span className="font-bold">{bufferSize} Teams staged in queue</span>
+              <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+                <span className="text-[var(--ink-secondary)]">Queue Buffer Depth</span>
+                <span className="font-bold text-[var(--ink-primary)]">{bufferSize} Teams staged in queue</span>
               </div>
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Total Criteria Defined</span>
-                <span className="font-bold">{criteria.length} Rubrics</span>
+              <div className="flex justify-between p-3">
+                <span className="text-[var(--ink-secondary)]">Total Criteria Defined</span>
+                <span className="font-bold text-[var(--ink-primary)]">{criteria.length} Rubrics</span>
               </div>
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Rooms / Panels Configured</span>
-                <span className="font-bold">{panels.length} Rooms</span>
+              <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+                <span className="text-[var(--ink-secondary)]">Rooms / Panels Configured</span>
+                <span className="font-bold text-[var(--ink-primary)]">{panels.length} Rooms</span>
               </div>
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Total Teams Slotted</span>
-                <strong className="text-black">{selectedTeamIds.length} Teams</strong>
+              <div className="flex justify-between p-3">
+                <span className="text-[var(--ink-secondary)]">Total Teams Slotted</span>
+                <strong className="text-[var(--ink-primary)]">{selectedTeamIds.length} Teams</strong>
               </div>
             </div>
 
             {/* Room breakdown */}
             <div className="space-y-1.5 pt-1">
-              <span className="text-[10px] uppercase font-bold text-neutral-500">
+              <span className="text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
                 Room Allocations Breakdown:
               </span>
               <div className="space-y-1">
                 {panels.map((p, i) => (
-                  <div key={i} className="border border-neutral-300 p-2 bg-white flex justify-between text-[11px]">
+                  <div key={i} className="rounded-[10px] border border-[var(--card-line)] p-2.5 bg-[var(--card-solid)] flex justify-between text-[11px]">
                     <div>
-                      <strong>{p.name}</strong> ({p.room}) — {p.judge_ids.length} Evaluators
+                      <strong className="text-[var(--ink-primary)]">{p.name}</strong> ({p.room}) — {p.judge_ids.length} Evaluators
                     </div>
-                    <div className="font-bold text-black">
+                    <div className="font-bold text-[var(--ink-primary)]">
                       {p.assigned_team_ids.length} Teams Slotted
                     </div>
                   </div>

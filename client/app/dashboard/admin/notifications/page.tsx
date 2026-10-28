@@ -154,20 +154,20 @@ export default function AdminNotificationsPage() {
   };
 
   return (
-    <div className="w-full max-w-5xl mx-auto p-4 sm:p-6 space-y-6 font-mono text-black">
+    <div className="translucent-container space-y-6 font-sans">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-black">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--card-line)]">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
               ADMIN MESSAGING
-            </span>
-            <span className="text-xs text-neutral-500">RABBITMQ WEB PUSH</span>
+            </Badge>
+            <span className="text-xs text-[var(--ink-tertiary)]">RABBITMQ WEB PUSH</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-tight text-black">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
             Notification Publication
           </h1>
-          <p className="text-xs text-neutral-600 mt-1">
+          <p className="text-xs text-[var(--ink-secondary)] mt-1">
             Dispatch announcements, emergency alerts, and room calls with live push delivery.
           </p>
         </div>
@@ -199,7 +199,7 @@ export default function AdminNotificationsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Form Column */}
             <div className="lg:col-span-7">
-              <Card className="border border-black">
+              <Card>
                 <CardHeader>
                   <CardTitle>Publication Composer</CardTitle>
                   <CardDescription>
@@ -217,10 +217,10 @@ export default function AdminNotificationsPage() {
 
                     {/* Target Audience Segmented Buttons */}
                     <div className="space-y-1.5">
-                      <label className="block text-xs uppercase tracking-wider font-bold text-black">
+                      <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
                         Target Audience
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 border border-neutral-300 p-1 bg-neutral-100">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 rounded-[14px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)]">
                         {[
                           { id: "broadcast", label: "All Users" },
                           { id: "role", label: "By Role" },
@@ -236,10 +236,10 @@ export default function AdminNotificationsPage() {
                               );
                               setTargetId("");
                             }}
-                            className={`px-2.5 py-1.5 text-xs uppercase tracking-wider font-bold transition-colors cursor-pointer text-center ${
+                            className={`px-2.5 py-1.5 text-xs font-semibold rounded-[10px] transition-all cursor-pointer text-center ${
                               targetType === item.id
-                                ? "bg-black text-white"
-                                : "text-neutral-700 hover:text-black hover:bg-neutral-200"
+                                ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                                : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                             }`}
                           >
                             {item.label}
@@ -250,7 +250,7 @@ export default function AdminNotificationsPage() {
 
                     {/* TARGET TYPE: ROLE */}
                     {targetType === "role" && (
-                      <div className="space-y-1 p-3 bg-neutral-50 border border-neutral-200">
+                      <div className="space-y-1 p-3 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] rounded-[14px]">
                         <Select
                           label="Select Target Role"
                           value={roleSelection}
@@ -261,7 +261,7 @@ export default function AdminNotificationsPage() {
                           <option value="volunteer">Volunteer (Staff & Coordinators)</option>
                           <option value="admin">Administrator</option>
                         </Select>
-                        <p className="text-[11px] text-neutral-500 pt-1">
+                        <p className="text-[11px] text-[var(--ink-secondary)] pt-1">
                           Notification will be delivered to every active user with the <strong>{roleSelection}</strong> role.
                         </p>
                       </div>
@@ -269,16 +269,16 @@ export default function AdminNotificationsPage() {
 
                     {/* TARGET TYPE: TEAM DROPDOWN */}
                     {targetType === "team" && (
-                      <div className="space-y-2 p-3 bg-neutral-50 border border-neutral-200">
+                      <div className="space-y-2 p-3 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] rounded-[14px]">
                         <div className="flex items-center justify-between">
-                          <label className="block text-xs uppercase tracking-wider font-bold text-neutral-800 flex items-center gap-1.5">
-                            <Layers className="h-3.5 w-3.5" />
+                          <label className="block text-xs uppercase tracking-wider font-bold text-[var(--ink-primary)] flex items-center gap-1.5">
+                            <Layers className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                             <span>Select Target Team</span>
                           </label>
                           <button
                             type="button"
                             onClick={() => setIsManualTeamId(!isManualTeamId)}
-                            className="text-[11px] text-neutral-600 hover:text-black underline cursor-pointer"
+                            className="text-[11px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] underline cursor-pointer"
                           >
                             {isManualTeamId ? "← Use Team Dropdown" : "Enter Manual UUID"}
                           </button>
@@ -310,10 +310,10 @@ export default function AdminNotificationsPage() {
                         )}
 
                         {selectedTeam && (
-                          <div className="p-2 bg-white border border-neutral-200 text-xs flex items-center justify-between">
+                          <div className="p-2.5 bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[12px] text-xs flex items-center justify-between">
                             <div>
-                              <span className="font-bold">{selectedTeam.name}</span>
-                              <span className="text-neutral-500 text-[11px] block">
+                              <span className="font-bold text-[var(--ink-primary)]">{selectedTeam.name}</span>
+                              <span className="text-[var(--ink-secondary)] text-[11px] block">
                                 Leader: {selectedTeam.leader_name || "Unassigned"} ({selectedTeam.leader_email || "no email"})
                               </span>
                             </div>
@@ -327,16 +327,16 @@ export default function AdminNotificationsPage() {
 
                     {/* TARGET TYPE: SINGLE USER DROPDOWN + SEARCH */}
                     {targetType === "user" && (
-                      <div className="space-y-2 p-3 bg-neutral-50 border border-neutral-200">
+                      <div className="space-y-2 p-3 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] rounded-[14px]">
                         <div className="flex items-center justify-between">
-                          <label className="block text-xs uppercase tracking-wider font-bold text-neutral-800 flex items-center gap-1.5">
-                            <Users className="h-3.5 w-3.5" />
+                          <label className="block text-xs uppercase tracking-wider font-bold text-[var(--ink-primary)] flex items-center gap-1.5">
+                            <Users className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                             <span>Select Recipient User</span>
                           </label>
                           <button
                             type="button"
                             onClick={() => setIsManualUserId(!isManualUserId)}
-                            className="text-[11px] text-neutral-600 hover:text-black underline cursor-pointer"
+                            className="text-[11px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] underline cursor-pointer"
                           >
                             {isManualUserId ? "← Use User Dropdown" : "Enter Manual UUID"}
                           </button>
@@ -353,13 +353,13 @@ export default function AdminNotificationsPage() {
                           <div className="space-y-2">
                             {/* Search filter input */}
                             <div className="relative">
-                              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400" />
+                              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
                               <input
                                 type="text"
                                 placeholder="Type to filter users by name or email..."
                                 value={userSearchQuery}
                                 onChange={(e) => setUserSearchQuery(e.target.value)}
-                                className="w-full h-8 pl-8 pr-3 text-xs border border-neutral-300 bg-white font-mono text-black focus:outline-none focus:border-black"
+                                className="w-full h-8 pl-8 pr-3 text-xs rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] text-[var(--ink-primary)] focus:outline-none focus:border-[var(--color-blue)]"
                               />
                             </div>
 
@@ -385,10 +385,10 @@ export default function AdminNotificationsPage() {
                         )}
 
                         {selectedUser && (
-                          <div className="p-2 bg-white border border-neutral-200 text-xs flex items-center justify-between">
+                          <div className="p-2.5 bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[12px] text-xs flex items-center justify-between">
                             <div>
-                              <span className="font-bold">{selectedUser.name}</span>
-                              <span className="text-neutral-500 text-[11px] block font-mono">
+                              <span className="font-bold text-[var(--ink-primary)]">{selectedUser.name}</span>
+                              <span className="text-[var(--ink-secondary)] text-[11px] block font-mono">
                                 {selectedUser.email}
                               </span>
                             </div>
@@ -441,8 +441,8 @@ export default function AdminNotificationsPage() {
                     </div>
                   </CardContent>
 
-                  <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-3 border-t border-neutral-200">
-                    <span className="text-xs text-neutral-500">
+                  <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-3 border-t border-[var(--card-line)]">
+                    <span className="text-xs text-[var(--ink-secondary)]">
                       Dispatched over RabbitMQ Web Push workers.
                     </span>
 
@@ -463,10 +463,10 @@ export default function AdminNotificationsPage() {
 
             {/* Live Preview Column */}
             <div className="lg:col-span-5 space-y-4">
-              <Card className="border border-black">
+              <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Smartphone className="h-4 w-4" />
+                    <Smartphone className="h-4 w-4 text-[var(--color-blue)]" />
                     <span>Live Push Frame Preview</span>
                   </CardTitle>
                   <CardDescription>
@@ -476,33 +476,33 @@ export default function AdminNotificationsPage() {
 
                 <CardContent className="space-y-4">
                   {/* Push Frame Mockup */}
-                  <div className="border-2 border-black bg-white p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black space-y-2">
-                    <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+                  <div className="rounded-[18px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4.5 shadow-[0_8px_24px_-4px_rgba(16,20,26,0.1)] text-[var(--ink-primary)] space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-2">
                       <div className="flex items-center gap-2">
-                        <span className="h-4 w-4 bg-black text-white text-[9px] flex items-center justify-center font-bold">
-                          CD
+                        <span className="h-5 w-5 rounded-md bg-[var(--color-dark)] text-[var(--ink-inverse)] text-[10px] flex items-center justify-center font-bold">
+                          C
                         </span>
-                        <span className="text-[11px] font-bold uppercase tracking-wider">
+                        <span className="text-[11px] font-bold tracking-wider text-[var(--ink-primary)]">
                           CADENCE · NOW
                         </span>
                       </div>
-                      <Badge variant="solid" size="sm">
+                      <Badge variant="blue" size="sm">
                         PUSH
                       </Badge>
                     </div>
 
                     <div>
-                      <h4 className="text-xs font-bold text-black break-words">
+                      <h4 className="text-xs font-bold text-[var(--ink-primary)] break-words">
                         {title.trim() || "Notification Title Appears Here"}
                       </h4>
-                      <p className="text-xs text-neutral-700 mt-1 leading-relaxed break-words">
+                      <p className="text-xs text-[var(--ink-secondary)] mt-1 leading-relaxed break-words">
                         {body.trim() ||
                           "Message content body will be displayed here in full detail when delivered to user devices."}
                       </p>
                     </div>
 
                     {actionUrl && (
-                      <div className="pt-2 border-t border-neutral-100 flex items-center gap-1 text-[11px] font-bold text-black underline">
+                      <div className="pt-2 border-t border-[var(--card-line)] flex items-center gap-1 text-[11px] font-bold text-[var(--color-blue)] hover:underline">
                         <span>Open: {actionUrl}</span>
                         <ExternalLink className="h-3 w-3" />
                       </div>
@@ -510,31 +510,31 @@ export default function AdminNotificationsPage() {
                   </div>
 
                   {/* In-App Feed Mockup */}
-                  <div className="border border-neutral-300 p-3 bg-neutral-50 space-y-2">
+                  <div className="rounded-[16px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid-subtle)] space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--ink-tertiary)]">
                         <Inbox className="h-3.5 w-3.5" />
                         <span>In-App Feed Preview</span>
                       </span>
-                      <span className="text-[10px] bg-black text-white px-1.5 py-0.2">
+                      <span className="text-[10px] bg-[var(--color-dark)] text-[var(--ink-inverse)] rounded-full px-2 py-0.5 font-bold">
                         UNREAD
                       </span>
                     </div>
 
                     <div>
-                      <p className="text-xs font-bold text-black">
+                      <p className="text-xs font-bold text-[var(--ink-primary)]">
                         {title.trim() || "Notification Title"}
                       </p>
-                      <p className="text-[11px] text-neutral-600 mt-0.5">
+                      <p className="text-[11px] text-[var(--ink-secondary)] mt-0.5">
                         {body.trim() || "Message details displayed in inbox feed."}
                       </p>
                     </div>
                   </div>
 
                   {/* Scope Summary Box */}
-                  <div className="border border-neutral-200 p-3 text-xs space-y-1.5 bg-neutral-50">
+                  <div className="rounded-[16px] border border-[var(--card-line)] p-3.5 text-xs space-y-2 bg-[var(--card-solid-subtle)]">
                     <div className="flex justify-between items-center py-0.5">
-                      <span className="text-neutral-500">Target Audience:</span>
+                      <span className="text-[var(--ink-secondary)]">Target Audience:</span>
                       <Badge variant="outline" size="sm">
                         {targetType === "broadcast"
                           ? "All Registered Users"
@@ -546,8 +546,8 @@ export default function AdminNotificationsPage() {
                       </Badge>
                     </div>
                     <div className="flex justify-between items-center py-0.5">
-                      <span className="text-neutral-500">Sender Identity:</span>
-                      <span className="font-bold text-black">{user?.email}</span>
+                      <span className="text-[var(--ink-secondary)]">Sender Identity:</span>
+                      <span className="font-bold text-[var(--ink-primary)]">{user?.email}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -558,7 +558,7 @@ export default function AdminNotificationsPage() {
 
         {/* TAB 2: DISPATCH HISTORY */}
         <TabsContent value="history">
-          <Card className="border border-black">
+          <Card>
             <CardHeader>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
@@ -583,7 +583,7 @@ export default function AdminNotificationsPage() {
 
             <CardContent>
               {historyLoading ? (
-                <div className="p-8 text-center text-xs text-neutral-500">
+                <div className="p-8 text-center text-xs text-[var(--ink-secondary)]">
                   Loading notification dispatch logs...
                 </div>
               ) : !historyData?.items || historyData.items.length === 0 ? (
@@ -606,7 +606,7 @@ export default function AdminNotificationsPage() {
                     <TableBody>
                       {historyData.items.map((item) => {
                         const readPercentage =
-                          item.recipients_count > 0
+                           item.recipients_count > 0
                             ? Math.round(
                                 (item.read_count / item.recipients_count) * 100
                               )
@@ -615,10 +615,10 @@ export default function AdminNotificationsPage() {
                         return (
                           <TableRow key={item.id}>
                             <TableCell className="text-xs whitespace-nowrap">
-                              <span className="font-bold block">
+                              <span className="font-bold block text-[var(--ink-primary)]">
                                 {new Date(item.created_at).toLocaleDateString()}
                               </span>
-                              <span className="text-neutral-500">
+                              <span className="text-[var(--ink-secondary)]">
                                 {new Date(item.created_at).toLocaleTimeString([], {
                                   hour: "2-digit",
                                   minute: "2-digit",
@@ -638,23 +638,23 @@ export default function AdminNotificationsPage() {
                                 {item.target_type}
                               </Badge>
                               {item.target_id && (
-                                <span className="block text-[10px] text-neutral-500 font-mono mt-0.5 truncate max-w-[120px]">
+                                <span className="block text-[10px] text-[var(--ink-tertiary)] font-mono mt-0.5 truncate max-w-[120px]">
                                   {item.target_id}
                                 </span>
                               )}
                             </TableCell>
 
                             <TableCell className="max-w-xs md:max-w-md">
-                              <p className="font-bold text-xs text-black">
+                              <p className="font-bold text-xs text-[var(--ink-primary)]">
                                 {item.title}
                               </p>
-                              <p className="text-xs text-neutral-700 line-clamp-2 mt-0.5">
+                              <p className="text-xs text-[var(--ink-secondary)] line-clamp-2 mt-0.5">
                                 {item.body}
                               </p>
                               {item.action_url && (
                                 <a
                                   href={item.action_url}
-                                  className="inline-flex items-center gap-1 text-[11px] underline text-neutral-600 hover:text-black mt-1"
+                                  className="inline-flex items-center gap-1 text-[11px] underline text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] mt-1"
                                 >
                                   <span>{item.action_url}</span>
                                   <ExternalLink className="h-3 w-3" />
@@ -662,18 +662,18 @@ export default function AdminNotificationsPage() {
                               )}
                             </TableCell>
 
-                            <TableCell className="text-xs font-mono text-neutral-700">
+                            <TableCell className="text-xs font-mono text-[var(--ink-secondary)]">
                               {item.created_by_email || "System"}
                             </TableCell>
 
                             <TableCell className="text-right whitespace-nowrap">
-                              <div className="font-bold text-xs">
+                              <div className="font-bold text-xs text-[var(--ink-primary)]">
                                 {item.read_count} / {item.recipients_count}{" "}
-                                <span className="text-neutral-500 font-normal">
+                                <span className="text-[var(--ink-secondary)] font-normal">
                                   ({readPercentage}%)
                                 </span>
                               </div>
-                              <span className="text-[10px] text-neutral-500 uppercase">
+                              <span className="text-[10px] text-[var(--ink-tertiary)] uppercase font-semibold">
                                 Delivered
                               </span>
                             </TableCell>
@@ -685,7 +685,7 @@ export default function AdminNotificationsPage() {
 
                   {/* Pagination */}
                   <div className="flex items-center justify-between pt-2">
-                    <span className="text-xs text-neutral-500">
+                    <span className="text-xs text-[var(--ink-secondary)]">
                       Total: {historyData.total_count} records
                     </span>
 

@@ -115,10 +115,10 @@ export function RoundPanelCreateDialog({
         </div>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-3 font-mono text-xs">
+      <form onSubmit={handleSubmit} className="space-y-3 font-sans text-xs">
         {error && (
-          <div className="border border-black p-2 bg-neutral-100 font-bold">
-            ! {error}
+          <div className="rounded-[14px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] p-3 text-[var(--color-coral)] font-medium">
+            Notice: {error}
           </div>
         )}
 
@@ -146,39 +146,39 @@ export function RoundPanelCreateDialog({
           required
         />
 
-        <div className="space-y-1 pt-1 border-t border-neutral-200">
-          <label className="block text-[10px] uppercase font-bold text-neutral-600">
+        <div className="space-y-1 pt-1 border-t border-[var(--card-line)]">
+          <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
             Select Evaluators ({selectedJudgeIds.length} Selected) *
           </label>
 
           {usersLoading ? (
-            <div className="text-neutral-400">Loading evaluators...</div>
+            <div className="text-[var(--ink-tertiary)]">Loading evaluators...</div>
           ) : availableJudges.length === 0 ? (
-            <div className="text-neutral-500 italic p-2 border border-neutral-200 bg-neutral-50">
+            <div className="text-[var(--ink-tertiary)] italic p-3 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
               No users with judge role found.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto border border-neutral-200 p-2 bg-neutral-50">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded-[14px] border border-[var(--card-line)] p-2 bg-[var(--card-solid-subtle)]">
               {availableJudges.map((j) => {
                 const isSelected = selectedJudgeIds.includes(j.id);
                 return (
                   <label
                     key={j.id}
-                    className={`flex items-center gap-2 p-1.5 border cursor-pointer select-none ${
+                    className={`flex items-center gap-2 p-2 rounded-[10px] border cursor-pointer select-none transition-all ${
                       isSelected
-                        ? "border-black bg-white font-bold"
-                        : "border-neutral-200 bg-white/70 text-neutral-700"
+                        ? "border-[#83A2DB] bg-[var(--color-blue-dim)] text-[var(--ink-primary)] font-semibold"
+                        : "border-[var(--card-line)] bg-[var(--card-solid)] text-[var(--ink-secondary)]"
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => handleToggleJudge(j.id)}
-                      className="accent-black h-3.5 w-3.5 rounded-none"
+                      className="accent-[#83A2DB] h-3.5 w-3.5 rounded"
                     />
                     <div className="truncate">
-                      <div>{j.name}</div>
-                      <div className="text-[10px] text-neutral-400 font-mono">
+                      <div className="text-xs font-semibold text-[var(--ink-primary)]">{j.name}</div>
+                      <div className="text-[10px] text-[var(--ink-tertiary)] font-mono">
                         {j.email}
                       </div>
                     </div>

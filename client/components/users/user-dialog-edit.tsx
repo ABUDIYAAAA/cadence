@@ -116,25 +116,25 @@ function UserEditForm({
         ))}
       </Select>
 
-      <div className="pt-2 border-t border-neutral-200 text-xs">
+      <div className="pt-2 border-t border-[var(--card-line)] text-xs">
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
             checked={isActive}
             onChange={(e) => setIsActive(e.target.checked)}
             disabled={isLoading}
-            className="accent-black h-4 w-4 rounded-none"
+            className="accent-[#83A2DB] h-4 w-4 rounded"
           />
-          <span className="font-semibold text-black">
+          <span className="font-semibold text-[var(--ink-primary)]">
             Account Active Status
           </span>
         </label>
-        <p className="mt-1 text-[11px] text-neutral-500">
+        <p className="mt-1 text-[11px] text-[var(--ink-secondary)]">
           Deactivating an account prevents future logins.
         </p>
       </div>
 
-      <div className="flex justify-end gap-2 pt-3 border-t border-neutral-200">
+      <div className="flex justify-end gap-2 pt-3 border-t border-[var(--card-line)]">
         <Button
           variant="outline"
           size="sm"

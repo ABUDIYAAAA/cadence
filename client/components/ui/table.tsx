@@ -6,9 +6,12 @@ export function Table({
   ...props
 }: React.HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="w-full overflow-auto border border-neutral-300 font-mono text-sm">
+    <div className="w-full overflow-x-auto">
       <table
-        className={cn("w-full caption-bottom text-left border-collapse", className)}
+        className={cn(
+          "w-full text-left font-sans text-xs border-separate [border-spacing:0_0.5rem]",
+          className
+        )}
         {...props}
       />
     </div>
@@ -21,7 +24,7 @@ export function TableHeader({
 }: React.HTMLAttributes<HTMLTableSectionElement>) {
   return (
     <thead
-      className={cn("bg-neutral-100 border-b border-neutral-300", className)}
+      className={cn("[&_tr]:border-b-0", className)}
       {...props}
     />
   );
@@ -33,7 +36,7 @@ export function TableBody({
 }: React.HTMLAttributes<HTMLTableSectionElement>) {
   return (
     <tbody
-      className={cn("divide-y divide-neutral-200 bg-white", className)}
+      className={cn("[&_tr:last-child]:border-0", className)}
       {...props}
     />
   );
@@ -46,7 +49,7 @@ export function TableRow({
   return (
     <tr
       className={cn(
-        "transition-colors hover:bg-neutral-50 data-[state=selected]:bg-neutral-100",
+        "group transition-all duration-150 ease-out",
         className
       )}
       {...props}
@@ -61,7 +64,7 @@ export function TableHead({
   return (
     <th
       className={cn(
-        "h-9 px-4 text-xs font-semibold uppercase tracking-wider text-neutral-800 text-left align-middle",
+        "px-4 pb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--ink-tertiary)] text-left align-middle",
         className
       )}
       {...props}
@@ -75,7 +78,10 @@ export function TableCell({
 }: React.TdHTMLAttributes<HTMLTableCellElement>) {
   return (
     <td
-      className={cn("p-4 align-middle text-sm text-neutral-900", className)}
+      className={cn(
+        "bg-[var(--card-solid)] px-4 py-3 align-middle text-xs text-[var(--ink-primary)] border-y border-[var(--card-border)] group-hover:bg-[var(--card-solid-subtle)] transition-colors first:border-l first:rounded-l-[14px] last:border-r last:rounded-r-[14px] shadow-[var(--shadow-card)]",
+        className
+      )}
       {...props}
     />
   );

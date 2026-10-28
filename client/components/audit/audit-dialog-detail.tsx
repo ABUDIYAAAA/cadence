@@ -63,57 +63,57 @@ export function AuditDetailDialog({
         </div>
       }
     >
-      <div className="space-y-4 font-mono text-xs max-h-[65vh] overflow-y-auto pr-1">
+      <div className="space-y-4 font-sans text-xs max-h-[65vh] overflow-y-auto pr-1">
         {/* Core Attributes */}
-        <div className="border border-neutral-300 divide-y divide-neutral-200">
-          <div className="flex justify-between p-2.5 bg-neutral-50">
-            <span className="text-neutral-500">Action</span>
+        <div className="rounded-[16px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] overflow-hidden bg-[var(--card-solid)]">
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Action</span>
             <Badge variant="solid" size="sm">
               {log.action}
             </Badge>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Timestamp</span>
-            <span className="text-black font-semibold">
-              {new Date(log.created_at).toLocaleString()} ({log.created_at})
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">Timestamp</span>
+            <span className="text-[var(--ink-primary)] font-semibold font-mono">
+              {new Date(log.created_at).toLocaleString()}
             </span>
           </div>
 
-          <div className="p-2.5 bg-neutral-50 space-y-1">
-            <span className="text-neutral-500">Description</span>
-            <p className="text-black font-sans sm:font-mono text-xs leading-relaxed">
+          <div className="p-3 bg-[var(--card-solid-subtle)] space-y-1">
+            <span className="text-[var(--ink-secondary)]">Description</span>
+            <p className="text-[var(--ink-primary)] font-sans text-xs leading-relaxed">
               {log.description}
             </p>
           </div>
 
           {/* Actor Info */}
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Actor</span>
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">Actor</span>
             <div className="text-right">
-              <span className="font-bold text-black">
+              <span className="font-bold text-[var(--ink-primary)]">
                 {log.actor_email || "System"}
               </span>
               {log.actor_role && (
-                <span className="ml-2 uppercase text-[10px] text-neutral-500 font-semibold">
+                <span className="ml-2 uppercase text-[10px] text-[var(--ink-secondary)] font-semibold">
                   ({log.actor_role})
                 </span>
               )}
               {log.actor_id && (
-                <div className="text-[10px] text-neutral-400">{log.actor_id}</div>
+                <div className="text-[10px] text-[var(--ink-tertiary)] font-mono">{log.actor_id}</div>
               )}
             </div>
           </div>
 
           {/* Target Info */}
-          <div className="flex justify-between p-2.5 bg-neutral-50">
-            <span className="text-neutral-500">Target</span>
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Target</span>
             <div className="text-right">
-              <span className="font-semibold uppercase text-black">
+              <span className="font-semibold uppercase text-[var(--ink-primary)]">
                 {log.target_type}
               </span>
               {log.target_id && (
-                <div className="text-[10px] text-neutral-500 font-mono">
+                <div className="text-[10px] text-[var(--ink-secondary)] font-mono">
                   {log.target_id}
                 </div>
               )}
@@ -121,26 +121,26 @@ export function AuditDetailDialog({
           </div>
 
           {/* Network Info */}
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">IP Address</span>
-            <span className="font-mono text-black">
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">IP Address</span>
+            <span className="font-mono text-[var(--ink-primary)]">
               {log.ip_address || "—"}
             </span>
           </div>
 
           {log.device_id && (
-            <div className="flex justify-between p-2.5 bg-neutral-50">
-              <span className="text-neutral-500">Device ID</span>
-              <span className="font-mono text-neutral-700 break-all">
+            <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+              <span className="text-[var(--ink-secondary)]">Device ID</span>
+              <span className="font-mono text-[11px] text-[var(--ink-secondary)] break-all">
                 {log.device_id}
               </span>
             </div>
           )}
 
           {log.user_agent && (
-            <div className="p-2.5 space-y-1">
-              <span className="text-neutral-500">User Agent</span>
-              <p className="text-[11px] text-neutral-600 break-all leading-tight">
+            <div className="p-3 space-y-1">
+              <span className="text-[var(--ink-secondary)]">User Agent</span>
+              <p className="text-[11px] text-[var(--ink-secondary)] break-all leading-tight font-mono">
                 {log.user_agent}
               </p>
             </div>
@@ -150,11 +150,11 @@ export function AuditDetailDialog({
         {/* Metadata Section */}
         {hasMetadata && (
           <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5 text-neutral-600 font-semibold text-[11px] uppercase">
-              <Terminal className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-1.5 text-[var(--ink-secondary)] font-semibold text-[11px] uppercase">
+              <Terminal className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Event Context & Metadata</span>
             </div>
-            <pre className="border border-neutral-300 bg-neutral-900 text-neutral-100 p-3 text-[11px] overflow-x-auto leading-relaxed">
+            <pre className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] text-[var(--ink-primary)] p-3.5 text-[11px] overflow-x-auto leading-relaxed font-mono">
               {JSON.stringify(log.metadata, null, 2)}
             </pre>
           </div>

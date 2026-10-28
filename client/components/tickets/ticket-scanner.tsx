@@ -216,14 +216,21 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
   };
 
   return (
-    <div className="border border-neutral-300 bg-white p-4 font-mono space-y-4">
+    <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] font-sans space-y-5">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-neutral-200">
-        <div className="flex items-center gap-2">
-          <QrCode className="h-5 w-5 text-black" />
-          <h3 className="font-bold text-sm uppercase tracking-wider text-black">
-            Gate Entry QR Scanner
-          </h3>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--card-line)]">
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+            <QrCode className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-[var(--ink-primary)]">
+              Gate Entry QR Scanner
+            </h3>
+            <p className="text-xs text-[var(--ink-secondary)]">
+              Real-time camera feed and optical ticket verification
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -232,7 +239,7 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
               variant="outline"
               size="sm"
               onClick={stopCamera}
-              className="text-xs gap-1.5 h-8"
+              className="text-xs gap-1.5 h-9"
             >
               <CameraOff className="h-3.5 w-3.5" />
               <span>Turn Camera Off</span>
@@ -242,7 +249,7 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
               variant="primary"
               size="sm"
               onClick={startCamera}
-              className="text-xs gap-1.5 h-8"
+              className="text-xs gap-1.5 h-9"
             >
               <Camera className="h-3.5 w-3.5" />
               <span>Start Camera Scanner</span>
@@ -253,7 +260,15 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
 
       {/* Camera Viewport */}
       {isCameraActive && (
-        <div className="relative border-2 border-black bg-black aspect-video max-w-lg mx-auto flex items-center justify-center overflow-hidden">
+        <div
+          className={`relative rounded-[24px] bg-[#10141A] aspect-video max-w-lg mx-auto flex items-center justify-center overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(16,20,26,0.25)] ${
+            lastSuccess
+              ? "ring-4 ring-[#83A2DB]"
+              : lastDuplicate
+              ? "ring-4 ring-[#CE6969]"
+              : ""
+          }`}
+        >
           <video
             ref={(el) => {
               videoRef.current = el;
@@ -275,12 +290,14 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
           <canvas ref={canvasRef} className="hidden" />
 
           {/* Viewfinder Target Overlay */}
-          <div className="absolute inset-0 border-2 border-dashed border-white/70 m-6 pointer-events-none flex flex-col items-center justify-between p-2">
-            <span className="text-[10px] text-white bg-black/80 px-2 py-0.5 uppercase tracking-widest font-bold">
+          <div className="absolute inset-0 m-6 pointer-events-none flex flex-col items-center justify-between p-2">
+            <span className="text-[10px] text-white/90 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full uppercase tracking-widest font-semibold">
               Point at attendee QR pass
             </span>
-            <div className="w-full border-t border-red-500/80 animate-pulse my-auto" />
-            <span className="text-[9px] text-white/80 bg-black/60 px-1.5 py-0.2">
+            <div className="w-48 h-48 border-2 border-dashed border-white/60 rounded-[20px] flex items-center justify-center">
+              <div className="w-full border-t border-[#83A2DB] animate-pulse" />
+            </div>
+            <span className="text-[10px] text-white/70 bg-black/50 backdrop-blur-md px-2.5 py-0.5 rounded-full">
               Auto-detecting...
             </span>
           </div>
@@ -288,8 +305,8 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
       )}
 
       {cameraError && (
-        <div className="p-2 border border-black bg-neutral-100 text-xs text-neutral-800">
-          ! {cameraError} (Use manual input or USB handheld scanner below)
+        <div className="p-3.5 rounded-[14px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs text-[var(--color-coral)]">
+          Notice: {cameraError} (Use manual input or USB handheld scanner below)
         </div>
       )}
 
@@ -300,7 +317,7 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
           value={ticketInput}
           onChange={(e) => setTicketInput(e.target.value)}
           disabled={checkInMutation.isPending}
-          className="text-xs h-9 font-mono"
+          className="text-xs h-10 font-mono"
           autoFocus
         />
         <Button
@@ -309,7 +326,7 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
           type="submit"
           disabled={!ticketInput.trim() || checkInMutation.isPending}
           isLoading={checkInMutation.isPending}
-          className="text-xs h-9 px-4 shrink-0"
+          className="text-xs h-10 px-5 shrink-0 font-semibold"
         >
           Verify & Check-In
         </Button>
@@ -317,32 +334,32 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
 
       {/* Verification Feedback Banner */}
       {lastSuccess && (
-        <div className="border-2 border-black p-4 bg-white space-y-2">
-          <div className="flex items-center gap-2 text-black">
-            <CheckCircle2 className="h-5 w-5 text-black shrink-0" />
-            <span className="font-bold uppercase tracking-wider text-sm">
+        <div className="rounded-[18px] border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] p-4.5 space-y-3">
+          <div className="flex items-center gap-2 text-[var(--color-blue)]">
+            <CheckCircle2 className="h-5 w-5 shrink-0" />
+            <span className="font-bold uppercase tracking-wider text-xs">
               Check-In Approved: Entry Granted
             </span>
           </div>
 
-          <div className="border border-neutral-300 p-3 bg-neutral-50 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div>
-              <span className="text-neutral-500">Attendee: </span>
-              <strong className="text-black">{lastSuccess.attendee.name}</strong>
+              <span className="text-[var(--ink-secondary)]">Attendee: </span>
+              <strong className="text-[var(--ink-primary)]">{lastSuccess.attendee.name}</strong>
             </div>
             <div>
-              <span className="text-neutral-500">Email: </span>
-              <span className="font-mono">{lastSuccess.attendee.email}</span>
+              <span className="text-[var(--ink-secondary)]">Email: </span>
+              <span className="font-mono text-[var(--ink-primary)]">{lastSuccess.attendee.email}</span>
             </div>
             <div>
-              <span className="text-neutral-500">System Role: </span>
-              <span className="uppercase font-semibold">{lastSuccess.attendee.role}</span>
+              <span className="text-[var(--ink-secondary)]">System Role: </span>
+              <span className="uppercase font-semibold text-[var(--ink-primary)]">{lastSuccess.attendee.role}</span>
             </div>
             <div>
-              <span className="text-neutral-500">Squad: </span>
-              <span>{lastSuccess.attendee.team_name || "— No Team"}</span>
+              <span className="text-[var(--ink-secondary)]">Squad: </span>
+              <span className="text-[var(--ink-primary)] font-medium">{lastSuccess.attendee.team_name || "— No Team"}</span>
             </div>
-            <div className="sm:col-span-2 text-[10px] text-neutral-400 font-mono pt-1 border-t border-neutral-200">
+            <div className="sm:col-span-2 text-[10px] text-[var(--ink-tertiary)] font-mono pt-2 border-t border-[var(--card-line)]">
               Ticket Code: {lastSuccess.ticket_code} • Checked In:{" "}
               {new Date(lastSuccess.checked_in_at).toLocaleTimeString()}
             </div>
@@ -352,24 +369,24 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
 
       {/* Duplicate Warning Conflict */}
       {lastDuplicate && (
-        <div className="border-2 border-black p-4 bg-neutral-100 space-y-2">
-          <div className="flex items-center gap-2 text-black">
-            <AlertTriangle className="h-5 w-5 text-black shrink-0" />
-            <span className="font-bold uppercase tracking-wider text-sm">
+        <div className="rounded-[18px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] p-4.5 space-y-3">
+          <div className="flex items-center gap-2 text-[var(--color-coral)]">
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+            <span className="font-bold uppercase tracking-wider text-xs">
               Duplicate Scan Detected: Ticket Already Used!
             </span>
           </div>
 
-          <div className="border border-neutral-400 p-3 bg-white space-y-1 text-xs">
-            <p className="text-neutral-700">
+          <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 space-y-1.5 text-xs">
+            <p className="text-[var(--color-coral)]">
               This ticket was already checked in on{" "}
-              <strong>{new Date(lastDuplicate.checked_in_at).toLocaleString()}</strong>
+              <strong className="text-[var(--ink-primary)]">{new Date(lastDuplicate.checked_in_at).toLocaleString()}</strong>
               {lastDuplicate.checked_in_by_name && (
-                <> by volunteer: <strong>{lastDuplicate.checked_in_by_name}</strong></>
+                <> by volunteer: <strong className="text-[var(--ink-primary)]">{lastDuplicate.checked_in_by_name}</strong></>
               )}.
             </p>
-            <div className="pt-1 text-neutral-800">
-              <span>Registered to: </span>
+            <div className="pt-1 text-[var(--ink-primary)]">
+              <span className="text-[var(--ink-secondary)]">Registered to: </span>
               <strong>{lastDuplicate.attendee.name}</strong> ({lastDuplicate.attendee.email})
             </div>
           </div>
@@ -378,16 +395,16 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
 
       {/* Invalid Ticket Error */}
       {lastError && (
-        <div className="border-2 border-black p-3 bg-neutral-50 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <XCircle className="h-4 w-4 text-black shrink-0" />
-            <span className="font-semibold text-black">{lastError}</span>
+        <div className="rounded-[16px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] p-3.5 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-[var(--color-coral)]">
+            <XCircle className="h-4 w-4 shrink-0" />
+            <span className="font-semibold">{lastError}</span>
           </div>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setLastError(null)}
-            className="h-6 w-6 p-0"
+            className="h-7 w-7 p-0 rounded-full"
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </Button>

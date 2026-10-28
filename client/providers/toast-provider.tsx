@@ -62,48 +62,41 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toasts, toast, removeToast }}>
       {children}
-      {/* Toast Container */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none font-mono">
+      {/* Apple Floating Style Toast Container */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none font-sans">
         {toasts.map((item) => (
           <div
             key={item.id}
             className={cn(
-              "pointer-events-auto border-2 border-black bg-white p-3.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all animate-in slide-in-from-bottom-2 text-black",
-              item.type === "error" && "border-black bg-neutral-50",
-              item.type === "success" && "border-black bg-white"
+              "pointer-events-auto rounded-full bg-[#10141A] dark:bg-white text-white dark:text-[#10141A] px-4 py-2.5 shadow-[0_12px_28px_-6px_rgba(16,20,26,0.3)] dark:shadow-[0_12px_28px_-6px_rgba(255,255,255,0.2)] flex items-center justify-between gap-3 text-xs font-semibold animate-in slide-in-from-bottom-2 fade-in-0 duration-200"
             )}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.2 bg-black text-white">
-                    {item.type === "error"
-                      ? "ERR"
-                      : item.type === "success"
-                      ? "OK"
-                      : item.type === "warning"
-                      ? "WARN"
-                      : "INFO"}
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full shrink-0",
+                  item.type === "error" || item.type === "warning"
+                    ? "bg-[#CE6969]"
+                    : "bg-[#83A2DB]"
+                )}
+              />
+              <div className="truncate">
+                {item.title && (
+                  <span className="font-bold mr-1.5 uppercase tracking-wide opacity-80 text-[11px]">
+                    {item.title}:
                   </span>
-                  {item.title && (
-                    <h5 className="text-xs font-bold uppercase tracking-wider">
-                      {item.title}
-                    </h5>
-                  )}
-                </div>
-                <p className="text-xs text-neutral-800 leading-snug pt-1">
-                  {item.message}
-                </p>
+                )}
+                <span>{item.message}</span>
               </div>
-
-              <button
-                onClick={() => removeToast(item.id)}
-                className="text-neutral-500 hover:text-black text-sm leading-none p-1 transition-colors cursor-pointer"
-                aria-label="Dismiss toast"
-              >
-                ✕
-              </button>
             </div>
+
+            <button
+              onClick={() => removeToast(item.id)}
+              className="text-white/60 dark:text-[#10141A]/60 hover:text-white dark:hover:text-[#10141A] text-xs p-1 cursor-pointer transition-colors"
+              aria-label="Dismiss toast"
+            >
+              ✕
+            </button>
           </div>
         ))}
       </div>

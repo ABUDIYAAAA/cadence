@@ -40,6 +40,11 @@ const (
 	ActionJudgingSlotStart     = "judging.slot_start"
 	ActionJudgingScoreLock     = "judging.score_lock"
 	ActionJudgingSlotComplete  = "judging.slot_complete"
+
+	// Notification actions
+	ActionNotificationBroadcast   = "notification.broadcast"
+	ActionNotificationSubscribe   = "notification.subscribe"
+	ActionNotificationUnsubscribe = "notification.unsubscribe"
 )
 
 // Standardized target type constants
@@ -52,6 +57,7 @@ const (
 	TargetJudgingRound = "judging_round"
 	TargetJudgingSlot  = "judging_slot"
 	TargetJudgingPanel = "judging_panel"
+	TargetNotification = "notification"
 )
 
 // Event encapsulates a structured domain action to be recorded in the audit trail.

@@ -18,6 +18,7 @@ import (
 	"devclubxnst.com/cadence/internal/modules/audit"
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/internal/modules/judging"
+	"devclubxnst.com/cadence/internal/modules/notifications"
 	"devclubxnst.com/cadence/internal/modules/teams"
 	"devclubxnst.com/cadence/internal/modules/tickets"
 	"devclubxnst.com/cadence/internal/modules/users"
@@ -33,8 +34,9 @@ type Application struct {
 	Redis         *redis.Client
 	Mailer        *mailer.Mailer
 	MailQueue     *mailer.Queue
-	AuditQueue    *audit.Queue
-	Limiter       *ratelimit.Limiter
+	AuditQueue        *audit.Queue
+	NotificationQueue *notifications.Queue
+	Limiter           *ratelimit.Limiter
 	LoginGuard    *ratelimit.LoginGuard
 	Logger        *slog.Logger
 	Router        *chi.Mux
@@ -165,6 +167,18 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	judgingService := judging.NewService(judgingRepo, auditQueue)
 	judgingHandler := judging.NewHandler(judgingService)
 
+	// Notifications & Web Push module initialization
+	notifRepo := notifications.NewRepository(dbPool)
+	notifQueue, err := notifications.NewQueue(cfg, notifRepo, appLogger)
+	if err != nil {
+		appLogger.Warn("RabbitMQ push notification queue connection failed; push worker disabled", slog.Any("error", err))
+	} else {
+		// Launch 3 background consumer goroutines for Web Push dispatch
+		notifQueue.StartConsumers(ctx, 3)
+	}
+	notifService := notifications.NewService(notifRepo, notifQueue, cfg, auditQueue)
+	notifHandler := notifications.NewHandler(notifService)
+
 	// Mount API v1
 	router.Route("/api/v1", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
@@ -172,16 +186,18 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
 		tickets.RegisterRoutes(r, ticketsHandler, authMiddleware)
 		judging.RegisterRoutes(r, judgingHandler, authMiddleware)
+		notifications.RegisterRoutes(r, notifHandler, authMiddleware)
 		audit.RegisterRoutes(r, auditHandler, authMiddleware)
 	})
 
 	return &Application{
-		Config:        cfg,
-		DB:            dbPool,
-		Redis:         redisClient,
-		Mailer:        mailClient,
-		MailQueue:     mailQueue,
-		AuditQueue:    auditQueue,
+		Config:            cfg,
+		DB:                dbPool,
+		Redis:             redisClient,
+		Mailer:            mailClient,
+		MailQueue:         mailQueue,
+		AuditQueue:        auditQueue,
+		NotificationQueue: notifQueue,
 		Limiter:       limiter,
 		LoginGuard:    loginGuard,
 		Logger:        appLogger,

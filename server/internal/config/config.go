@@ -46,6 +46,11 @@ type Config struct {
 	SeedAdminEmail    string `env:"SEED_ADMIN_EMAIL,required"`
 	SeedAdminPassword string `env:"SEED_ADMIN_PASSWORD,required"`
 	SeedAdminName     string `env:"SEED_ADMIN_NAME,required"`
+
+	// Web Push VAPID Settings
+	VAPIDPublicKey  string `env:"VAPID_PUBLIC_KEY,required"`
+	VAPIDPrivateKey string `env:"VAPID_PRIVATE_KEY,required"`
+	VAPIDSubject    string `env:"VAPID_SUBJECT,required"`
 }
 
 func (c *Config) IsProduction() bool {

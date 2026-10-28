@@ -23,54 +23,93 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           ENV_FILE: ${{ secrets.ENV }}
         run: |
+          set -e
+
           mkdir -p ~/.ssh
-          echo "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
 
+          SSH_OPTS="-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no"
+
           # Write .env to VPS
-          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no "ubuntu@${VPS_HOST}" "mkdir -p ~/projects"
-          printf '%s\n' "$ENV_FILE" | ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no "ubuntu@${VPS_HOST}" "cat > ~/projects/.cadence.env"
+          ssh $SSH_OPTS "ubuntu@${VPS_HOST}" "mkdir -p ~/projects"
+          printf '%s\n' "$ENV_FILE" | ssh $SSH_OPTS "ubuntu@${VPS_HOST}" "cat > ~/projects/.cadence.env"
 
-          # Clone/pull, migrate, seed, start containers, and prune images
-          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no "ubuntu@${VPS_HOST}" << 'EOF'
-            set -e
-            if [ ! -d ~/projects/cadence/.git ]; then
-              git clone https://github.com/ABUDIYAAAA/cadence.git ~/projects/cadence
-            fi
+          # Clone/pull, migrate, seed, start containers, and verify
+          ssh $SSH_OPTS "ubuntu@${VPS_HOST}" 'bash -s' <<'REMOTE'
+          set -e
 
-            cd ~/projects/cadence
-            git fetch origin main
-            git reset --hard origin/main
+          if [ ! -d ~/projects/cadence/.git ]; then
+            git clone https://github.com/ABUDIYAAAA/cadence.git ~/projects/cadence
+          fi
 
-            cd server
-            mv ~/projects/.cadence.env .env
-            chmod 600 .env
+          cd ~/projects/cadence
+          git fetch origin main
+          git reset --hard origin/main
 
-            export METRICS_SCRAPE_TOKEN=$(grep '^METRICS_SCRAPE_TOKEN=' .env | cut -d= -f2- | tr -d '\r"')
+          cd server
+          mv ~/projects/.cadence.env .env
+          chmod 600 .env
 
-            docker compose --env-file .env -f docker-compose.prod.yml up -d db redis rabbitmq
-            docker compose --env-file .env -f docker-compose.prod.yml build backend
-            docker compose --env-file .env -f docker-compose.prod.yml run --rm --entrypoint /app/cadence-migrate backend
-            docker compose --env-file .env -f docker-compose.prod.yml run --rm --entrypoint /app/cadence-seed backend
-            docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
-            docker image prune -f
-          EOF
+          export METRICS_SCRAPE_TOKEN="$(grep '^METRICS_SCRAPE_TOKEN=' .env | cut -d= -f2- | tr -d '\r"')"
+
+          COMPOSE="docker compose --env-file .env -f docker-compose.prod.yml"
+
+          $COMPOSE up -d db redis rabbitmq
+          $COMPOSE build backend
+          $COMPOSE run --rm --entrypoint /app/cadence-migrate backend
+          $COMPOSE run --rm --entrypoint /app/cadence-seed backend
+          $COMPOSE up -d --remove-orphans
+
+          # Verify the persistent backend container exists and is running.
+          if ! docker inspect cadence-backend >/dev/null 2>&1; then
+            echo "ERROR: cadence-backend was not created."
+            $COMPOSE ps -a
+            exit 1
+          fi
+
+          if [ "$(docker inspect -f '{{.State.Running}}' cadence-backend)" != "true" ]; then
+            echo "ERROR: cadence-backend is not running."
+            $COMPOSE ps -a
+            $COMPOSE logs --tail=100 backend
+            exit 1
+          fi
+
+          echo "Backend is running."
+          $COMPOSE ps -a
+          $COMPOSE logs --tail=100 backend
+
+          docker image prune -f
+          REMOTE
 
           rm -f ~/.ssh/id_deploy
+
       - name: Verify production containers
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
+          set -e
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+          ssh -i ~/.ssh/id_deploy \
+            -o StrictHostKeyChecking=no \
+            "ubuntu@${VPS_HOST}" 'bash -s' <<'REMOTE'
+          set -e
           cd ~/projects/cadence/server
 
-          docker compose \
-            --env-file .env \
-            -f docker-compose.prod.yml \
-            ps -a
+          docker compose --env-file .env -f docker-compose.prod.yml ps -a
 
           docker inspect cadence-backend \
-            --format='Status={{.State.Status}} Running={{.State.Running}}' \
-            || true
+            --format='Status={{.State.Status}} Running={{.State.Running}}'
 
-          docker compose \
-            --env-file .env \
-            -f docker-compose.prod.yml \
+          docker compose --env-file .env -f docker-compose.prod.yml \
             logs --tail=100 backend
+
+          test "$(docker inspect -f '{{.State.Running}}' cadence-backend)" = "true"
+          REMOTE
+
+          rm -f ~/.ssh/id_deploy

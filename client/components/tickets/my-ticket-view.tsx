@@ -29,6 +29,10 @@ export function MyTicketView() {
     );
   }
 
+  const qrImageSrc = ticket.qr_code_base64.startsWith("data:")
+    ? ticket.qr_code_base64
+    : `data:image/png;base64,${ticket.qr_code_base64}`;
+
   return (
     <div className="max-w-md mx-auto font-mono">
       <Card className="border-2 border-black text-center shadow-xl">
@@ -57,7 +61,7 @@ export function MyTicketView() {
           <div className="p-3 border-2 border-black bg-white inline-block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={`data:image/png;base64,${ticket.qr_code_base64}`}
+              src={qrImageSrc}
               alt="Cadence Entry QR Pass"
               className="h-56 w-56 object-contain"
             />

@@ -51,6 +51,9 @@ type Config struct {
 	VAPIDPublicKey  string `env:"VAPID_PUBLIC_KEY,required"`
 	VAPIDPrivateKey string `env:"VAPID_PRIVATE_KEY,required"`
 	VAPIDSubject    string `env:"VAPID_SUBJECT,required"`
+
+	// Telemetry & Metrics Scrape Authentication
+	MetricsScrapeToken string `env:"METRICS_SCRAPE_TOKEN"`
 }
 
 func (c *Config) IsProduction() bool {

@@ -1,8 +1,10 @@
 package metrics
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -128,6 +130,35 @@ var (
 		[]string{"audience_type", "channel", "status"},
 	)
 )
+
+// AuthMiddleware protects the /metrics endpoint with a Bearer token.
+// Uses crypto/subtle.ConstantTimeCompare to prevent timing attacks.
+func AuthMiddleware(expectedToken string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if expectedToken == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			authHeader := r.Header.Get("Authorization")
+			token := ""
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			} else if qToken := r.URL.Query().Get("token"); qToken != "" {
+				token = qToken
+			}
+
+			if subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="cadence-metrics"`)
+				http.Error(w, "Unauthorized: invalid or missing scrape token", http.StatusUnauthorized)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 // Middleware returns a Chi HTTP middleware that instruments RED metrics.
 // It normalizes Chi route patterns (e.g. /api/v1/users/{id}) to prevent high metric cardinality.

@@ -6,3 +6,4 @@ export { RoundDetailDialog } from "./round-dialog-detail";
 export { RoundActivateDialog } from "./round-dialog-activate";
 export { VolunteerScheduleView } from "./volunteer-schedule-view";
 export { ParticipantJudgingStatusView } from "./participant-status-view";
+export { JudgeEvaluationView } from "./judge-evaluation-view";

@@ -13,6 +13,7 @@ import {
   Layers,
   DoorOpen,
   UserCheck,
+  CheckSquare,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -43,17 +44,20 @@ import {
   RoundActivateDialog,
   VolunteerScheduleView,
   ParticipantJudgingStatusView,
+  JudgeEvaluationView,
 } from "@/components/judging";
 
-type AdminJudgingView = "rounds" | "volunteer_monitor" | "participant_preview";
+type JudgingTab = "evaluation" | "rounds" | "volunteer_monitor" | "participant_preview";
 
 export default function JudgingPage() {
   const router = useRouter();
   const toast = useToast();
   const { user, isAdmin, isJudge, isVolunteer, isParticipant, isLoading: authLoading } = useAuth();
 
-  // Active view tab for admins & judges
-  const [adminView, setAdminView] = useState<AdminJudgingView>("rounds");
+  // Active view tab: judges default to evaluation scorecard, admins default to rounds
+  const [selectedTab, setSelectedTab] = useState<JudgingTab>("rounds");
+  const activeTab: JudgingTab = isJudge && !isAdmin ? "evaluation" : selectedTab;
+  const setActiveTab = setSelectedTab;
 
   // Queries & Mutations
   const {
@@ -142,7 +146,7 @@ export default function JudgingPage() {
     );
   }
 
-  // 3. Admin & Judge View
+  // 3. Admin & Judge View Handlers
   const handleOpenActivate = (roundId: string) => {
     if (!isAdmin) {
       toast.error("Only administrators can activate judging rounds.");
@@ -266,27 +270,43 @@ export default function JudgingPage() {
             </h1>
           </div>
           <p className="text-sm text-neutral-600 mt-1">
-            Configure evaluation rounds, monitor volunteer staging rooms, and inspect participant queues.
+            Grade team pitches, monitor volunteer staging rooms, and orchestrate evaluation rounds.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="border border-black p-0.5 bg-neutral-100 flex items-center">
+          <div className="border border-black p-0.5 bg-neutral-100 flex items-center flex-wrap">
+            {/* Judge Evaluation View */}
             <button
-              onClick={() => setAdminView("rounds")}
+              onClick={() => setActiveTab("evaluation")}
               className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
-                adminView === "rounds"
+                activeTab === "evaluation"
+                  ? "bg-black text-white"
+                  : "text-neutral-700 hover:text-black"
+              }`}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              {isJudge && !isAdmin ? "Evaluation Scorecard" : "Judge Scorecards"}
+            </button>
+
+            {/* Rounds Registry / Configuration */}
+            <button
+              onClick={() => setActiveTab("rounds")}
+              className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+                activeTab === "rounds"
                   ? "bg-black text-white"
                   : "text-neutral-700 hover:text-black"
               }`}
             >
               <Award className="h-3.5 w-3.5" />
-              Rounds Configuration
+              {isAdmin ? "Rounds Configuration" : "Rounds Overview"}
             </button>
+
+            {/* Room Staging Monitor */}
             <button
-              onClick={() => setAdminView("volunteer_monitor")}
+              onClick={() => setActiveTab("volunteer_monitor")}
               className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
-                adminView === "volunteer_monitor"
+                activeTab === "volunteer_monitor"
                   ? "bg-black text-white"
                   : "text-neutral-700 hover:text-black"
               }`}
@@ -294,11 +314,12 @@ export default function JudgingPage() {
               <DoorOpen className="h-3.5 w-3.5" />
               Room Staging (Volunteers)
             </button>
+
             {isAdmin && (
               <button
-                onClick={() => setAdminView("participant_preview")}
+                onClick={() => setActiveTab("participant_preview")}
                 className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
-                  adminView === "participant_preview"
+                  activeTab === "participant_preview"
                     ? "bg-black text-white"
                     : "text-neutral-700 hover:text-black"
                 }`}
@@ -311,18 +332,23 @@ export default function JudgingPage() {
         </div>
       </div>
 
-      {/* VIEW 1: VOLUNTEER STAGING SCHEDULE MONITOR */}
-      {adminView === "volunteer_monitor" && (
+      {/* TAB 1: JUDGE EVALUATION SCORECARDS */}
+      {activeTab === "evaluation" && (
+        <JudgeEvaluationView />
+      )}
+
+      {/* TAB 2: VOLUNTEER STAGING SCHEDULE MONITOR */}
+      {activeTab === "volunteer_monitor" && (
         <VolunteerScheduleView />
       )}
 
-      {/* VIEW 2: PARTICIPANT PREVIEW */}
-      {adminView === "participant_preview" && (
+      {/* TAB 3: PARTICIPANT PREVIEW */}
+      {activeTab === "participant_preview" && (
         <ParticipantJudgingStatusView />
       )}
 
-      {/* VIEW 3: ROUNDS MANAGEMENT & CONFIGURATION */}
-      {adminView === "rounds" && (
+      {/* TAB 4: ROUNDS MANAGEMENT & CONFIGURATION */}
+      {activeTab === "rounds" && (
         <>
           <div className="flex items-center justify-between gap-4">
             <div className="text-sm uppercase font-bold text-neutral-600">

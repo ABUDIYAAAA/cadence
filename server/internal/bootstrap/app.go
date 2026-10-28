@@ -143,8 +143,8 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		})
 	})
 
-	// Prometheus metrics endpoint
-	router.Handle("/metrics", promhttp.Handler())
+	// Prometheus metrics endpoint (protected by constant-time scrape token verification)
+	router.With(metrics.AuthMiddleware(cfg.MetricsScrapeToken)).Handle("/metrics", promhttp.Handler())
 
 	// Register PostgreSQL connection pool stats
 	metrics.RegisterDBStats(dbPool)

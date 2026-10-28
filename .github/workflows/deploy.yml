@@ -62,7 +62,7 @@ jobs:
           if [[ "$HOST_RAW" == *"@"* ]]; then
             SSH_TARGET="$HOST_RAW"
           else
-            SSH_TARGET="root@${HOST_RAW}"
+            SSH_TARGET="ubuntu@${HOST_RAW}"
           fi
 
           ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$SSH_TARGET" \
@@ -91,7 +91,7 @@ jobs:
           if [[ "$HOST_RAW" == *"@"* ]]; then
             SSH_TARGET="$HOST_RAW"
           else
-            SSH_TARGET="root@${HOST_RAW}"
+            SSH_TARGET="ubuntu@${HOST_RAW}"
           fi
 
           ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$SSH_TARGET" 'bash -s' << 'EOF'

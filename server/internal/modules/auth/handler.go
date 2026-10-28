@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/ratelimit"
+	"devclubxnst.com/cadence/pkg/logger"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
@@ -75,6 +77,7 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrInactiveUser):
 			utils.ErrorJSON(w, http.StatusForbidden, "user account is deactivated")
 		default:
+			logger.FromContext(r.Context()).Error("login internal error", slog.Any("error", err))
 			utils.ErrorJSON(w, http.StatusInternalServerError, "internal server error")
 		}
 		return

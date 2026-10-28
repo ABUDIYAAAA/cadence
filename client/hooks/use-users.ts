@@ -77,8 +77,13 @@ export function useDeleteUser() {
 }
 
 export function useSendInvite() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id: string) => usersService.sendInvite(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
   });
 }
 
@@ -95,7 +100,12 @@ export function useBulkSendInvite() {
 }
 
 export function useTriggerResetPassword() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id: string) => usersService.triggerResetPassword(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
   });
 }

@@ -125,12 +125,12 @@ func (r *Repository) UpdatePassword(ctx context.Context, userID, passwordHash st
 func (r *Repository) CreateRefreshToken(ctx context.Context, s *RefreshToken) error {
 	query := `
 		INSERT INTO refresh_tokens (user_id, device_id, token_hash, family_id, parent_id, user_agent, ip_address, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, created_at
+		VALUES ($1, $2, $3, COALESCE(NULLIF($4, '')::uuid, gen_random_uuid()), $5, $6, $7, $8)
+		RETURNING id, family_id, created_at
 	`
 	err := r.db.QueryRow(ctx, query,
 		s.UserID, s.DeviceID, s.TokenHash, s.FamilyID, s.ParentID, s.UserAgent, s.IPAddress, s.ExpiresAt,
-	).Scan(&s.ID, &s.CreatedAt)
+	).Scan(&s.ID, &s.FamilyID, &s.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert refresh token: %w", err)
 	}

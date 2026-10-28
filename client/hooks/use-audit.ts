@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { auditService } from "@/services/audit.service";
 import { AuditLogFilter } from "@/types/audit";
 
@@ -10,5 +10,11 @@ export function useAuditLogs(filters?: AuditLogFilter) {
   return useQuery({
     queryKey: [...AUDIT_QUERY_KEY, "list", filters],
     queryFn: () => auditService.list(filters),
+  });
+}
+
+export function useExportAuditLogs() {
+  return useMutation({
+    mutationFn: (filters?: AuditLogFilter) => auditService.export(filters),
   });
 }

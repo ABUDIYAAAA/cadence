@@ -1,8 +1,11 @@
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from "axios";
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  InternalAxiosRequestConfig,
+} from "axios";
 import { ApiError } from "@/types/api";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -33,17 +36,31 @@ const processQueue = (error: unknown) => {
 // Response interceptor: handle automatic token refresh and format errors
 apiClient.interceptors.response.use(
   (response) => response,
-  async (error: AxiosError<{ error?: string; message?: string; details?: Record<string, string> }>) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+  async (
+    error: AxiosError<{
+      error?: string;
+      message?: string;
+      details?: Record<string, string>;
+    }>,
+  ) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & {
+      _retry?: boolean;
+    };
 
-    // If 401 occurs and not already retried or on auth routes (login/refresh/me)
+    // If 401 occurs and not already retried or on auth routes (login/refresh/me/reset)
     const isAuthRoute =
       originalRequest?.url?.includes("/auth/login") ||
       originalRequest?.url?.includes("/auth/refresh") ||
+      originalRequest?.url?.includes("/auth/me") ||
+      originalRequest?.url?.includes("/auth/forgot-password") ||
       originalRequest?.url?.includes("/auth/setup-password") ||
       originalRequest?.url?.includes("/auth/reset-password");
 
-    if (error.response?.status === 401 && !originalRequest?._retry && !isAuthRoute) {
+    if (
+      error.response?.status === 401 &&
+      !originalRequest?._retry &&
+      !isAuthRoute
+    ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -68,15 +85,22 @@ apiClient.interceptors.response.use(
     }
 
     return Promise.reject(formatApiError(error));
-  }
+  },
 );
 
 export function formatApiError(
-  error: AxiosError<{ error?: string; message?: string; details?: Record<string, string> }>
+  error: AxiosError<{
+    error?: string;
+    message?: string;
+    details?: Record<string, string>;
+  }>,
 ): ApiError {
   if (error.response?.data) {
     return {
-      error: error.response.data.error || error.response.data.message || "An unexpected error occurred",
+      error:
+        error.response.data.error ||
+        error.response.data.message ||
+        "An unexpected error occurred",
       details: error.response.data.details,
       status: error.response.status,
     };

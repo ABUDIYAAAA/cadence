@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo } from "react";
 import { UserResponse, UserRole } from "@/types/auth";
 import { useCurrentUser, useLogout } from "@/hooks/use-auth";
+import { unsubscribePush } from "@/lib/push-notifications";
 
 interface AuthContextType {
   user: UserResponse | null;
@@ -31,10 +32,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     try {
+      // 1. Clean up push notification subscription (deregister from server & browser)
+      await unsubscribePush();
+    } catch (pushErr) {
+      console.warn("Push subscription cleanup error during logout:", pushErr);
+    }
+
+    try {
+      // 2. Clear any session-scoped notification prompt flags
+      sessionStorage.removeItem("cadence_push_prompt_dismissed");
+    } catch {}
+
+    try {
+      // 3. Invalidate auth cookies and revoke refresh token on backend
       await logoutMutation.mutateAsync();
       window.location.href = "/login";
     } catch (err) {
       console.error("Logout error", err);
+      window.location.href = "/login";
     }
   };
 

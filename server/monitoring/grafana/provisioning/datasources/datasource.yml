@@ -7,8 +7,5 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: false
-    basicAuth: true
-    basicAuthUser: ${PROMETHEUS_USER}
-    basicAuthPassword: ${PROMETHEUS_PASSWORD}
     jsonData:
       timeInterval: 5s

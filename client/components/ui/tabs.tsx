@@ -23,7 +23,7 @@ export function Tabs({
 
   return (
     <TabsContext.Provider value={{ activeTab, setActiveTab }}>
-      <div className={cn("w-full font-mono", className)}>{children}</div>
+      <div className={cn("w-full font-sans", className)}>{children}</div>
     </TabsContext.Provider>
   );
 }
@@ -38,7 +38,7 @@ export function TabsList({
   return (
     <div
       className={cn(
-        "inline-flex border border-neutral-300 bg-neutral-100 p-1 gap-1",
+        "inline-flex items-center rounded-full bg-[var(--card-solid-subtle)] border border-[var(--card-line)] p-1 gap-1",
         className
       )}
     >
@@ -66,10 +66,10 @@ export function TabsTrigger({
       type="button"
       onClick={() => context.setActiveTab(value)}
       className={cn(
-        "px-3 py-1.5 text-xs uppercase font-medium tracking-wider transition-colors cursor-pointer",
+        "rounded-full px-4 py-1.5 text-xs font-semibold select-none cursor-pointer transition-all duration-150 active:scale-95",
         isActive
-          ? "bg-black text-white"
-          : "text-neutral-700 hover:text-black hover:bg-neutral-200",
+          ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+          : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)]",
         className
       )}
     >
@@ -92,5 +92,9 @@ export function TabsContent({
 
   if (context.activeTab !== value) return null;
 
-  return <div className={cn("pt-4", className)}>{children}</div>;
+  return (
+    <div className={cn("pt-4 animate-in fade-in-0 duration-150", className)}>
+      {children}
+    </div>
+  );
 }

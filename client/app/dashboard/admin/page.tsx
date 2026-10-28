@@ -6,6 +6,7 @@ import { Users, ArrowRight, ShieldCheck, Mail, UserPlus, Activity, FileSpreadshe
 import { RoleDashboard } from "@/components/dashboard/role-dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 export default function AdminDashboardPage() {
   return (
@@ -14,35 +15,37 @@ export default function AdminDashboardPage() {
       title="Administrator Operations"
       description="Full administrative access to manage events, participants, scoring rounds, panels, and tickets."
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 font-sans">
         {/* Push & Broadcast Notifications Card */}
-        <Card className="hover:border-black transition-colors">
+        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bell className="h-5 w-5 text-black" />
-                <CardTitle className="text-sm">Push & Broadcast</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <Bell className="h-4 w-4" />
+                </div>
+                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Push & Broadcast</CardTitle>
               </div>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+              <Badge variant="blue" size="sm">
                 Admin
-              </span>
+              </Badge>
             </div>
-            <CardDescription>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Publish real-time announcements, emergency alerts, and room calls via RabbitMQ Web Push and in-app feeds.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <Radio className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <Radio className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Target: Broadcast, Role, Team, or Direct User</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <Send className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <Send className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Delivery tracking & read receipts history</span>
             </div>
             <div className="pt-2">
               <Link href="/dashboard/admin/notifications">
-                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5 h-9 font-semibold">
                   <span>Open Notification Console</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
@@ -52,33 +55,35 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Users Management Quick Card */}
-        <Card className="hover:border-black transition-colors">
+        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-black" />
-                <CardTitle className="text-sm">User Directory</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <Users className="h-4 w-4" />
+                </div>
+                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">User Directory</CardTitle>
               </div>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+              <Badge variant="blue" size="sm">
                 Admin
-              </span>
+              </Badge>
             </div>
-            <CardDescription>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Manage accounts, assign roles (Judges, Volunteers, Participants), link teams, and track onboarding status.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <UserPlus className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <UserPlus className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Bulk CSV imports & single-user creation</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <Mail className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <Mail className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Password setup & token reset dispatch</span>
             </div>
             <div className="pt-2">
               <Link href="/dashboard/users">
-                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5 h-9 font-semibold">
                   <span>Open Users Directory</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
@@ -88,33 +93,35 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Audit Trail Card */}
-        <Card className="hover:border-black transition-colors">
+        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-black" />
-                <CardTitle className="text-sm">Security Audit Trail</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <Activity className="h-4 w-4" />
+                </div>
+                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Security Audit Trail</CardTitle>
               </div>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+              <Badge variant="blue" size="sm">
                 Admin
-              </span>
+              </Badge>
             </div>
-            <CardDescription>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Immutable historical logs of user actions, auth attempts, ticket scans, score submissions, and broadcast notifications.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <FileSpreadsheet className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <FileSpreadsheet className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>CSV streaming export for forensic auditing</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <ShieldCheck className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <ShieldCheck className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>IP, User-Agent, and device correlation</span>
             </div>
             <div className="pt-2">
               <Link href="/dashboard/audit">
-                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5 h-9 font-semibold">
                   <span>View Audit Trail</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
@@ -124,33 +131,35 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Squads & Teams Card */}
-        <Card className="hover:border-black transition-colors">
+        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Layers className="h-5 w-5 text-black" />
-                <CardTitle className="text-sm">Teams & Squads</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <Layers className="h-4 w-4" />
+                </div>
+                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Teams & Squads</CardTitle>
               </div>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+              <Badge variant="blue" size="sm">
                 Admin
-              </span>
+              </Badge>
             </div>
-            <CardDescription>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Organize hackathon squads, manage participant allocations, designate leaders, and inspect team rosters.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <Users className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <Users className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Full roster member management & leader promotion</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <ShieldCheck className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <ShieldCheck className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Safe member detachment upon squad dissolution</span>
             </div>
             <div className="pt-2">
               <Link href="/dashboard/teams">
-                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5 h-9 font-semibold">
                   <span>Open Teams Manager</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
@@ -160,33 +169,35 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Ticketing & Gate Operations Card */}
-        <Card className="hover:border-black transition-colors">
+        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Ticket className="h-5 w-5 text-black" />
-                <CardTitle className="text-sm">Tickets & Gate Check-In</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <Ticket className="h-4 w-4" />
+                </div>
+                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Tickets & Gate Check-In</CardTitle>
               </div>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+              <Badge variant="blue" size="sm">
                 Admin
-              </span>
+              </Badge>
             </div>
-            <CardDescription>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Bulk QR pass issuance, domain-filtered distribution, live camera scanner, and real-time attendance analytics.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <QrCode className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <QrCode className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Multi-select QR dispatch with excluded domain filtering</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-neutral-600">
-              <Scan className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-xs text-[var(--ink-secondary)]">
+              <Scan className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               <span>Instant camera scanning & duplicate detection</span>
             </div>
             <div className="pt-2">
               <Link href="/dashboard/tickets">
-                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5 h-9 font-semibold">
                   <span>Open Ticketing Console</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
@@ -196,63 +207,68 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Security & Access Policy Card */}
-        <Card className="hover:border-black transition-colors">
+        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-black" />
-                <CardTitle className="text-sm">Access Control Policy</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <ShieldCheck className="h-4 w-4" />
+                </div>
+                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Access Control Policy</CardTitle>
               </div>
-              <span className="text-[10px] border border-black px-2 py-0.5 uppercase tracking-wider font-bold">
+              <Badge variant="subtle" size="sm">
                 Active
-              </span>
+              </Badge>
             </div>
-            <CardDescription>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Distributed JWT session enforcement backed by high-speed Redis blocklists for instantaneous account revocation (&lt;1ms).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="text-xs text-neutral-600 space-y-1">
-              <div className="flex justify-between py-1 border-b border-neutral-100">
+            <div className="text-xs text-[var(--ink-secondary)] space-y-1">
+              <div className="flex justify-between py-1.5 border-b border-[var(--card-line)]">
                 <span>Session Duration:</span>
-                <span className="font-bold text-black">15 Minutes (Sliding)</span>
+                <span className="font-bold font-mono text-[var(--ink-primary)]">15 Minutes (Sliding)</span>
               </div>
-              <div className="flex justify-between py-1 border-b border-neutral-100">
+              <div className="flex justify-between py-1.5 border-b border-[var(--card-line)]">
                 <span>Refresh Lifetime:</span>
-                <span className="font-bold text-black">7 Days (HTTP-only)</span>
+                <span className="font-bold font-mono text-[var(--ink-primary)]">7 Days (HTTP-only)</span>
               </div>
-              <div className="flex justify-between py-1">
+              <div className="flex justify-between py-1.5">
                 <span>Revocation Latency:</span>
-                <span className="font-bold text-black">&lt;1 ms (Redis Cluster)</span>
+                <span className="font-bold font-mono text-[var(--ink-primary)]">&lt;1 ms (Redis Cluster)</span>
               </div>
             </div>
           </CardContent>
         </Card>
+
         {/* Observability & Grafana Telemetry Card */}
-        <Card className="hover:border-black transition-colors">
+        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-black" />
-                <CardTitle className="text-sm">Grafana Telemetry</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <Activity className="h-4 w-4" />
+                </div>
+                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Grafana Telemetry</CardTitle>
               </div>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+              <Badge variant="blue" size="sm">
                 Port 3001
-              </span>
+              </Badge>
             </div>
-            <CardDescription>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Live Prometheus metrics dashboard tracking RED requests, P95 latencies, auth events, rate limits, and PG pool connections.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="text-xs text-neutral-600 space-y-1">
-              <div className="flex justify-between py-1 border-b border-neutral-100">
+            <div className="text-xs text-[var(--ink-secondary)] space-y-1">
+              <div className="flex justify-between py-1.5 border-b border-[var(--card-line)]">
                 <span>Prometheus Scrape:</span>
-                <span className="font-bold text-black">Every 5 Seconds</span>
+                <span className="font-bold font-mono text-[var(--ink-primary)]">Every 5 Seconds</span>
               </div>
-              <div className="flex justify-between py-1 border-b border-neutral-100">
+              <div className="flex justify-between py-1.5 border-b border-[var(--card-line)]">
                 <span>Metrics Tracked:</span>
-                <span className="font-bold text-black">RED, Security, PG Pool, Go GC</span>
+                <span className="font-bold font-mono text-[var(--ink-primary)]">RED, Security, PG Pool, Go GC</span>
               </div>
             </div>
             <div className="pt-2">
@@ -261,7 +277,7 @@ export default function AdminDashboardPage() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5 h-9 font-semibold">
                   <span>Open Grafana Dashboard</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>

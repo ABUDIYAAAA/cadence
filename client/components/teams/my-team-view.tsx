@@ -21,9 +21,9 @@ export function MyTeamView() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 font-mono">
-        <Skeleton className="h-8 w-1/4" />
-        <Skeleton className="h-32 w-full" />
+      <div className="space-y-4 font-sans">
+        <Skeleton className="h-8 w-1/4 rounded-xl" />
+        <Skeleton className="h-32 w-full rounded-[20px]" />
       </div>
     );
   }
@@ -38,36 +38,40 @@ export function MyTeamView() {
   }
 
   return (
-    <div className="space-y-6 font-mono">
+    <div className="space-y-6 font-sans">
       <Card>
         <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+                <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
                   MY SQUAD
-                </span>
-                <span className="text-xs text-neutral-500">
+                </Badge>
+                <span className="text-xs text-[var(--ink-tertiary)] font-mono">
                   {team.members.length} {team.members.length === 1 ? "PARTICIPANT" : "PARTICIPANTS"}
                 </span>
               </div>
-              <CardTitle className="text-xl sm:text-2xl flex items-center gap-2">
-                <Layers className="h-6 w-6 text-black" />
+              <CardTitle className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                  <Layers className="h-4 w-4" />
+                </div>
                 <span>{team.name}</span>
               </CardTitle>
-              <CardDescription>
-                Squad ID: <span className="font-mono text-neutral-700">{team.id}</span>
+              <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1 ml-10">
+                Squad ID: <span className="font-mono text-[var(--ink-primary)]">{team.id}</span>
               </CardDescription>
             </div>
 
             {team.leader && (
-              <div className="flex items-center gap-2 border border-black p-2 bg-neutral-50">
-                <Crown className="h-4 w-4 text-black shrink-0" />
+              <div className="flex items-center gap-2.5 rounded-[16px] border border-[var(--card-line)] p-3 px-4 bg-[var(--card-solid-subtle)]">
+                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)] shrink-0">
+                  <Crown className="h-4 w-4" />
+                </div>
                 <div className="text-left">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500">
+                  <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] tracking-wider">
                     Squad Leader
                   </div>
-                  <div className="text-xs font-bold text-black">
+                  <div className="text-xs font-bold text-[var(--ink-primary)]">
                     {team.leader.name}
                   </div>
                 </div>
@@ -77,10 +81,10 @@ export function MyTeamView() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <div className="border border-neutral-300 bg-white overflow-hidden">
-            <div className="px-4 py-2 bg-neutral-100 border-b border-neutral-300 font-bold text-xs uppercase tracking-wider text-black flex items-center justify-between">
+          <div className="overflow-hidden">
+            <div className="px-4 py-3 border-b border-[var(--card-line)] font-bold text-xs uppercase tracking-wider text-[var(--ink-secondary)] flex items-center justify-between">
               <span>Squad Roster</span>
-              <Users className="h-4 w-4 text-neutral-500" />
+              <Users className="h-4 w-4 text-[var(--ink-tertiary)]" />
             </div>
 
             <Table>
@@ -96,20 +100,20 @@ export function MyTeamView() {
                   <TableRow key={member.id}>
                     <TableCell>
                       <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5 font-bold text-black">
+                        <div className="flex items-center gap-2 font-bold text-[var(--ink-primary)]">
                           <span>{member.name}</span>
                           {member.is_leader && (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] bg-black text-white px-1.5 py-0.2 uppercase font-bold">
+                            <Badge variant="blue" size="sm" className="gap-1">
                               <Crown className="h-2.5 w-2.5" />
                               Leader
-                            </span>
+                            </Badge>
                           )}
                         </div>
-                        <span className="text-xs text-neutral-500 font-mono">
+                        <span className="text-xs text-[var(--ink-secondary)] font-mono mt-0.5">
                           {member.email}
                         </span>
                         {member.phone_number && (
-                          <span className="text-[10px] text-neutral-400">
+                          <span className="text-[10px] text-[var(--ink-tertiary)] mt-0.5">
                             {member.phone_number}
                           </span>
                         )}
@@ -124,13 +128,13 @@ export function MyTeamView() {
 
                     <TableCell>
                       {member.is_password_configured ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-black font-semibold">
-                          <CheckCircle2 className="h-3 w-3" />
+                        <span className="inline-flex items-center gap-1.5 text-xs text-[#2EB88A] font-semibold">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
                           Ready
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-neutral-500">
-                          <Clock className="h-3 w-3" />
+                        <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-tertiary)]">
+                          <Clock className="h-3.5 w-3.5" />
                           Pending Setup
                         </span>
                       )}

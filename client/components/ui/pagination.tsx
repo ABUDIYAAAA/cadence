@@ -27,17 +27,17 @@ export function Pagination({
   return (
     <div
       className={cn(
-        "flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-neutral-200 pt-4 font-mono text-xs",
+        "flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-[var(--card-line)] pt-4 font-sans text-xs",
         className
       )}
     >
-      <div className="flex items-center gap-3 text-neutral-600">
+      <div className="flex items-center gap-2 text-[var(--ink-secondary)]">
         <span>
-          Showing page <strong className="text-black">{page}</strong> of{" "}
-          <strong className="text-black">{totalPages || 1}</strong>
+          Showing page <strong className="text-[var(--ink-primary)] font-bold">{page}</strong> of{" "}
+          <strong className="text-[var(--ink-primary)] font-bold">{totalPages || 1}</strong>
         </span>
         {totalCount !== undefined && (
-          <span className="text-neutral-400">
+          <span className="text-[var(--ink-tertiary)]">
             ({totalCount} total {totalCount === 1 ? "record" : "records"})
           </span>
         )}
@@ -45,12 +45,12 @@ export function Pagination({
 
       <div className="flex items-center gap-3">
         {onLimitChange && limit && (
-          <div className="flex items-center gap-2">
-            <span className="text-neutral-500">Rows:</span>
+          <div className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)]">
+            <span>Rows:</span>
             <select
               value={limit}
               onChange={(e) => onLimitChange(Number(e.target.value))}
-              className="h-8 border border-neutral-300 bg-white px-2 py-0.5 text-xs text-black focus:border-black focus:outline-none"
+              className="h-8 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] px-2 text-xs text-[var(--ink-primary)] focus:border-[var(--color-blue)] focus:outline-none cursor-pointer"
             >
               <option value={10}>10</option>
               <option value={20}>20</option>
@@ -81,7 +81,7 @@ export function Pagination({
             ‹ Prev
           </Button>
 
-          <span className="px-2 py-1 font-bold text-black border border-black bg-neutral-100 min-w-7 text-center">
+          <span className="px-3 py-1 font-bold text-[var(--ink-primary)] rounded-[10px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] min-w-8 text-center text-xs">
             {page}
           </span>
 

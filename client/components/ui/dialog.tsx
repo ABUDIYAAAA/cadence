@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { Button } from "./button";
+import { X } from "lucide-react";
 
 interface DialogProps {
   open: boolean;
@@ -37,38 +37,44 @@ export function Dialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
+      {/* Backdrop with subtle frosted blur */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-black/40 backdrop-blur-md transition-opacity duration-200"
         onClick={onClose}
       />
 
-      {/* Modal Dialog */}
-      <div className={cn("relative z-50 w-full max-w-lg border-2 border-black bg-white p-6 shadow-2xl font-mono", className)}>
-        <div className="flex items-start justify-between pb-3 border-b border-neutral-300">
+      {/* Modal Dialog Card */}
+      <div
+        className={cn(
+          "relative z-50 w-full max-w-lg rounded-[24px] border border-[var(--card-border)] bg-[var(--card-solid)] p-6 sm:p-7 shadow-[var(--shadow-container)] text-[var(--ink-primary)] font-sans animate-in fade-in-0 zoom-in-95 duration-150",
+          className
+        )}
+      >
+        <div className="flex items-start justify-between pb-4 border-b border-[var(--card-line)]">
           <div>
-            <h2 className="text-base font-bold uppercase tracking-wider text-black">
+            <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-[var(--ink-primary)]">
               {title}
             </h2>
             {description && (
-              <p className="mt-1 text-xs text-neutral-600">{description}</p>
+              <p className="mt-0.5 text-xs text-[var(--ink-secondary)] leading-relaxed">
+                {description}
+              </p>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
             onClick={onClose}
-            className="h-7 w-7 p-0 text-base leading-none"
-            aria-label="Close"
+            className="h-8 w-8 rounded-full bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] flex items-center justify-center transition-all active:scale-90 cursor-pointer"
+            aria-label="Close dialog"
           >
-            ✕
-          </Button>
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <div className="py-4">{children}</div>
+        <div className="py-4 text-xs">{children}</div>
 
         {footer && (
-          <div className="flex justify-end gap-2 pt-3 border-t border-neutral-200">
+          <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-[var(--card-line)]">
             {footer}
           </div>
         )}

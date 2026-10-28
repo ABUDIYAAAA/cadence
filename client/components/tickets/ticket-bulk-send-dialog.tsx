@@ -98,19 +98,19 @@ export function TicketBulkSendDialog({
         </div>
       }
     >
-      <div className="space-y-4 font-mono text-xs">
+      <div className="space-y-4 font-sans text-xs">
         {result ? (
-          <div className="border border-black p-4 bg-neutral-100 flex items-start gap-3">
-            <CheckCircle2 className="h-5 w-5 text-black shrink-0 mt-0.5" />
+          <div className="rounded-[16px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-4 flex items-start gap-3">
+            <CheckCircle2 className="h-5 w-5 text-[#2EB88A] shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-bold text-black text-sm">
+              <p className="font-bold text-[#2EB88A] text-sm">
                 Ticket Generation & Email Queue Dispatched
               </p>
-              <p className="text-neutral-600">
+              <p className="text-[var(--color-emerald)]">
                 {result.enqueued} ticket emails enqueued for delivery.
               </p>
               {result.skipped > 0 && (
-                <p className="text-neutral-500 text-[11px]">
+                <p className="text-[var(--ink-tertiary)] text-[11px]">
                   ({result.skipped} tickets skipped as already active or checked in)
                 </p>
               )}
@@ -118,17 +118,17 @@ export function TicketBulkSendDialog({
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="border border-neutral-300 p-3 bg-neutral-50 space-y-1">
+            <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid-subtle)] space-y-1">
               <div className="flex justify-between items-center">
-                <span className="text-neutral-600">Selected Recipients:</span>
-                <strong className="text-black">{selectedUsers.length} Users</strong>
+                <span className="text-[var(--ink-secondary)]">Selected Recipients:</span>
+                <strong className="text-[var(--ink-primary)] font-mono">{selectedUsers.length} Users</strong>
               </div>
             </div>
 
             {/* Excluded Domain Filter */}
-            <div className="border border-neutral-300 p-3 bg-white space-y-2">
-              <div className="flex items-center gap-1.5 text-black font-bold uppercase text-[11px]">
-                <Filter className="h-3.5 w-3.5" />
+            <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
+              <div className="flex items-center gap-1.5 text-[var(--ink-primary)] font-semibold uppercase text-[11px]">
+                <Filter className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                 <span>Exclude Specific Email Domain (Optional)</span>
               </div>
               <Input
@@ -138,7 +138,7 @@ export function TicketBulkSendDialog({
                 disabled={isLoading}
                 className="text-xs"
               />
-              <p className="text-[10px] text-neutral-500">
+              <p className="text-[10px] text-[var(--ink-secondary)]">
                 Emails ending with this domain will be omitted so test accounts do not receive messages.
               </p>
             </div>
@@ -150,28 +150,28 @@ export function TicketBulkSendDialog({
                 checked={skipCheckedIn}
                 onChange={(e) => setSkipCheckedIn(e.target.checked)}
                 disabled={isLoading}
-                className="accent-black h-4 w-4 rounded-none"
+                className="accent-[#83A2DB] h-4 w-4 rounded"
               />
-              <span className="text-neutral-800">
+              <span className="text-[var(--ink-primary)] font-medium">
                 Skip attendees who have already checked in
               </span>
             </label>
 
             {/* Calculation summary */}
-            <div className="border border-neutral-200 p-2.5 bg-neutral-50 flex items-center justify-between text-[11px]">
+            <div className="rounded-[12px] border border-[var(--card-line)] p-3 bg-[var(--card-solid-subtle)] flex items-center justify-between text-[11px]">
               <div>
-                <span className="text-neutral-500">Selected: </span>
-                <strong className="text-black">{selectedUsers.length}</strong>
+                <span className="text-[var(--ink-secondary)]">Selected: </span>
+                <strong className="text-[var(--ink-primary)] font-mono">{selectedUsers.length}</strong>
               </div>
               {normalizedDomain && (
                 <div>
-                  <span className="text-neutral-500">Excluded ({normalizedDomain}): </span>
-                  <strong className="text-neutral-800">{excludedCount}</strong>
+                  <span className="text-[var(--ink-secondary)]">Excluded ({normalizedDomain}): </span>
+                  <strong className="text-[var(--ink-primary)] font-mono">{excludedCount}</strong>
                 </div>
               )}
               <div>
-                <span className="text-neutral-500">Net To Send: </span>
-                <strong className="text-black">{eligibleUsers.length}</strong>
+                <span className="text-[var(--ink-secondary)]">Net To Send: </span>
+                <strong className="text-[var(--color-blue)] font-mono">{eligibleUsers.length}</strong>
               </div>
             </div>
           </div>

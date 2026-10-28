@@ -7,7 +7,7 @@ export function Skeleton({ className, ...props }: SkeletonProps) {
   return (
     <div
       className={cn(
-        "animate-pulse bg-neutral-200 border border-neutral-300 font-mono",
+        "animate-pulse rounded-[12px] bg-[var(--card-line)]",
         className
       )}
       {...props}
@@ -23,7 +23,7 @@ export function SkeletonText({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("space-y-2.5", className)}>
       {Array.from({ length: lines }).map((_, i) => (
         <Skeleton
           key={i}
@@ -38,17 +38,17 @@ export function SkeletonCard({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "border border-neutral-300 bg-white p-5 space-y-4 font-mono",
+        "rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-6 space-y-4 shadow-[0_4px_16px_-2px_rgba(24,32,48,0.04)]",
         className
       )}
     >
-      <div className="flex justify-between items-center pb-3 border-b border-neutral-200">
+      <div className="flex justify-between items-center pb-3.5 border-b border-[var(--card-line)]">
         <Skeleton className="h-5 w-1/3" />
-        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-5 w-16 rounded-full" />
       </div>
-      <SkeletonText lines={4} />
-      <div className="pt-3 border-t border-neutral-200 flex justify-end gap-2">
-        <Skeleton className="h-8 w-20" />
+      <SkeletonText lines={3} />
+      <div className="pt-3.5 border-t border-[var(--card-line)] flex justify-end gap-2">
+        <Skeleton className="h-9 w-24 rounded-[14px]" />
       </div>
     </div>
   );

@@ -77,7 +77,7 @@ export function JudgeEvaluationView() {
 
   if (panels.length === 0) {
     return (
-      <div className="font-mono space-y-4 max-w-4xl mx-auto py-6">
+      <div className="font-sans space-y-4 max-w-4xl mx-auto py-6">
         <EmptyState
           title="NO JUDGING PANELS ASSIGNED"
           description="You are currently not assigned to evaluate any rooms or panels. Event administrators allocate evaluators to rooms during round setup."
@@ -86,7 +86,7 @@ export function JudgeEvaluationView() {
               variant="outline"
               size="sm"
               onClick={() => refetchPanels()}
-              className="mt-4 border-black text-xs"
+              className="mt-4 text-xs"
             >
               <RefreshCw className="h-3 w-3 mr-1.5" />
               Check for Assignments
@@ -98,17 +98,19 @@ export function JudgeEvaluationView() {
   }
 
   return (
-    <div className="font-mono space-y-6 max-w-7xl mx-auto">
+    <div className="font-sans space-y-6 max-w-7xl mx-auto">
       {/* Top Header & Panel Switcher */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-black pb-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <Award className="h-6 w-6 text-black" />
-            <h1 className="text-2xl font-bold tracking-tight uppercase">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+              <Award className="h-5 w-5" />
+            </div>
+            <h1 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
               Judge Evaluation Center
             </h1>
           </div>
-          <p className="text-sm text-neutral-600 mt-1">
+          <p className="text-xs text-[var(--ink-secondary)] mt-1 ml-11">
             Grade team pitches, review submitted code repositories, run countdown timers, and lock in scorecards.
           </p>
         </div>
@@ -119,64 +121,67 @@ export function JudgeEvaluationView() {
             size="sm"
             onClick={() => refetchPanels()}
             disabled={isFetching}
-            className="flex items-center gap-1.5 border-black text-black hover:bg-neutral-100"
+            className="flex items-center gap-1.5 text-xs"
           >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            REFRESH
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         </div>
       </div>
 
       {/* Multi-Panel Tabs if assigned to >1 panel */}
       {panels.length > 1 && (
-        <div className="flex items-center gap-2 border-b border-black pb-3 overflow-x-auto">
-          <span className="text-xs uppercase font-bold text-neutral-500 shrink-0">Your Panels:</span>
-          {panels.map((p) => (
-            <button
-              key={p.panel_id}
-              onClick={() => {
-                setUserSelectedPanelId(p.panel_id);
-                setUserSelectedSlotId(null);
-              }}
-              className={`px-3 py-1.5 text-xs font-bold uppercase border transition-all ${
-                p.panel_id === activePanel?.panel_id
-                  ? "bg-black text-white border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
-                  : "bg-white text-neutral-700 border-neutral-300 hover:border-black"
-              }`}
-            >
-              {p.panel_name} ({p.room})
-            </button>
-          ))}
+        <div className="flex items-center gap-2 border-b border-[var(--card-line)] pb-3 overflow-x-auto">
+          <span className="text-xs font-semibold text-[var(--ink-tertiary)] shrink-0">Your Panels:</span>
+          {panels.map((p) => {
+            const isActive = p.panel_id === activePanel?.panel_id;
+            return (
+              <button
+                key={p.panel_id}
+                onClick={() => {
+                  setUserSelectedPanelId(p.panel_id);
+                  setUserSelectedSlotId(null);
+                }}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                    : "bg-[var(--card-solid)] text-[var(--ink-secondary)] border border-[var(--card-line)] hover:text-[var(--ink-primary)]"
+                }`}
+              >
+                {p.panel_name} ({p.room})
+              </button>
+            );
+          })}
         </div>
       )}
 
       {/* Panel Context Banner */}
       {activePanel && (
-        <div className="border border-black p-4 bg-neutral-50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <DoorOpen className="h-5 w-5 text-black" />
-              <span className="font-bold text-base uppercase text-black">
+              <DoorOpen className="h-4 w-4 text-[var(--color-blue)]" />
+              <span className="font-bold text-base text-[var(--ink-primary)]">
                 {activePanel.room} — {activePanel.panel_name}
               </span>
-              <Badge variant="outline" className="border-black text-[10px] uppercase bg-white">
+              <Badge variant="blue" className="text-[10px] uppercase font-semibold">
                 {activePanel.round_name}
               </Badge>
             </div>
-            <div className="text-xs text-neutral-600 flex items-center gap-3">
-              <span>Duration: <strong>{activePanel.slot_duration_mins}m per pitch</strong></span>
+            <div className="text-xs text-[var(--ink-secondary)] flex items-center gap-3">
+              <span>Duration: <strong className="text-[var(--ink-primary)] font-mono">{activePanel.slot_duration_mins}m</strong> per pitch</span>
               <span>•</span>
-              <span>Buffer Depth: <strong>{activePanel.buffer_size} teams</strong></span>
+              <span>Buffer Depth: <strong className="text-[var(--ink-primary)] font-mono">{activePanel.buffer_size}</strong> teams</span>
             </div>
           </div>
 
           <div className="text-left md:text-right shrink-0">
-            <div className="text-xs font-bold font-mono">
+            <div className="text-xs font-bold font-mono text-[var(--ink-primary)]">
               Progress: {activePanel.completed_slots} / {activePanel.total_slots} Teams Graded
             </div>
-            <div className="w-36 bg-neutral-200 h-2 border border-black mt-1 overflow-hidden">
+            <div className="w-40 bg-[var(--card-line)] h-2 rounded-full mt-1.5 overflow-hidden">
               <div
-                className="bg-black h-full transition-all"
+                className="bg-[#83A2DB] h-full rounded-full transition-all duration-300"
                 style={{
                   width: `${
                     activePanel.total_slots > 0
@@ -194,9 +199,9 @@ export function JudgeEvaluationView() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (4 cols): Queue / Slot Schedule */}
         <div className="lg:col-span-4 space-y-3">
-          <div className="flex items-center justify-between border-b border-black pb-2">
-            <span className="text-xs uppercase font-bold text-black flex items-center gap-1.5">
-              <Layers className="h-4 w-4" />
+          <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-2">
+            <span className="text-xs uppercase font-bold text-[var(--ink-secondary)] flex items-center gap-1.5 tracking-wider">
+              <Layers className="h-4 w-4 text-[var(--color-blue)]" />
               Room Pitch Schedule ({activePanel?.slots.length || 0})
             </span>
           </div>
@@ -212,18 +217,22 @@ export function JudgeEvaluationView() {
                 <div
                   key={s.slot_id}
                   onClick={() => setUserSelectedSlotId(s.slot_id)}
-                  className={`border-2 p-3 cursor-pointer transition-all ${
+                  className={`rounded-[16px] p-3.5 cursor-pointer transition-all border ${
                     isSelected
-                      ? "border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ring-1 ring-black"
-                      : "border-neutral-300 bg-neutral-50/70 hover:border-black hover:bg-white"
+                      ? "border-[#83A2DB] bg-[var(--color-blue-dim)] shadow-[0_4px_14px_-2px_rgba(131,162,219,0.25)]"
+                      : "border-[var(--card-line)] bg-[var(--card-solid)] hover:border-[#83A2DB]/40 hover:bg-[var(--card-solid-subtle)]"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 bg-black text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${
+                        isSelected
+                          ? "bg-[#83A2DB] text-white"
+                          : "bg-[var(--card-line)] text-[var(--ink-secondary)]"
+                      }`}>
                         {idx + 1}
                       </span>
-                      <div className="font-bold text-xs uppercase truncate max-w-[170px]">
+                      <div className="font-bold text-xs truncate max-w-[170px] text-[var(--ink-primary)]">
                         {s.team_name}
                       </div>
                     </div>
@@ -231,32 +240,32 @@ export function JudgeEvaluationView() {
                     <div className="flex items-center gap-1">
                       {s.is_my_scorecard_locked && (
                         <span title="Your scorecard is locked">
-                          <Lock className="h-3 w-3 text-black" />
+                          <Lock className="h-3 w-3 text-[var(--color-blue)]" />
                         </span>
                       )}
                       {isCurrent && (
-                        <span className="inline-block w-2 h-2 rounded-full bg-black animate-ping" />
+                        <span className="inline-block w-2 h-2 rounded-full bg-[#CE6969] animate-ping" />
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-200 text-[10px] text-neutral-500 font-mono">
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--card-line)]/60 text-[10px] font-mono">
                     <span>
                       {isCurrent ? (
-                        <strong className="text-black uppercase">PRESENTING NOW</strong>
+                        <strong className="text-[var(--color-coral)] uppercase font-bold">PRESENTING NOW</strong>
                       ) : isDone ? (
-                        "COMPLETED"
+                        <span className="text-[#2EB88A] font-semibold">COMPLETED</span>
                       ) : isQueued ? (
-                        <strong className="text-neutral-700">ON DECK</strong>
+                        <strong className="text-[var(--color-blue)]">ON DECK</strong>
                       ) : (
-                        "SCHEDULED"
+                        <span className="text-[var(--ink-tertiary)]">SCHEDULED</span>
                       )}
                     </span>
 
                     {s.is_my_scorecard_locked ? (
-                      <span className="text-black font-semibold">LOCKED</span>
+                      <span className="text-[var(--color-blue)] font-semibold">LOCKED</span>
                     ) : (
-                      <span className="text-neutral-400">UNGRADED</span>
+                      <span className="text-[var(--ink-tertiary)]">UNGRADED</span>
                     )}
                   </div>
                 </div>
@@ -508,44 +517,44 @@ function JudgeSlotScorecardForm({
   const canStart = slot.status === "scheduled" || slot.status === "queued";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Top Slot Header */}
-      <div className="border-2 border-black p-5 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 sm:p-6 shadow-[var(--shadow-card)] space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-xl uppercase tracking-tight text-black">
+            <div className="flex items-center gap-2.5">
+              <span className="font-extrabold text-xl tracking-tight text-[var(--ink-primary)]">
                 {slot.team_name}
               </span>
-              <Badge variant="outline" className="border-black font-mono text-xs">
+              <Badge variant="blue" className="text-xs font-mono font-semibold">
                 Slot #{slot.sequence_order}
               </Badge>
             </div>
-            <div className="text-xs text-neutral-500 font-mono mt-0.5">
-              Room: {slot.room} • Panel: {slot.panel_name}
+            <div className="text-xs text-[var(--ink-secondary)] mt-1">
+              Room: <strong className="text-[var(--ink-primary)]">{slot.room}</strong> • Panel: <strong className="text-[var(--ink-primary)]">{slot.panel_name}</strong>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             {isPresenting && (
-              <Badge variant="solid" className="bg-black text-white text-xs uppercase px-2.5 py-1 animate-pulse">
+              <Badge variant="coral" className="text-xs uppercase px-2.5 py-1 animate-pulse font-semibold">
                 PRESENTING NOW
               </Badge>
             )}
             {isCompleted && (
-              <Badge variant="outline" className="border-black bg-neutral-100 text-black text-xs uppercase px-2.5 py-1">
+              <Badge variant="solid" className="text-xs uppercase px-2.5 py-1 font-semibold">
                 EVALUATION COMPLETED
               </Badge>
             )}
             {canStart && (
               <Button
-                variant="primary"
+                variant="blue"
                 size="sm"
                 onClick={handleStartSlot}
                 disabled={startSlotMutation.isPending}
-                className="bg-black text-white hover:bg-neutral-800 text-xs gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                className="text-xs gap-1.5 h-9 px-4 font-semibold"
               >
-                <Play className="h-3.5 w-3.5 fill-white" />
+                <Play className="h-3.5 w-3.5 fill-current" />
                 <span>START PITCH & TIMER</span>
               </Button>
             )}
@@ -562,21 +571,21 @@ function JudgeSlotScorecardForm({
       </div>
 
       {/* Submitted Repositories & Artifacts Section */}
-      <div className="border-2 border-black p-5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-3">
-        <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] space-y-3">
+        <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-3">
           <div className="flex items-center gap-2">
-            <Globe className="h-4 w-4 text-black" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-black">
+            <Globe className="h-4 w-4 text-[var(--color-blue)]" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--ink-primary)]">
               Submitted Code Repositories & Artifacts
             </h3>
           </div>
-          <span className="text-[10px] text-neutral-500 uppercase">
+          <span className="text-[10px] text-[var(--ink-tertiary)] uppercase font-semibold">
             {Object.keys(slot.submission_links || {}).length} Material(s)
           </span>
         </div>
 
         {Object.keys(slot.submission_links || {}).length === 0 ? (
-          <div className="text-xs text-neutral-400 italic p-3 border border-dashed border-neutral-200 text-center">
+          <div className="text-xs text-[var(--ink-tertiary)] italic p-4 border border-dashed border-[var(--card-line)] rounded-[16px] text-center">
             No repository or presentation links submitted yet by this squad.
           </div>
         ) : (
@@ -588,23 +597,23 @@ function JudgeSlotScorecardForm({
               return (
                 <div
                   key={key}
-                  className="border border-black p-3 bg-neutral-50 flex items-center justify-between gap-3 text-xs"
+                  className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid-subtle)] flex items-center justify-between gap-3 text-xs"
                 >
                   <div className="flex items-center gap-2.5 truncate">
                     {isGithub ? (
-                      <Code2 className="h-4 w-4 shrink-0 text-black" />
+                      <Code2 className="h-4 w-4 shrink-0 text-[var(--color-blue)]" />
                     ) : isSlides ? (
-                      <FileText className="h-4 w-4 shrink-0 text-black" />
+                      <FileText className="h-4 w-4 shrink-0 text-[var(--color-blue)]" />
                     ) : (
-                      <Globe className="h-4 w-4 shrink-0 text-black" />
+                      <Globe className="h-4 w-4 shrink-0 text-[var(--color-blue)]" />
                     )}
                     <div className="truncate">
-                      <div className="font-bold uppercase text-[10px] text-neutral-500">{key}</div>
+                      <div className="font-bold uppercase text-[10px] text-[var(--ink-tertiary)] tracking-wider">{key}</div>
                       <a
                         href={url}
                         target="_blank"
                         rel="noreferrer"
-                        className="truncate text-black hover:underline block font-mono text-[11px]"
+                        className="truncate text-[var(--ink-primary)] hover:text-[var(--color-blue)] hover:underline block font-mono text-[11px]"
                       >
                         {url}
                       </a>
@@ -615,12 +624,12 @@ function JudgeSlotScorecardForm({
                     <button
                       onClick={() => handleCopyLink(key, url)}
                       title="Copy URL"
-                      className="p-1 border border-neutral-300 hover:border-black bg-white"
+                      className="p-1.5 rounded-lg border border-[var(--card-line)] hover:border-[#83A2DB] bg-[var(--card-solid)] transition-colors cursor-pointer"
                     >
                       {copiedLinkKey === key ? (
-                        <Check className="h-3 w-3 text-black" />
+                        <Check className="h-3 w-3 text-[#2EB88A]" />
                       ) : (
-                        <Copy className="h-3 w-3 text-neutral-600" />
+                        <Copy className="h-3 w-3 text-[var(--ink-secondary)]" />
                       )}
                     </button>
                     <a
@@ -628,7 +637,7 @@ function JudgeSlotScorecardForm({
                       target="_blank"
                       rel="noreferrer"
                       title="Open in new tab"
-                      className="p-1 border border-neutral-300 hover:border-black bg-white text-black"
+                      className="p-1.5 rounded-lg border border-[var(--card-line)] hover:border-[#83A2DB] bg-[var(--card-solid)] text-[var(--ink-secondary)] transition-colors"
                     >
                       <ExternalLink className="h-3 w-3" />
                     </a>
@@ -641,21 +650,21 @@ function JudgeSlotScorecardForm({
       </div>
 
       {/* Evaluation Rubrics & Scorecard */}
-      <div className="border-2 border-black p-5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-5">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-black pb-3">
+      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 sm:p-6 shadow-[var(--shadow-card)] space-y-5">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[var(--card-line)] pb-4">
           <div>
-            <h3 className="text-sm font-bold uppercase tracking-wider text-black">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-primary)]">
               Scoring Rubrics & Criterion Evaluations
             </h3>
-            <p className="text-xs text-neutral-500 mt-0.5">
+            <p className="text-xs text-[var(--ink-secondary)] mt-0.5">
               Rate each criterion up to its maximum score. Weighted contributions sum automatically.
             </p>
           </div>
 
-          <div className="text-right border border-black p-2 bg-neutral-50 shrink-0">
-            <div className="text-[10px] uppercase font-bold text-neutral-600">Total Scorecard Rating</div>
-            <div className="text-xl font-extrabold text-black font-mono">
-              {weightedTotal} <span className="text-xs text-neutral-500 font-normal">/ {totalWeight} pts</span>
+          <div className="text-right rounded-[16px] border border-[var(--card-line)] p-3 px-4 bg-[var(--card-solid-subtle)] shrink-0">
+            <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] tracking-wider">Total Scorecard Rating</div>
+            <div className="text-2xl font-extrabold text-[var(--ink-primary)] font-mono">
+              {weightedTotal} <span className="text-xs text-[var(--ink-tertiary)] font-normal">/ {totalWeight} pts</span>
             </div>
           </div>
         </div>
@@ -671,46 +680,46 @@ function JudgeSlotScorecardForm({
             return (
               <div
                 key={c.criterion_id}
-                className={`border p-4 transition-all ${
+                className={`rounded-[18px] border p-4.5 transition-all ${
                   isLocked
-                    ? "border-neutral-200 bg-neutral-50/50"
-                    : "border-black bg-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                    ? "border-[var(--card-line)] bg-[var(--card-solid-subtle)]/60"
+                    : "border-[var(--card-line)] bg-[var(--card-solid-subtle)]"
                 }`}
               >
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-neutral-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 bg-black text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-3 border-b border-[var(--card-line)]">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[var(--color-dark)] text-[var(--ink-inverse)] text-[10px] font-bold flex items-center justify-center shrink-0">
                       {idx + 1}
                     </span>
-                    <span className="font-bold text-sm uppercase text-black">
+                    <span className="font-bold text-sm text-[var(--ink-primary)]">
                       {c.criterion_name}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs font-mono">
-                    <Badge variant="outline" className="border-black text-[10px]">
+                  <div className="flex items-center gap-2.5 text-xs font-mono">
+                    <Badge variant="subtle" className="text-[10px] font-semibold">
                       Weight: {c.weight}%
                     </Badge>
-                    <span className="text-neutral-500">
-                      Contribution: <strong>{weightedPoints} pts</strong>
+                    <span className="text-[var(--ink-secondary)]">
+                      Contribution: <strong className="text-[var(--ink-primary)]">{weightedPoints} pts</strong>
                     </span>
                   </div>
                 </div>
 
                 {/* Score Controls */}
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mt-3">
-                  <div className="sm:col-span-5 space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mt-3.5">
+                  <div className="sm:col-span-5 space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <label className="text-[11px] uppercase font-bold text-neutral-600">
+                      <label className="text-[11px] uppercase font-bold text-[var(--ink-secondary)] tracking-wider">
                         Score (0 to {c.max_score})
                       </label>
-                      <span className="text-sm font-bold font-mono text-black">
+                      <span className="text-sm font-bold font-mono text-[var(--ink-primary)]">
                         {currentScore} / {c.max_score}
                       </span>
                     </div>
 
                     {!isLocked ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         {/* Interactive Range Slider */}
                         <input
                           type="range"
@@ -719,21 +728,21 @@ function JudgeSlotScorecardForm({
                           step={1}
                           value={currentScore}
                           onChange={(e) => handleScoreChange(c.criterion_id, Number(e.target.value))}
-                          className="w-full accent-black cursor-pointer"
+                          className="w-full accent-[#83A2DB] cursor-pointer"
                         />
 
-                        {/* Quick Stepper Chips */}
-                        <div className="flex items-center gap-1 flex-wrap">
+                        {/* Quick Stepper Chips from preview2.html */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {[0, Math.round(c.max_score * 0.25), Math.round(c.max_score * 0.5), Math.round(c.max_score * 0.75), c.max_score].map(
                             (presetVal) => (
                               <button
                                 key={presetVal}
                                 type="button"
                                 onClick={() => handleScoreChange(c.criterion_id, presetVal)}
-                                className={`px-2 py-0.5 text-[10px] font-mono border ${
+                                className={`px-2.5 py-1 rounded-[10px] text-xs font-mono font-bold border transition-all cursor-pointer active:scale-95 ${
                                   currentScore === presetVal
-                                    ? "bg-black text-white border-black font-bold"
-                                    : "bg-white text-neutral-700 border-neutral-300 hover:border-black"
+                                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] border-[var(--color-dark)] shadow-sm"
+                                    : "bg-[var(--card-solid)] text-[var(--ink-secondary)] border-[var(--card-line)] hover:text-[var(--ink-primary)]"
                                 }`}
                               >
                                 {presetVal}
@@ -743,14 +752,14 @@ function JudgeSlotScorecardForm({
                         </div>
                       </div>
                     ) : (
-                      <div className="p-2 border border-neutral-300 bg-neutral-100 font-mono text-xs font-bold">
+                      <div className="p-2.5 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] font-mono text-xs font-bold text-[var(--ink-primary)]">
                         {currentScore} pts (Locked)
                       </div>
                     )}
                   </div>
 
                   <div className="sm:col-span-7 space-y-1">
-                    <label className="text-[11px] uppercase font-bold text-neutral-600">
+                    <label className="text-[11px] uppercase font-bold text-[var(--ink-secondary)] tracking-wider">
                       Evaluator Notes & Observations
                     </label>
                     <textarea
@@ -759,7 +768,7 @@ function JudgeSlotScorecardForm({
                       placeholder="Enter feedback or observations on this rubric..."
                       value={currentNotes}
                       onChange={(e) => handleNoteChange(c.criterion_id, e.target.value)}
-                      className="w-full p-2 border border-black font-mono text-xs resize-none focus:outline-none focus:ring-1 focus:ring-black disabled:bg-neutral-100 disabled:text-neutral-500"
+                      className="w-full p-2.5 rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] text-xs resize-none focus:outline-none focus:border-[#83A2DB] focus:ring-2 focus:ring-[#83A2DB]/20 disabled:bg-[#F8FAFD] disabled:text-[var(--ink-tertiary)] transition-all text-[var(--ink-primary)]"
                     />
                   </div>
                 </div>
@@ -769,21 +778,21 @@ function JudgeSlotScorecardForm({
         </div>
 
         {/* Action Controls Footer: Save Draft / Lock / Call Next */}
-        <div className="border-t-2 border-black pt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="border-t border-[var(--card-line)] pt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div>
             {isLocked ? (
-              <div className="flex items-center gap-2 text-xs font-bold text-black">
-                <CheckCircle2 className="h-4 w-4 text-black" />
+              <div className="flex items-center gap-2 text-xs font-bold text-[#2EB88A]">
+                <CheckCircle2 className="h-4 w-4" />
                 <span>YOUR SCORECARD IS LOCKED</span>
-                <span className="text-neutral-500 font-normal">
+                <span className="text-[var(--ink-tertiary)] font-normal">
                   {slot.all_panel_judges_locked
                     ? "(All judges locked)"
                     : "(Waiting for other panel judges)"}
                 </span>
               </div>
             ) : (
-              <div className="text-xs text-neutral-500 font-mono">
-                Draft ratings are visible only to you until locked.
+              <div className="text-xs text-[var(--ink-tertiary)]">
+                Draft ratings are saved and visible only to you until locked.
               </div>
             )}
           </div>
@@ -796,17 +805,18 @@ function JudgeSlotScorecardForm({
                   size="sm"
                   onClick={handleSaveDraft}
                   disabled={submitScoresMutation.isPending}
-                  className="border-black text-black hover:bg-neutral-100 text-xs flex items-center gap-1"
+                  className="text-xs flex items-center gap-1.5 h-9"
                 >
                   <Save className="h-3.5 w-3.5" />
                   <span>SAVE DRAFT</span>
                 </Button>
 
                 <Button
+                  variant="primary"
                   size="sm"
                   onClick={() => setIsLockConfirmOpen(true)}
                   disabled={lockScoresMutation.isPending}
-                  className="bg-black text-white hover:bg-neutral-800 border border-black text-xs flex items-center gap-1 shadow-sm"
+                  className="text-xs flex items-center gap-1.5 h-9"
                 >
                   <Lock className="h-3.5 w-3.5" />
                   <span>LOCK IN SCORES</span>
@@ -817,11 +827,11 @@ function JudgeSlotScorecardForm({
             {/* CALL NEXT TEAM BUTTON */}
             {isLocked && !isCompleted && (
               <Button
-                variant="primary"
+                variant="blue"
                 size="sm"
                 onClick={handleCompleteAndNext}
                 disabled={completeSlotMutation.isPending}
-                className="bg-black text-white hover:bg-neutral-800 border border-black text-xs flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                className="text-xs flex items-center gap-1.5 h-9"
               >
                 <span>CALL NEXT TEAM / COMPLETE</span>
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -838,38 +848,37 @@ function JudgeSlotScorecardForm({
         title="LOCK IN SCORECARD RATINGS"
         description="Finalize this evaluation and submit ratings to the leaderboard."
       >
-        <div className="space-y-4 pt-2 font-mono">
-          <div className="border border-black p-3 bg-neutral-50 space-y-2">
-            <div className="text-sm font-bold uppercase">{slot.team_name}</div>
-            <div className="text-xs text-neutral-600">
-              Total Score: <strong>{weightedTotal} / {totalWeight} pts</strong>
+        <div className="space-y-4 pt-2 font-sans">
+          <div className="rounded-[16px] border border-[var(--card-line)] p-4 bg-[var(--card-solid-subtle)] space-y-2">
+            <div className="text-sm font-bold text-[var(--ink-primary)]">{slot.team_name}</div>
+            <div className="text-xs text-[var(--ink-secondary)]">
+              Total Score: <strong className="text-[var(--ink-primary)] font-mono">{weightedTotal} / {totalWeight} pts</strong>
             </div>
           </div>
 
-          <div className="flex items-start gap-2.5 p-3 border border-black bg-white text-xs">
-            <AlertTriangle className="h-4 w-4 text-black shrink-0 mt-0.5" />
-            <p className="text-neutral-700 leading-relaxed">
+          <div className="flex items-start gap-3 p-3.5 rounded-[16px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs">
+            <AlertTriangle className="h-4 w-4 text-[var(--color-coral)] shrink-0 mt-0.5" />
+            <p className="text-[var(--color-coral)] leading-relaxed">
               Once locked, your scores cannot be modified. They will immediately contribute to the final leaderboard calculations.
             </p>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-200">
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--card-line)]">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setIsLockConfirmOpen(false)}
               disabled={lockScoresMutation.isPending}
-              className="border-black text-black"
             >
-              CANCEL
+              Cancel
             </Button>
             <Button
               size="sm"
+              variant="destructive"
               onClick={handleConfirmLock}
               disabled={lockScoresMutation.isPending}
-              className="bg-black text-white hover:bg-neutral-800 border border-black flex items-center gap-1"
             >
-              {lockScoresMutation.isPending ? "LOCKING..." : "CONFIRM & LOCK SCORES"}
+              {lockScoresMutation.isPending ? "Locking..." : "Confirm & Lock Scores"}
             </Button>
           </div>
         </div>
@@ -914,12 +923,12 @@ function JudgeCountdownTimer({
 
   if (status !== "in_progress" || secondsRemaining === null) {
     return (
-      <div className="border border-neutral-200 p-3 bg-neutral-50 flex items-center justify-between text-xs text-neutral-600 font-mono">
-        <span className="flex items-center gap-1.5">
-          <Clock className="h-4 w-4 text-neutral-400" />
-          Allocated Slot Duration: <strong>{durationMins} minutes</strong>
+      <div className="rounded-[16px] border border-[var(--card-line)] p-3.5 px-4 bg-[var(--card-solid-subtle)] flex items-center justify-between text-xs text-[var(--ink-secondary)]">
+        <span className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-[var(--ink-tertiary)]" />
+          Allocated Slot Duration: <strong className="text-[var(--ink-primary)] font-mono">{durationMins} minutes</strong>
         </span>
-        <span className="text-neutral-400 uppercase">
+        <span className="text-[var(--ink-tertiary)]">
           {status === "completed" ? "Timer Stopped (Finished)" : "Timer Idle (Click Start to Begin)"}
         </span>
       </div>
@@ -941,32 +950,32 @@ function JudgeCountdownTimer({
 
   return (
     <div
-      className={`border-2 p-3 font-mono transition-all ${
+      className={`rounded-[18px] p-4.5 transition-all ${
         isOvertime
-          ? "border-black bg-neutral-100 text-black"
+          ? "border border-[#CE6969]/40 bg-[var(--color-coral-dim)]"
           : secondsRemaining <= 120
-          ? "border-black bg-white text-black ring-1 ring-black"
-          : "border-black bg-white text-black"
+          ? "border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)]/60"
+          : "border border-[#83A2DB]/30 bg-[var(--color-blue-dim)]"
       }`}
     >
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Clock className={`h-6 w-6 text-black ${isOvertime ? "animate-bounce" : ""}`} />
+          <Clock className={`h-6 w-6 ${isOvertime ? "text-[var(--color-coral)] animate-bounce" : "text-[var(--color-blue)]"}`} />
           <div>
-            <div className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider">
+            <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] tracking-wider">
               {isOvertime ? "OVERTIME WARNING" : "LIVE PITCH COUNTDOWN"}
             </div>
-            <div className="text-2xl font-extrabold tracking-tight">
+            <div className="timer-digits text-2xl sm:text-3xl font-extrabold tracking-tight font-mono text-[var(--color-coral)]">
               {isOvertime ? `+${formattedTime} OVERTIME` : `${formattedTime} REMAINING`}
             </div>
           </div>
         </div>
 
-        <div className="text-right text-xs text-neutral-600">
-          <div>Elapsed: <strong>{formattedElapsed}</strong> / {durationMins}:00</div>
-          <div className="w-32 bg-neutral-200 h-1.5 border border-black mt-1 ml-auto overflow-hidden">
+        <div className="text-right text-xs text-[var(--ink-secondary)]">
+          <div className="font-mono">Elapsed: <strong className="text-[var(--ink-primary)]">{formattedElapsed}</strong> / {durationMins}:00</div>
+          <div className="w-36 bg-[var(--card-line)] h-2 rounded-full mt-1.5 ml-auto overflow-hidden">
             <div
-              className="bg-black h-full transition-all"
+              className={`h-full rounded-full transition-all ${isOvertime ? "bg-[#CE6969]" : "bg-[#83A2DB]"}`}
               style={{ width: `${100 - percentLeft}%` }}
             />
           </div>

@@ -13,6 +13,7 @@ import { useToast } from "@/providers/toast-provider";
 import { useAuditLogs, useExportAuditLogs } from "@/hooks/use-audit";
 import { AuditLogFilter, AuditLogResponse } from "@/types/audit";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
 import { Alert } from "@/components/ui/alert";
 import { SkeletonCard } from "@/components/ui/skeleton";
@@ -121,23 +122,23 @@ export default function AuditLogsPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto font-mono">
+    <div className="translucent-container space-y-6 font-sans">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-black">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
               SECURITY AUDIT
-            </span>
-            <span className="text-xs text-neutral-500">
+            </Badge>
+            <span className="text-xs text-[var(--ink-tertiary)] font-mono">
               {auditResponse?.total_count ?? 0} LOGGED EVENTS
             </span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-black flex items-center gap-2">
-            <Activity className="h-6 w-6" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
+            <Activity className="h-6 w-6 text-[var(--color-blue)]" />
             <span>Immutable Audit Trail</span>
           </h1>
-          <p className="text-xs text-neutral-600 mt-1">
+          <p className="text-xs text-[var(--ink-secondary)] mt-1">
             Persistent log of authentication events, user operations, ticketing scans, and judging updates.
           </p>
         </div>

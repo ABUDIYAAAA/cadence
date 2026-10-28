@@ -259,30 +259,32 @@ export default function JudgingPage() {
   };
 
   return (
-    <div className="p-6 font-mono max-w-7xl mx-auto space-y-6">
+    <div className="translucent-container space-y-6 font-sans">
       {/* View Switcher Tabs (For Admin and Judge) */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-black pb-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <Award className="h-6 w-6 text-black" />
-            <h1 className="text-2xl font-bold tracking-tight uppercase">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+              <Award className="h-5 w-5" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               Judging Operations Center
             </h1>
           </div>
-          <p className="text-sm text-neutral-600 mt-1">
+          <p className="text-xs text-[var(--ink-secondary)] mt-1 ml-11">
             Grade team pitches, monitor volunteer staging rooms, and orchestrate evaluation rounds.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="border border-black p-0.5 bg-neutral-100 flex items-center flex-wrap">
+          <div className="rounded-full border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)] flex items-center flex-wrap">
             {/* Judge Evaluation View */}
             <button
               onClick={() => setActiveTab("evaluation")}
-              className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeTab === "evaluation"
-                  ? "bg-black text-white"
-                  : "text-neutral-700 hover:text-black"
+                  ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                  : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
               }`}
             >
               <CheckSquare className="h-3.5 w-3.5" />
@@ -292,10 +294,10 @@ export default function JudgingPage() {
             {/* Rounds Registry / Configuration */}
             <button
               onClick={() => setActiveTab("rounds")}
-              className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeTab === "rounds"
-                  ? "bg-black text-white"
-                  : "text-neutral-700 hover:text-black"
+                  ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                  : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
               }`}
             >
               <Award className="h-3.5 w-3.5" />
@@ -305,10 +307,10 @@ export default function JudgingPage() {
             {/* Room Staging Monitor */}
             <button
               onClick={() => setActiveTab("volunteer_monitor")}
-              className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeTab === "volunteer_monitor"
-                  ? "bg-black text-white"
-                  : "text-neutral-700 hover:text-black"
+                  ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                  : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
               }`}
             >
               <DoorOpen className="h-3.5 w-3.5" />
@@ -318,10 +320,10 @@ export default function JudgingPage() {
             {isAdmin && (
               <button
                 onClick={() => setActiveTab("participant_preview")}
-                className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
                   activeTab === "participant_preview"
-                    ? "bg-black text-white"
-                    : "text-neutral-700 hover:text-black"
+                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                 }`}
               >
                 <UserCheck className="h-3.5 w-3.5" />
@@ -351,7 +353,7 @@ export default function JudgingPage() {
       {activeTab === "rounds" && (
         <>
           <div className="flex items-center justify-between gap-4">
-            <div className="text-sm uppercase font-bold text-neutral-600">
+            <div className="text-sm font-bold text-[var(--ink-primary)]">
               Evaluation Rounds Registry
             </div>
 
@@ -361,22 +363,23 @@ export default function JudgingPage() {
                 size="sm"
                 onClick={() => refetch()}
                 disabled={isFetching}
-                className="flex items-center gap-1.5 border-black text-black hover:bg-neutral-100"
+                className="flex items-center gap-1.5 text-xs h-9"
               >
                 <RefreshCw
-                  className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+                  className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
                 />
-                REFRESH
+                Refresh
               </Button>
 
               {isAdmin && (
                 <Button
                   size="sm"
+                  variant="primary"
                   onClick={() => setIsCreateOpen(true)}
-                  className="flex items-center gap-1.5 bg-black text-white hover:bg-neutral-800 border border-black shadow-sm"
+                  className="flex items-center gap-1.5 text-xs h-9 px-4 font-semibold"
                 >
                   <Plus className="h-4 w-4" />
-                  CREATE JUDGING ROUND
+                  Create Judging Round
                 </Button>
               )}
             </div>
@@ -384,59 +387,59 @@ export default function JudgingPage() {
 
           {/* Metrics Banner */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="border border-black p-3 bg-white">
-              <div className="text-xs uppercase text-neutral-500 font-semibold">Total Rounds</div>
-              <div className="text-2xl font-bold text-black mt-1">{stats.total}</div>
+            <div className="rounded-[18px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3.5 shadow-[var(--shadow-card)]">
+              <div className="text-xs uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider">Total Rounds</div>
+              <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">{stats.total}</div>
             </div>
-            <div className="border border-black p-3 bg-white">
-              <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5 text-black" />
+            <div className="rounded-[18px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3.5 shadow-[var(--shadow-card)]">
+              <div className="text-xs uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                 Active
               </div>
-              <div className="text-2xl font-bold text-black mt-1">{stats.active}</div>
+              <div className="text-2xl font-bold font-mono text-[var(--color-blue)] mt-1">{stats.active}</div>
             </div>
-            <div className="border border-black p-3 bg-white">
-              <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5 text-neutral-400" />
+            <div className="rounded-[18px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3.5 shadow-[var(--shadow-card)]">
+              <div className="text-xs uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
                 Draft
               </div>
-              <div className="text-2xl font-bold text-black mt-1">{stats.draft}</div>
+              <div className="text-2xl font-bold font-mono text-[var(--ink-secondary)] mt-1">{stats.draft}</div>
             </div>
-            <div className="border border-black p-3 bg-white">
-              <div className="text-xs uppercase text-neutral-500 font-semibold">Completed</div>
-              <div className="text-2xl font-bold text-black mt-1">{stats.completed}</div>
+            <div className="rounded-[18px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3.5 shadow-[var(--shadow-card)]">
+              <div className="text-xs uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider">Completed</div>
+              <div className="text-2xl font-bold font-mono text-[#2EB88A] mt-1">{stats.completed}</div>
             </div>
-            <div className="border border-black p-3 bg-white">
-              <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
-                <Layers className="h-3.5 w-3.5 text-black" />
+            <div className="rounded-[18px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3.5 shadow-[var(--shadow-card)]">
+              <div className="text-xs uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider flex items-center gap-1">
+                <Layers className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                 Total Panels
               </div>
-              <div className="text-2xl font-bold text-black mt-1">{stats.totalPanels}</div>
+              <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">{stats.totalPanels}</div>
             </div>
-            <div className="border border-black p-3 bg-white">
-              <div className="text-xs uppercase text-neutral-500 font-semibold">Total Slots</div>
-              <div className="text-2xl font-bold text-black mt-1">{stats.totalSlots}</div>
+            <div className="rounded-[18px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3.5 shadow-[var(--shadow-card)]">
+              <div className="text-xs uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider">Total Slots</div>
+              <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">{stats.totalSlots}</div>
             </div>
           </div>
 
           {/* Search and Filters */}
-          <div className="border border-black p-4 bg-white flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-tertiary)]" />
               <Input
                 placeholder="Search rounds by name or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 border-black font-mono text-sm"
+                className="pl-9 text-xs"
               />
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 text-xs uppercase font-semibold text-neutral-600 shrink-0">
+              <div className="flex items-center gap-1.5 text-xs uppercase font-semibold text-[var(--ink-secondary)] shrink-0">
                 <Filter className="h-3.5 w-3.5" />
                 Status:
               </div>
-              <div className="w-40">
+              <div className="w-44">
                 <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
@@ -446,7 +449,7 @@ export default function JudgingPage() {
                     { value: "active", label: "ACTIVE" },
                     { value: "completed", label: "COMPLETED" },
                   ]}
-                  className="border-black font-mono text-sm"
+                  className="text-xs"
                 />
               </div>
             </div>

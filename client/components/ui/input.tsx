@@ -13,11 +13,11 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, "-") : undefined);
 
     return (
-      <div className="w-full space-y-1 text-left font-mono">
+      <div className="w-full space-y-1.5 text-left font-sans">
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-xs uppercase tracking-wider text-neutral-700"
+            className="block text-xs font-semibold text-[var(--ink-primary)]"
           >
             {label}
           </label>
@@ -27,17 +27,17 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           type={type}
           ref={ref}
           className={cn(
-            "flex h-9 w-full border border-neutral-300 bg-white px-3 py-1 text-sm text-black placeholder:text-neutral-400 transition-colors focus:border-black focus:outline-none focus:ring-1 focus:ring-black disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:opacity-50",
-            error && "border-black ring-1 ring-black",
+            "flex h-[42px] w-full rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] px-3.5 text-xs text-[var(--ink-primary)] placeholder:text-[var(--ink-tertiary)] transition-all focus:border-[var(--color-blue)] focus:outline-none focus:ring-3 focus:ring-[var(--color-blue)]/20 disabled:cursor-not-allowed disabled:opacity-50",
+            error && "border-[var(--color-coral)] ring-3 ring-[var(--color-coral)]/20",
             className
           )}
           {...props}
         />
         {error && (
-          <p className="text-xs text-neutral-900 font-medium">! {error}</p>
+          <p className="text-xs text-[var(--color-coral)] font-medium pt-0.5">{error}</p>
         )}
         {helperText && !error && (
-          <p className="text-xs text-neutral-500">{helperText}</p>
+          <p className="text-xs text-[var(--ink-secondary)]">{helperText}</p>
         )}
       </div>
     );

@@ -123,10 +123,10 @@ export function TeamDetailDialog({
         ) : (
           <>
             {/* Header Summary */}
-            <div className="border border-neutral-300 p-3 bg-neutral-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+            <div className="rounded-[16px] border border-[var(--card-line)] p-4 bg-[var(--card-solid-subtle)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Layers className="h-4 w-4 text-black" />
-                <span className="font-bold text-black text-sm">{team.name}</span>
+                <Layers className="h-4 w-4 text-[var(--color-blue)]" />
+                <span className="font-bold text-[var(--ink-primary)] text-sm">{team.name}</span>
                 <Badge variant="solid" size="sm">
                   {team.members.length} {team.members.length === 1 ? "Member" : "Members"}
                 </Badge>
@@ -134,12 +134,12 @@ export function TeamDetailDialog({
 
               {team.leader ? (
                 <div className="flex items-center gap-1.5 text-[11px]">
-                  <Crown className="h-3.5 w-3.5 text-black" />
-                  <span className="text-neutral-500">Leader:</span>
-                  <strong className="text-black">{team.leader.name}</strong>
+                  <Crown className="h-3.5 w-3.5 text-[var(--ink-primary)]" />
+                  <span className="text-[var(--ink-secondary)]">Leader:</span>
+                  <strong className="text-[var(--ink-primary)]">{team.leader.name}</strong>
                 </div>
               ) : (
-                <span className="text-neutral-400 italic text-[11px]">
+                <span className="text-[var(--ink-tertiary)] italic text-[11px]">
                   No Leader Assigned
                 </span>
               )}
@@ -149,11 +149,11 @@ export function TeamDetailDialog({
             {canManage && (
               <form
                 onSubmit={handleAddSubmit}
-                className="border border-neutral-300 p-3 bg-white space-y-2"
+                className="rounded-[16px] border border-[var(--card-line)] p-4 bg-[var(--card-solid)] space-y-2"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-black uppercase text-[11px] flex items-center gap-1">
-                    <UserPlus className="h-3.5 w-3.5" />
+                  <span className="font-bold text-[var(--ink-primary)] uppercase text-[11px] flex items-center gap-1">
+                    <UserPlus className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                     <span>Add Participant to Squad</span>
                   </span>
                 </div>
@@ -168,7 +168,7 @@ export function TeamDetailDialog({
                       }}
                       disabled={isAdding || usersLoading}
                       error={addError || undefined}
-                      className="h-9 text-xs font-mono"
+                      className="h-9 text-xs font-mono bg-[var(--card-solid-subtle)] border-[var(--card-line)]"
                     >
                       <option value="">Select a user to enroll in this squad...</option>
                       {availableUsers.map((u) => (
@@ -194,14 +194,14 @@ export function TeamDetailDialog({
             )}
 
             {/* Members Table */}
-            <div className="border border-neutral-300 bg-white overflow-hidden">
-              <div className="px-3 py-2 bg-neutral-100 border-b border-neutral-300 font-bold text-[11px] uppercase tracking-wider text-neutral-700 flex items-center justify-between">
+            <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] overflow-hidden">
+              <div className="px-4 py-3 bg-[var(--card-solid-subtle)] border-b border-[var(--card-line)] font-bold text-[11px] uppercase tracking-wider text-[var(--ink-primary)] flex items-center justify-between">
                 <span>Roster Members ({team.members.length})</span>
-                <Users className="h-3.5 w-3.5 text-neutral-500" />
+                <Users className="h-3.5 w-3.5 text-[var(--color-blue)]" />
               </div>
 
               {team.members.length === 0 ? (
-                <div className="p-6 text-center text-neutral-400 italic">
+                <div className="p-6 text-center text-[var(--ink-tertiary)] italic">
                   No participants currently assigned to this team.
                 </div>
               ) : (
@@ -224,23 +224,23 @@ export function TeamDetailDialog({
                           {/* Member info */}
                           <TableCell>
                             <div className="flex flex-col">
-                              <div className="flex items-center gap-1 font-bold text-black">
+                              <div className="flex items-center gap-1 font-bold text-[var(--ink-primary)]">
                                 <span>{member.name}</span>
                                 {isLeader && (
                                   <span
                                     title="Designated Team Leader"
-                                    className="inline-flex items-center gap-0.5 text-[9px] bg-black text-white px-1 py-0.2 tracking-wider uppercase font-bold"
+                                    className="inline-flex items-center gap-0.5 text-[9px] bg-[var(--color-dark)] text-[var(--ink-inverse)] px-1 py-0.2 rounded uppercase font-bold"
                                   >
                                     <Crown className="h-2.5 w-2.5" />
                                     Leader
                                   </span>
                                 )}
                               </div>
-                              <span className="text-[11px] text-neutral-500 font-mono">
+                              <span className="text-[11px] text-[var(--ink-secondary)] font-mono">
                                 {member.email}
                               </span>
                               {member.phone_number && (
-                                <span className="text-[10px] text-neutral-400">
+                                <span className="text-[10px] text-[var(--ink-tertiary)]">
                                   {member.phone_number}
                                 </span>
                               )}
@@ -257,12 +257,12 @@ export function TeamDetailDialog({
                           {/* Password configured */}
                           <TableCell>
                             {member.is_password_configured ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-black font-medium">
+                              <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-blue)] font-medium">
                                 <CheckCircle2 className="h-3 w-3" />
                                 Configured
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500">
+                              <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-tertiary)]">
                                 <Clock className="h-3 w-3" />
                                 Pending
                               </span>
@@ -292,7 +292,7 @@ export function TeamDetailDialog({
                                   disabled={isProcessing}
                                   onClick={() => handleRemove(member.id)}
                                   title="Remove member from team"
-                                  className="h-6 w-6 p-0 text-neutral-600 hover:bg-black hover:text-white"
+                                  className="h-6 w-6 p-0 text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)]"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>

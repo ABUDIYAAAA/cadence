@@ -79,31 +79,31 @@ export function ParticipantJudgingStatusView() {
     switch (st) {
       case "in_progress":
         return (
-          <Badge variant="solid" className="bg-black text-white text-xs uppercase px-2 py-0.5 animate-pulse">
+          <Badge variant="blue" className="text-xs uppercase px-2.5 py-1 animate-pulse font-semibold">
             PRESENTING NOW
           </Badge>
         );
       case "queued":
         return (
-          <Badge variant="solid" className="bg-neutral-800 text-white text-xs uppercase px-2 py-0.5">
+          <Badge variant="coral" className="text-xs uppercase px-2.5 py-1 font-semibold">
             ON-DECK (BUFFER)
           </Badge>
         );
       case "scheduled":
         return (
-          <Badge variant="outline" className="border-black text-black text-xs uppercase px-2 py-0.5">
+          <Badge variant="subtle" className="text-xs uppercase px-2.5 py-1 font-semibold">
             SCHEDULED
           </Badge>
         );
       case "completed":
         return (
-          <Badge variant="outline" className="border-black bg-neutral-100 text-black text-xs uppercase px-2 py-0.5">
+          <Badge variant="solid" className="text-xs uppercase px-2.5 py-1 font-semibold">
             EVALUATION COMPLETED
           </Badge>
         );
       default:
         return (
-          <Badge variant="outline" className="border-neutral-300 text-neutral-500 text-xs uppercase px-2 py-0.5">
+          <Badge variant="subtle" className="text-xs uppercase px-2.5 py-1 font-semibold">
             WAITING
           </Badge>
         );
@@ -112,7 +112,7 @@ export function ParticipantJudgingStatusView() {
 
   if (isLoading) {
     return (
-      <div className="font-mono space-y-4">
+      <div className="font-sans space-y-4">
         <SkeletonCard />
         <SkeletonCard />
       </div>
@@ -121,21 +121,25 @@ export function ParticipantJudgingStatusView() {
 
   if (!status || !status.has_active_round) {
     return (
-      <div className="font-mono space-y-4">
-        <div className="flex items-center justify-between border-b-2 border-black pb-3">
-          <div className="flex items-center gap-2">
-            <Award className="h-5 w-5 text-black" />
-            <h2 className="text-lg font-bold uppercase">Participant Judging Status</h2>
+      <div className="font-sans space-y-4">
+        <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+              <Award className="h-4 w-4" />
+            </div>
+            <h2 className="text-lg font-bold text-[var(--ink-primary)]">
+              Participant Judging Status
+            </h2>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="border-black text-xs"
+            className="text-xs"
           >
             <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isFetching ? "animate-spin" : ""}`} />
-            REFRESH
+            Refresh
           </Button>
         </div>
 
@@ -152,18 +156,20 @@ export function ParticipantJudgingStatusView() {
   const isDone = status.status === "completed";
 
   return (
-    <div className="font-mono space-y-6">
+    <div className="font-sans space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-black pb-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <Award className="h-6 w-6 text-black" />
-            <h2 className="text-xl font-bold tracking-tight uppercase">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+              <Award className="h-5 w-5" />
+            </div>
+            <h2 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
               Judging Slot & Evaluation Status
             </h2>
           </div>
-          <p className="text-sm text-neutral-600 mt-1">
-            Active Round: <strong>{status.round_name || "General Evaluation"}</strong>
+          <p className="text-xs text-[var(--ink-secondary)] mt-1 ml-11">
+            Active Round: <strong className="text-[var(--ink-primary)]">{status.round_name || "General Evaluation"}</strong>
           </p>
         </div>
 
@@ -174,46 +180,52 @@ export function ParticipantJudgingStatusView() {
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="flex items-center gap-1.5 border-black text-black hover:bg-neutral-100"
+            className="flex items-center gap-1.5 text-xs"
           >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            REFRESH
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         </div>
       </div>
 
       {/* Critical Status Callout Banner */}
       {isOnDeck && (
-        <div className="border-2 border-black p-4 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-black shrink-0 mt-0.5" />
+        <div className="rounded-[18px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] p-4.5 flex items-start gap-3.5 shadow-sm">
+          <div className="h-8 w-8 rounded-full bg-[#CE6969]/15 flex items-center justify-center text-[var(--color-coral)] shrink-0 mt-0.5">
+            <AlertCircle className="h-4 w-4" />
+          </div>
           <div className="space-y-1">
-            <div className="font-bold text-sm uppercase">YOU ARE ON-DECK!</div>
-            <p className="text-xs text-neutral-700 leading-relaxed">
+            <div className="font-bold text-sm text-[var(--color-coral)]">YOU ARE ON-DECK!</div>
+            <p className="text-xs text-[var(--color-coral)] leading-relaxed">
               Your squad is in the staging buffer! Please proceed immediately to{" "}
-              <strong>{status.room || "your designated room"}</strong> and check in with a volunteer coordinator outside the door.
+              <strong className="text-[var(--ink-primary)]">{status.room || "your designated room"}</strong> and check in with a volunteer coordinator outside the door.
             </p>
           </div>
         </div>
       )}
 
       {isPresenting && (
-        <div className="border-2 border-black p-4 bg-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-start gap-3">
-          <Play className="h-5 w-5 fill-white text-white shrink-0 mt-0.5" />
+        <div className="rounded-[18px] border border-[#83A2DB]/40 bg-[var(--color-blue-dim)] p-4.5 flex items-start gap-3.5 shadow-sm">
+          <div className="h-8 w-8 rounded-full bg-[#83A2DB]/20 flex items-center justify-center text-[var(--color-blue)] shrink-0 mt-0.5">
+            <Play className="h-4 w-4 fill-current" />
+          </div>
           <div className="space-y-1">
-            <div className="font-bold text-sm uppercase tracking-wide">EVALUATION IN PROGRESS</div>
-            <p className="text-xs text-neutral-300 leading-relaxed">
-              Your squad is currently being evaluated in <strong>{status.room}</strong> with <strong>{status.panel_name}</strong>.
+            <div className="font-bold text-sm text-[var(--color-blue)] tracking-wide">EVALUATION IN PROGRESS</div>
+            <p className="text-xs text-[var(--color-blue)] leading-relaxed">
+              Your squad is currently being evaluated in <strong className="text-[var(--ink-primary)]">{status.room}</strong> with <strong className="text-[var(--ink-primary)]">{status.panel_name}</strong>.
             </p>
           </div>
         </div>
       )}
 
       {isDone && (
-        <div className="border-2 border-black p-4 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-start gap-3">
-          <CheckCircle2 className="h-5 w-5 text-black shrink-0 mt-0.5" />
+        <div className="rounded-[18px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-4.5 flex items-start gap-3.5 shadow-sm">
+          <div className="h-8 w-8 rounded-full bg-[#2EB88A]/15 flex items-center justify-center text-[#2EB88A] shrink-0 mt-0.5">
+            <CheckCircle2 className="h-4 w-4" />
+          </div>
           <div className="space-y-1">
-            <div className="font-bold text-sm uppercase">ROUND EVALUATION COMPLETED</div>
-            <p className="text-xs text-neutral-600 leading-relaxed">
+            <div className="font-bold text-sm text-[#2EB88A]">ROUND EVALUATION COMPLETED</div>
+            <p className="text-xs text-[var(--color-emerald)] leading-relaxed">
               Your squad has finished presenting for this round. Scores and rankings will be computed upon round completion.
             </p>
           </div>
@@ -223,64 +235,64 @@ export function ParticipantJudgingStatusView() {
       {/* Primary Status Grid: Room, Slot Time, Queue Position */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 1. ROOM ASSIGNMENT */}
-        <div className="border-2 border-black p-5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col justify-between">
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-neutral-500 text-xs uppercase font-semibold">
+            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-semibold">
               <span className="flex items-center gap-1.5">
-                <DoorOpen className="h-4 w-4 text-black" />
+                <DoorOpen className="h-4 w-4 text-[var(--color-blue)]" />
                 Room Assignment
               </span>
-              <Badge variant="outline" className="border-black text-[9px]">
+              <Badge variant={status.room ? "blue" : "subtle"} size="sm">
                 {status.room ? "ASSIGNED" : "PENDING"}
               </Badge>
             </div>
 
             {status.room ? (
               <div>
-                <div className="text-xl font-bold uppercase text-black break-words mt-1">
+                <div className="text-xl font-bold text-[var(--ink-primary)] break-words mt-1">
                   {status.room}
                 </div>
                 {status.panel_name && (
-                  <div className="text-xs text-neutral-600 mt-1 font-mono">
+                  <div className="text-xs text-[var(--ink-secondary)] mt-1 font-mono">
                     Panel: {status.panel_name}
                   </div>
                 )}
               </div>
             ) : (
               <div className="py-2">
-                <div className="text-base font-bold text-neutral-400">
+                <div className="text-base font-semibold text-[var(--ink-tertiary)]">
                   Room Pending Allocation
                 </div>
-                <div className="text-xs text-neutral-500 mt-1">
+                <div className="text-xs text-[var(--ink-secondary)] mt-1">
                   Rooms are dynamically staged as rounds advance.
                 </div>
               </div>
             )}
           </div>
 
-          <div className="pt-3 border-t border-neutral-100 text-[10px] text-neutral-400 uppercase font-mono">
+          <div className="pt-3 border-t border-[var(--card-line)] text-[10px] text-[var(--ink-tertiary)] uppercase font-mono tracking-wider">
             Location Coordinate
           </div>
         </div>
 
         {/* 2. ESTIMATED SLOT & TIME */}
-        <div className="border-2 border-black p-5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col justify-between">
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-neutral-500 text-xs uppercase font-semibold">
+            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-semibold">
               <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4 text-black" />
+                <Clock className="h-4 w-4 text-[var(--color-blue)]" />
                 Estimated Slot
               </span>
-              <Badge variant="outline" className="border-black text-[9px]">
+              <Badge variant="subtle" size="sm">
                 {status.estimated_duration_mins ? `${status.estimated_duration_mins}m SLOT` : "SCHEDULE"}
               </Badge>
             </div>
 
             <div>
-              <div className="text-xl font-bold uppercase text-black mt-1">
+              <div className="text-xl font-bold font-mono text-[var(--ink-primary)] mt-1">
                 {formatEstimatedTime(status.estimated_start_time)}
               </div>
-              <div className="text-xs text-neutral-600 mt-1">
+              <div className="text-xs text-[var(--ink-secondary)] mt-1">
                 {status.estimated_duration_mins
                   ? `Allocated pitch & demo: ~${status.estimated_duration_mins} mins`
                   : "Time adjusts automatically based on room pace"}
@@ -288,26 +300,26 @@ export function ParticipantJudgingStatusView() {
             </div>
           </div>
 
-          <div className="pt-3 border-t border-neutral-100 text-[10px] text-neutral-400 uppercase font-mono">
+          <div className="pt-3 border-t border-[var(--card-line)] text-[10px] text-[var(--ink-tertiary)] uppercase font-mono tracking-wider">
             Time Target
           </div>
         </div>
 
         {/* 3. QUEUE POSITION */}
-        <div className="border-2 border-black p-5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
+        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col justify-between">
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-neutral-500 text-xs uppercase font-semibold">
+            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-semibold">
               <span className="flex items-center gap-1.5">
-                <Users className="h-4 w-4 text-black" />
+                <Users className="h-4 w-4 text-[var(--color-blue)]" />
                 Queue Staging
               </span>
-              <Badge variant="outline" className="border-black text-[9px]">
+              <Badge variant="subtle" size="sm">
                 LIVE POSITION
               </Badge>
             </div>
 
             <div>
-              <div className="text-3xl font-extrabold text-black mt-1">
+              <div className="text-3xl font-extrabold font-mono text-[var(--ink-primary)] mt-1">
                 {status.queue_position !== undefined && status.queue_position > 0
                   ? `#${status.queue_position}`
                   : isPresenting
@@ -316,7 +328,7 @@ export function ParticipantJudgingStatusView() {
                   ? "DONE"
                   : "—"}
               </div>
-              <div className="text-xs text-neutral-600 mt-1">
+              <div className="text-xs text-[var(--ink-secondary)] mt-1">
                 {status.queue_position === 1
                   ? "Next team in line for this room"
                   : status.queue_position !== undefined && status.queue_position > 1
@@ -326,33 +338,33 @@ export function ParticipantJudgingStatusView() {
             </div>
           </div>
 
-          <div className="pt-3 border-t border-neutral-100 text-[10px] text-neutral-400 uppercase font-mono">
+          <div className="pt-3 border-t border-[var(--card-line)] text-[10px] text-[var(--ink-tertiary)] uppercase font-mono tracking-wider">
             Staging Order
           </div>
         </div>
       </div>
 
       {/* Instructions & Submission Links */}
-      <div className="border-2 border-black p-5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-4">
-        <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
+      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] space-y-4">
+        <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-3">
           <div className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-black" />
-            <span className="font-bold text-sm uppercase">Squad Submission Material</span>
+            <Layers className="h-4 w-4 text-[var(--color-blue)]" />
+            <span className="font-bold text-sm text-[var(--ink-primary)]">Squad Submission Material</span>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={handleOpenEditLinks}
-            className="text-xs border-black text-black flex items-center gap-1"
+            className="text-xs flex items-center gap-1.5"
           >
             <Edit2 className="h-3 w-3" />
-            EDIT LINKS
+            Edit Links
           </Button>
         </div>
 
         {status.instructions && (
-          <div className="text-xs text-neutral-700 bg-neutral-50 border border-neutral-200 p-3 leading-relaxed">
-            <strong>Coordinator Notes:</strong> {status.instructions}
+          <div className="text-xs text-[var(--ink-secondary)] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] rounded-[14px] p-3.5 leading-relaxed">
+            <strong className="text-[var(--ink-primary)]">Coordinator Notes:</strong> {status.instructions}
           </div>
         )}
 
@@ -364,18 +376,18 @@ export function ParticipantJudgingStatusView() {
                 href={url}
                 target="_blank"
                 rel="noreferrer"
-                className="p-3 border border-black bg-neutral-50 hover:bg-neutral-100 transition-colors flex items-center justify-between text-xs"
+                className="p-3.5 rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] hover:bg-[var(--color-blue-dim)] transition-all flex items-center justify-between text-xs group"
               >
                 <div className="truncate mr-2">
-                  <div className="font-bold uppercase text-[10px] text-neutral-500">{k}</div>
-                  <div className="truncate text-black mt-0.5">{url}</div>
+                  <div className="font-bold uppercase text-[10px] text-[var(--ink-tertiary)] tracking-wider">{k}</div>
+                  <div className="truncate text-[var(--ink-primary)] font-medium mt-0.5 group-hover:text-[var(--color-blue)] transition-colors">{url}</div>
                 </div>
-                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-black" />
+                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] group-hover:text-[var(--color-blue)] transition-colors" />
               </a>
             ))}
           </div>
         ) : (
-          <div className="text-xs text-neutral-500 italic p-3 border border-dashed border-neutral-300 text-center">
+          <div className="text-xs text-[var(--ink-tertiary)] italic p-5 border border-dashed border-[var(--card-line)] rounded-[16px] text-center">
             No project submission links registered yet. Click &apos;Edit Links&apos; to attach your GitHub repository, live demo, or slide deck for the evaluators.
           </div>
         )}
@@ -388,59 +400,58 @@ export function ParticipantJudgingStatusView() {
         title="SUBMISSION ARTIFACT LINKS"
         description="Attach public links for evaluators to review during your evaluation."
       >
-        <div className="space-y-4 pt-2 font-mono">
+        <div className="space-y-4 pt-2 font-sans">
           <div className="space-y-1">
-            <label className="block text-xs uppercase font-bold text-neutral-700">
+            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
               GitHub Repository URL
             </label>
             <Input
               placeholder="https://github.com/..."
               value={githubUrl}
               onChange={(e) => setGithubUrl(e.target.value)}
-              className="text-xs font-mono border-black"
+              className="text-xs font-mono"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs uppercase font-bold text-neutral-700">
+            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
               Live Demo / Prototype URL
             </label>
             <Input
               placeholder="https://my-demo-app.com"
               value={demoUrl}
               onChange={(e) => setDemoUrl(e.target.value)}
-              className="text-xs font-mono border-black"
+              className="text-xs font-mono"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs uppercase font-bold text-neutral-700">
+            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
               Slide Deck / Presentation URL
             </label>
             <Input
               placeholder="https://slides.google.com/..."
               value={slidesUrl}
               onChange={(e) => setSlidesUrl(e.target.value)}
-              className="text-xs font-mono border-black"
+              className="text-xs font-mono"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-200">
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--card-line)]">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setIsEditLinksOpen(false)}
-              className="border-black text-black"
             >
-              CANCEL
+              Cancel
             </Button>
             <Button
               size="sm"
+              variant="primary"
               onClick={handleSaveLinks}
               disabled={updateLinksMutation.isPending}
-              className="bg-black text-white hover:bg-neutral-800 border border-black"
             >
-              SAVE LINKS
+              Save Links
             </Button>
           </div>
         </div>

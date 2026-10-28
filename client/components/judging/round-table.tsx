@@ -48,7 +48,7 @@ export function RoundTable({
 }: RoundTableProps) {
   if (isLoading) {
     return (
-      <div className="border border-neutral-300 bg-white p-4 font-mono space-y-3">
+      <div className="space-y-3 font-sans">
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center space-x-4 py-2">
@@ -74,7 +74,7 @@ export function RoundTable({
   }
 
   return (
-    <div className="border border-neutral-300 bg-white overflow-hidden font-mono">
+    <div className="w-full overflow-x-auto font-sans">
       <Table>
         <TableHeader>
           <TableRow>
@@ -94,15 +94,15 @@ export function RoundTable({
             const isActive = round.status === "active";
 
             return (
-              <TableRow key={round.id} className="group hover:bg-neutral-50/80">
+              <TableRow key={round.id} className="group">
                 {/* Name */}
-                <TableCell className="font-mono">
+                <TableCell>
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5 font-bold text-black text-sm">
-                      <Award className="h-4 w-4 shrink-0 text-black" />
+                    <div className="flex items-center gap-1.5 font-bold text-[var(--ink-primary)] text-sm">
+                      <Award className="h-4 w-4 shrink-0 text-[var(--color-blue)]" />
                       <span>{round.name}</span>
                     </div>
-                    <span className="text-[10px] text-neutral-400 font-mono">
+                    <span className="text-[10px] text-[var(--ink-tertiary)] font-mono">
                       ID: {round.id.slice(0, 8)}...
                     </span>
                   </div>
@@ -111,13 +111,8 @@ export function RoundTable({
                 {/* Status */}
                 <TableCell>
                   <Badge
-                    variant={isActive ? "solid" : "subtle"}
+                    variant={isActive ? "blue" : "subtle"}
                     size="sm"
-                    className={
-                      isActive
-                        ? "bg-black text-white"
-                        : "bg-neutral-100 text-neutral-700 border-neutral-300"
-                    }
                   >
                     {round.status}
                   </Badge>
@@ -125,34 +120,34 @@ export function RoundTable({
 
                 {/* Buffer Size */}
                 <TableCell className="text-xs">
-                  <div className="flex items-center gap-1 font-semibold text-black">
-                    <Users className="h-3.5 w-3.5 text-neutral-500" />
+                  <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
+                    <Users className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
                     <span>{round.buffer_size || 2} in queue</span>
                   </div>
-                  <span className="text-[10px] text-neutral-400">staging depth</span>
+                  <span className="text-[10px] text-[var(--ink-tertiary)]">staging depth</span>
                 </TableCell>
 
                 {/* Slot Duration */}
                 <TableCell className="text-xs">
-                  <div className="flex items-center gap-1 font-semibold text-black">
-                    <Clock className="h-3.5 w-3.5 text-neutral-500" />
+                  <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
+                    <Clock className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
                     <span>{round.slot_duration_mins || 10} mins</span>
                   </div>
-                  <span className="text-[10px] text-neutral-400">per evaluation</span>
+                  <span className="text-[10px] text-[var(--ink-tertiary)]">per evaluation</span>
                 </TableCell>
 
                 {/* Panels count */}
                 <TableCell className="text-xs">
-                  <div className="flex items-center gap-1 font-semibold text-black">
-                    <DoorOpen className="h-3.5 w-3.5 text-neutral-500" />
+                  <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
+                    <DoorOpen className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
                     <span>{round.panel_count ?? 0} Rooms</span>
                   </div>
                 </TableCell>
 
                 {/* Slots count */}
                 <TableCell className="text-xs">
-                  <div className="flex items-center gap-1 font-semibold text-black">
-                    <Layers className="h-3.5 w-3.5 text-neutral-500" />
+                  <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
+                    <Layers className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
                     <span>{round.slot_count ?? 0} Teams</span>
                   </div>
                 </TableCell>
@@ -166,7 +161,7 @@ export function RoundTable({
                       size="sm"
                       onClick={() => onView(round)}
                       title="Inspect Round Parameters & Criteria"
-                      className="h-7 w-7 p-0"
+                      className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                     >
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
@@ -179,7 +174,7 @@ export function RoundTable({
                           size="sm"
                           onClick={() => onAddPanel(round)}
                           title="Add Room / Judging Panel"
-                          className="h-7 px-2 text-xs gap-1"
+                          className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                         >
                           <Plus className="h-3 w-3" />
                           <span>Panel</span>
@@ -191,7 +186,7 @@ export function RoundTable({
                           size="sm"
                           onClick={() => onConfigureSlots(round)}
                           title="Assign Teams to Slots"
-                          className="h-7 px-2 text-xs gap-1"
+                          className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                         >
                           <Layers className="h-3 w-3" />
                           <span>Slots</span>

@@ -107,35 +107,35 @@ export function UserBulkInviteDialog({
         </div>
       }
     >
-      <div className="space-y-4 font-mono text-xs">
+      <div className="space-y-4 font-sans text-xs">
         {dispatchedCount !== null ? (
-          <div className="border border-black p-4 bg-neutral-100 flex items-center gap-3">
-            <CheckCircle2 className="h-5 w-5 text-black shrink-0" />
+          <div className="rounded-[16px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-4 flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-[#2EB88A] shrink-0" />
             <div>
-              <p className="font-bold text-black">
+              <p className="font-bold text-[#2EB88A]">
                 {dispatchedCount} Invitation{dispatchedCount === 1 ? "" : "s"} Dispatched
               </p>
-              <p className="text-neutral-600 mt-0.5">
+              <p className="text-[var(--color-emerald)] mt-0.5">
                 Onboarding links with secure 48-hour password setup tokens have been dispatched.
               </p>
             </div>
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="border border-neutral-300 p-3 bg-neutral-50 space-y-2">
-              <p className="font-bold text-black">Target Resolution:</p>
-              <p className="text-neutral-600 leading-relaxed">
+            <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid-subtle)] space-y-2">
+              <p className="font-bold text-[var(--ink-primary)]">Target Resolution:</p>
+              <p className="text-[var(--ink-secondary)] leading-relaxed">
                 Scans all active accounts where{" "}
-                <code className="bg-neutral-200 px-1 py-0.5 text-black">
+                <code className="bg-[var(--card-line)] px-1.5 py-0.5 rounded text-[var(--ink-primary)] font-mono text-[11px]">
                   is_password_configured = false
                 </code>.
               </p>
             </div>
 
             {/* Excluded Domain Filter */}
-            <div className="border border-neutral-300 p-3 bg-white space-y-2">
-              <div className="flex items-center gap-1.5 text-black font-bold uppercase text-[11px]">
-                <Filter className="h-3.5 w-3.5" />
+            <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
+              <div className="flex items-center gap-1.5 text-[var(--ink-primary)] font-semibold uppercase text-[11px]">
+                <Filter className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                 <span>Exclude Specific Email Domain (Optional)</span>
               </div>
               <Input
@@ -145,26 +145,26 @@ export function UserBulkInviteDialog({
                 disabled={isLoading}
                 className="text-xs"
               />
-              <p className="text-[10px] text-neutral-500">
+              <p className="text-[10px] text-[var(--ink-secondary)]">
                 Any unconfigured accounts ending with this domain will be excluded from the mailout.
               </p>
             </div>
 
             {/* Summary statistics bar */}
-            <div className="border border-neutral-200 p-2.5 bg-neutral-50 flex items-center justify-between text-[11px]">
+            <div className="rounded-[12px] border border-[var(--card-line)] p-3 bg-[var(--card-solid-subtle)] flex items-center justify-between text-[11px]">
               <div>
-                <span className="text-neutral-500">Unconfigured Total: </span>
-                <strong className="text-black">{unconfiguredUsers.length}</strong>
+                <span className="text-[var(--ink-secondary)]">Unconfigured Total: </span>
+                <strong className="text-[var(--ink-primary)] font-mono">{unconfiguredUsers.length}</strong>
               </div>
               {normalizedDomain && (
                 <div>
-                  <span className="text-neutral-500">Excluded ({normalizedDomain}): </span>
-                  <strong className="text-neutral-800">{excludedCount}</strong>
+                  <span className="text-[var(--ink-secondary)]">Excluded ({normalizedDomain}): </span>
+                  <strong className="text-[var(--ink-primary)] font-mono">{excludedCount}</strong>
                 </div>
               )}
               <div>
-                <span className="text-neutral-500">Net To Send: </span>
-                <strong className="text-black">{eligibleUserIds.length}</strong>
+                <span className="text-[var(--ink-secondary)]">Net To Send: </span>
+                <strong className="text-[var(--color-blue)] font-mono">{eligibleUserIds.length}</strong>
               </div>
             </div>
           </div>

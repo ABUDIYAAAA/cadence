@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
+import { Info, AlertTriangle, AlertCircle, CheckCircle2 } from "lucide-react";
 
 interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: "info" | "warning" | "error" | "success";
@@ -13,30 +14,38 @@ export function Alert({
   className,
   ...props
 }: AlertProps) {
-  const variantPrefix = {
-    info: "[INFO]",
-    warning: "[WARNING]",
-    error: "[ERROR]",
-    success: "[OK]",
+  const variantStyles = {
+    info: "bg-[var(--color-blue-dim)] border-[var(--color-blue-border)] text-[var(--ink-primary)]",
+    success: "bg-[var(--color-blue-dim)] border-[var(--color-blue-border)] text-[var(--ink-primary)]",
+    warning: "bg-[var(--color-coral-dim)] border-[var(--color-coral-border)] text-[var(--color-coral)]",
+    error: "bg-[var(--color-coral-dim)] border-[var(--color-coral-border)] text-[var(--color-coral)]",
+  };
+
+  const icons = {
+    info: <Info className="h-4 w-4 text-[var(--color-blue)] shrink-0 mt-0.5" />,
+    success: <CheckCircle2 className="h-4 w-4 text-[var(--color-blue)] shrink-0 mt-0.5" />,
+    warning: <AlertTriangle className="h-4 w-4 text-[var(--color-coral)] shrink-0 mt-0.5" />,
+    error: <AlertCircle className="h-4 w-4 text-[var(--color-coral)] shrink-0 mt-0.5" />,
   };
 
   return (
     <div
       role="alert"
       className={cn(
-        "border border-black bg-neutral-50 p-4 font-mono text-sm text-black",
+        "rounded-[16px] border p-4 font-sans text-xs shadow-sm flex items-start gap-3",
+        variantStyles[variant],
         className
       )}
       {...props}
     >
-      <div className="flex items-start gap-2">
-        <span className="font-bold text-xs uppercase tracking-wider text-black">
-          {variantPrefix[variant]}
-        </span>
-        <div className="space-y-1">
-          {title && <h5 className="font-bold tracking-tight">{title}</h5>}
-          <div className="text-xs text-neutral-800 leading-relaxed">{children}</div>
-        </div>
+      {icons[variant]}
+      <div className="space-y-1 flex-1 min-w-0">
+        {title && (
+          <h5 className="font-extrabold text-xs tracking-tight uppercase">
+            {title}
+          </h5>
+        )}
+        <div className="text-xs leading-relaxed opacity-90">{children}</div>
       </div>
     </div>
   );

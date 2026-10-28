@@ -22,6 +22,7 @@ import { useUsers } from "@/hooks/use-users";
 import { UserDetailResponse, UserFilter } from "@/types/users";
 import { BulkSendTicketsRequest } from "@/types/tickets";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -85,16 +86,16 @@ export default function TicketsPage() {
   // 1. PARTICIPANT VIEW: Show their personal QR pass if issued
   if (isParticipant && !isAdmin && !isVolunteer) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl mx-auto font-mono">
-        <div className="pb-4 border-b border-black">
-          <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl mx-auto font-sans">
+        <div className="pb-4 border-b border-[var(--card-line)]">
+          <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
             PARTICIPANT PASS
-          </span>
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-black flex items-center gap-2 mt-1">
-            <Ticket className="h-6 w-6" />
+          </Badge>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2 mt-1.5">
+            <Ticket className="h-6 w-6 text-[var(--color-blue)]" />
             <span>Digital Event Pass</span>
           </h1>
-          <p className="text-xs text-neutral-600 mt-1">
+          <p className="text-xs text-[var(--ink-secondary)] mt-1">
             Your admission ticket and QR verification code for registration check-in.
           </p>
         </div>
@@ -165,26 +166,26 @@ export default function TicketsPage() {
   );
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto font-mono">
+    <div className="translucent-container space-y-6 font-sans">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-black">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
               {isAdmin ? "ADMIN CONTROL" : "VOLUNTEER CHECK-IN"}
-            </span>
+            </Badge>
             {analyticsData && (
-              <span className="text-xs text-neutral-500">
+              <span className="text-xs text-[var(--ink-tertiary)] font-mono">
                 {analyticsData.checked_in_count} / {analyticsData.total_issued} CHECKED IN (
                 {Math.round(analyticsData.attendance_rate * 100)}%)
               </span>
             )}
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-black flex items-center gap-2">
-            <Ticket className="h-6 w-6" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
+            <Ticket className="h-6 w-6 text-[var(--color-blue)]" />
             <span>Ticketing & Gate Operations</span>
           </h1>
-          <p className="text-xs text-neutral-600 mt-1">
+          <p className="text-xs text-[var(--ink-secondary)] mt-1">
             QR badge distribution, bulk dispatch with domain filtering, and gate scanner verification.
           </p>
         </div>
@@ -193,14 +194,14 @@ export default function TicketsPage() {
         <div className="flex flex-wrap items-center gap-2">
           {/* Admin Tab Switcher */}
           {isAdmin && (
-            <div className="inline-flex border border-neutral-300 p-0.5 bg-neutral-100">
+            <div className="inline-flex rounded-full border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)]">
               <button
                 type="button"
                 onClick={() => setAdminTab("users")}
-                className={`px-3 py-1 text-xs font-semibold uppercase tracking-wider transition-colors flex items-center gap-1.5 ${
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
                   adminTab === "users"
-                    ? "bg-black text-white"
-                    : "text-neutral-700 hover:text-black"
+                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                 }`}
               >
                 <Users className="h-3.5 w-3.5" />
@@ -209,10 +210,10 @@ export default function TicketsPage() {
               <button
                 type="button"
                 onClick={() => setAdminTab("scanner")}
-                className={`px-3 py-1 text-xs font-semibold uppercase tracking-wider transition-colors flex items-center gap-1.5 ${
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
                   adminTab === "scanner"
-                    ? "bg-black text-white"
-                    : "text-neutral-700 hover:text-black"
+                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                 }`}
               >
                 <Scan className="h-3.5 w-3.5" />
@@ -221,10 +222,10 @@ export default function TicketsPage() {
               <button
                 type="button"
                 onClick={() => setAdminTab("analytics")}
-                className={`px-3 py-1 text-xs font-semibold uppercase tracking-wider transition-colors flex items-center gap-1.5 ${
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
                   adminTab === "analytics"
-                    ? "bg-black text-white"
-                    : "text-neutral-700 hover:text-black"
+                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                 }`}
               >
                 <BarChart3 className="h-3.5 w-3.5" />
@@ -268,10 +269,10 @@ export default function TicketsPage() {
           <TicketScanner />
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-neutral-300">
+            <div className="flex items-center justify-between pb-2 border-b border-[var(--card-line)]">
               <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-black" />
-                <h3 className="font-bold text-sm uppercase tracking-wider">
+                <Users className="h-4 w-4 text-[var(--color-blue)]" />
+                <h3 className="font-bold text-sm uppercase tracking-wider text-[var(--ink-primary)]">
                   Attendee Roster Lookup
                 </h3>
               </div>
@@ -285,7 +286,7 @@ export default function TicketsPage() {
                 onChange={(e) =>
                   setUserFilters((prev) => ({ ...prev, search: e.target.value, page: 1 }))
                 }
-                className="text-xs h-9"
+                className="text-xs h-9 bg-[var(--card-solid)] border-[var(--card-line)]"
               />
             </div>
 
@@ -328,27 +329,27 @@ export default function TicketsPage() {
           {adminTab === "analytics" && analyticsData && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="border border-neutral-300 p-4 bg-white">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500">
+                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] shadow-sm">
+                  <div className="text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
                     Total Tickets Issued
                   </div>
-                  <div className="text-2xl font-bold text-black mt-1">
+                  <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
                     {analyticsData.total_issued}
                   </div>
                 </div>
-                <div className="border border-neutral-300 p-4 bg-white">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500">
+                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] shadow-sm">
+                  <div className="text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
                     Gate Check-Ins
                   </div>
-                  <div className="text-2xl font-bold text-black mt-1">
+                  <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
                     {analyticsData.checked_in_count}
                   </div>
                 </div>
-                <div className="border border-neutral-300 p-4 bg-white">
-                  <div className="text-[10px] uppercase font-bold text-neutral-500">
+                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] shadow-sm">
+                  <div className="text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
                     Attendance Rate
                   </div>
-                  <div className="text-2xl font-bold text-black mt-1">
+                  <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
                     {Math.round(analyticsData.attendance_rate * 100)}%
                   </div>
                 </div>
@@ -356,19 +357,19 @@ export default function TicketsPage() {
 
               {/* Volunteer Leaderboard */}
               {analyticsData.volunteer_leaderboard.length > 0 && (
-                <div className="border border-neutral-300 p-4 bg-white space-y-3">
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-black">
+                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] space-y-3 shadow-sm">
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--ink-primary)]">
                     Volunteer Gate Scan Leaderboard
                   </h4>
-                  <div className="divide-y divide-neutral-200 border border-neutral-200">
+                  <div className="divide-y divide-[var(--card-line)] border border-[var(--card-line)] rounded-[14px] overflow-hidden">
                     {analyticsData.volunteer_leaderboard.map((v, i) => (
-                      <div key={v.volunteer_id} className="flex justify-between items-center p-2.5 text-xs">
+                      <div key={v.volunteer_id} className="flex justify-between items-center p-3 text-xs bg-[var(--card-solid)]">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-neutral-400">#{i + 1}</span>
-                          <span className="font-semibold text-black">{v.volunteer_name}</span>
-                          <span className="text-[10px] text-neutral-400 font-mono">({v.volunteer_email})</span>
+                          <span className="font-bold text-[var(--ink-tertiary)]">#{i + 1}</span>
+                          <span className="font-semibold text-[var(--ink-primary)]">{v.volunteer_name}</span>
+                          <span className="text-[10px] text-[var(--ink-secondary)] font-mono">({v.volunteer_email})</span>
                         </div>
-                        <span className="font-bold text-black bg-neutral-100 px-2 py-0.5 border border-neutral-300 text-xs">
+                        <span className="font-bold text-[var(--ink-primary)] bg-[var(--card-solid-subtle)] px-2.5 py-1 rounded-[6px] border border-[var(--card-line)] text-xs">
                           {v.count} Scans
                         </span>
                       </div>
@@ -382,7 +383,7 @@ export default function TicketsPage() {
           {adminTab === "users" && (
             <div className="space-y-4">
               {/* Filter bar */}
-              <div className="border border-neutral-300 bg-white p-3 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
                 <div className="flex-1 max-w-md">
                   <Input
                     placeholder="Search attendees by name or email..."
@@ -413,10 +414,10 @@ export default function TicketsPage() {
 
               {/* Selection banner */}
               {selectedUserIds.length > 0 && (
-                <div className="border border-black p-2.5 bg-neutral-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-black" />
-                    <span>
+                <div className="rounded-[16px] border border-[#83A2DB]/40 bg-[var(--color-blue-dim)] p-3 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-[var(--color-blue)]">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    <span className="text-[var(--ink-primary)]">
                       <strong>{selectedUserIds.length}</strong> attendee
                       {selectedUserIds.length === 1 ? "" : "s"} selected
                     </span>
@@ -427,7 +428,7 @@ export default function TicketsPage() {
                       variant="primary"
                       size="sm"
                       onClick={() => setIsBulkSendOpen(true)}
-                      className="h-7 text-xs gap-1.5"
+                      className="h-8 text-xs gap-1.5 font-semibold"
                     >
                       <QrCode className="h-3 w-3" />
                       <span>Send QR Codes</span>
@@ -436,7 +437,7 @@ export default function TicketsPage() {
                       variant="outline"
                       size="sm"
                       onClick={handleClearSelection}
-                      className="h-7 text-xs"
+                      className="h-8 text-xs font-semibold"
                     >
                       Clear Selection
                     </Button>

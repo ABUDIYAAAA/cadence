@@ -19,7 +19,7 @@ export function UserFilters({ filters, onChange, onReset }: UserFiltersProps) {
   );
 
   return (
-    <div className="border border-neutral-300 bg-white p-4 font-mono space-y-3">
+    <div className="space-y-3 font-sans">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Search */}
         <div className="relative">
@@ -29,11 +29,11 @@ export function UserFilters({ filters, onChange, onReset }: UserFiltersProps) {
             onChange={(e) => onChange({ ...filters, search: e.target.value, page: 1 })}
             className="pl-8 text-xs"
           />
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-400 pointer-events-none" />
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[var(--ink-tertiary)] pointer-events-none" />
           {filters.search && (
             <button
               onClick={() => onChange({ ...filters, search: "", page: 1 })}
-              className="absolute right-2.5 top-2.5 text-neutral-400 hover:text-black"
+              className="absolute right-2.5 top-2.5 text-[var(--ink-tertiary)] hover:text-[var(--ink-primary)] cursor-pointer"
               type="button"
             >
               <X className="h-4 w-4" />

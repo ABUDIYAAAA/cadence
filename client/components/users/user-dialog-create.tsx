@@ -171,16 +171,16 @@ export function UserCreateDialog({
           helperText="If the team does not exist, it will be automatically provisioned."
         />
 
-        <div className="pt-2 border-t border-neutral-200 space-y-2 text-xs">
+        <div className="pt-2 border-t border-[var(--card-line)] space-y-2 text-xs">
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={isLeader}
               onChange={(e) => setIsLeader(e.target.checked)}
               disabled={isLoading}
-              className="accent-black h-4 w-4 rounded-none"
+              className="accent-[#83A2DB] h-4 w-4 rounded"
             />
-            <span className="font-semibold text-black">
+            <span className="font-semibold text-[var(--ink-primary)]">
               Designate as Team Leader
             </span>
           </label>
@@ -191,9 +191,9 @@ export function UserCreateDialog({
               checked={sendInvite}
               onChange={(e) => setSendInvite(e.target.checked)}
               disabled={isLoading}
-              className="accent-black h-4 w-4 rounded-none"
+              className="accent-[#83A2DB] h-4 w-4 rounded"
             />
-            <span className="text-neutral-700">
+            <span className="text-[var(--ink-secondary)]">
               Immediately dispatch password setup onboarding email
             </span>
           </label>

@@ -35,7 +35,7 @@ export function TeamTable({
 }: TeamTableProps) {
   if (isLoading) {
     return (
-      <div className="border border-neutral-300 bg-white p-4 font-mono space-y-3">
+      <div className="space-y-3 font-sans">
         <div className="space-y-2">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex items-center space-x-4 py-2">
@@ -60,7 +60,7 @@ export function TeamTable({
   }
 
   return (
-    <div className="border border-neutral-300 bg-white overflow-hidden font-mono">
+    <div className="w-full overflow-x-auto font-sans">
       <Table>
         <TableHeader>
           <TableRow>
@@ -74,15 +74,15 @@ export function TeamTable({
         </TableHeader>
         <TableBody>
           {teams.map((team) => (
-            <TableRow key={team.id} className="group hover:bg-neutral-50/80">
+            <TableRow key={team.id} className="group">
               {/* Team Name */}
-              <TableCell className="font-mono">
+              <TableCell>
                 <div className="flex flex-col">
-                  <div className="flex items-center gap-1.5 font-bold text-black text-sm">
-                    <Layers className="h-4 w-4 shrink-0 text-black" />
+                  <div className="flex items-center gap-1.5 font-bold text-[var(--ink-primary)] text-sm">
+                    <Layers className="h-4 w-4 shrink-0 text-[var(--color-blue)]" />
                     <span>{team.name}</span>
                   </div>
-                  <span className="text-[10px] text-neutral-400 font-mono">
+                  <span className="text-[10px] text-[var(--ink-tertiary)] font-mono">
                     ID: {team.id.slice(0, 8)}...
                   </span>
                 </div>
@@ -92,20 +92,20 @@ export function TeamTable({
               <TableCell className="text-xs">
                 {team.leader_name ? (
                   <div className="flex items-center gap-1.5">
-                    <Crown className="h-3.5 w-3.5 text-black shrink-0" />
+                    <Crown className="h-3.5 w-3.5 text-[var(--color-blue)] shrink-0" />
                     <div className="flex flex-col">
-                      <span className="font-semibold text-black">
+                      <span className="font-semibold text-[var(--ink-primary)]">
                         {team.leader_name}
                       </span>
                       {team.leader_email && (
-                        <span className="text-[10px] text-neutral-500">
+                        <span className="text-[10px] text-[var(--ink-secondary)] font-mono">
                           {team.leader_email}
                         </span>
                       )}
                     </div>
                   </div>
                 ) : (
-                  <span className="text-neutral-400 italic text-[11px]">
+                  <span className="text-[var(--ink-tertiary)] italic text-[11px]">
                     No Leader Assigned
                   </span>
                 )}
@@ -127,12 +127,12 @@ export function TeamTable({
               </TableCell>
 
               {/* Created */}
-              <TableCell className="text-xs text-neutral-500">
+              <TableCell className="text-xs text-[var(--ink-secondary)] font-mono">
                 {new Date(team.created_at).toLocaleDateString()}
               </TableCell>
 
               {/* Updated */}
-              <TableCell className="text-xs text-neutral-500">
+              <TableCell className="text-xs text-[var(--ink-secondary)] font-mono">
                 {new Date(team.updated_at).toLocaleDateString()}
               </TableCell>
 
@@ -144,7 +144,7 @@ export function TeamTable({
                     size="sm"
                     onClick={() => onView(team)}
                     title="View Roster & Manage Members"
-                    className="h-7 px-2 text-xs gap-1"
+                    className="h-7 px-2.5 text-xs gap-1"
                   >
                     <Users className="h-3.5 w-3.5" />
                     <span>Roster</span>
@@ -157,7 +157,7 @@ export function TeamTable({
                         size="sm"
                         onClick={() => onEdit(team)}
                         title="Edit Team Details"
-                        className="h-7 w-7 p-0"
+                        className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                       >
                         <Edit2 className="h-3.5 w-3.5" />
                       </Button>
@@ -167,7 +167,7 @@ export function TeamTable({
                         size="sm"
                         onClick={() => onDelete(team)}
                         title="Delete Team"
-                        className="h-7 w-7 p-0 text-neutral-700 hover:bg-black hover:text-white"
+                        className="h-7 w-7 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

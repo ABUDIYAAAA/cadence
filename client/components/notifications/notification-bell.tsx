@@ -1,9 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, Check, ExternalLink, CheckCheck } from "lucide-react";
+import { Bell, ExternalLink, CheckCheck } from "lucide-react";
 import {
   useNotificationInbox,
   useMarkNotificationAsRead,
@@ -90,37 +89,37 @@ export function NotificationBell() {
   };
 
   return (
-    <div className="relative font-mono" ref={dropdownRef}>
+    <div className="relative font-sans" ref={dropdownRef}>
       {/* Bell Trigger Button with Unread Dot */}
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         aria-label="View notifications"
         aria-expanded={isOpen}
-        className="relative flex items-center justify-center h-9 w-9 border border-black bg-white hover:bg-neutral-100 active:bg-neutral-200 transition-colors cursor-pointer select-none"
+        className="circle-icon-btn !w-9 !h-9 relative text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
       >
-        <Bell className="h-4 w-4 text-black" />
+        <Bell className="h-4 w-4" />
 
         {/* Unread indicator dot */}
         {unreadCount > 0 && (
-          <span className="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-black opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-black border border-white" />
+          <span className="absolute top-1 right-1 flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-coral)] opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-coral)] ring-2 ring-[var(--card-solid)]" />
           </span>
         )}
       </button>
 
-      {/* Notification Dropdown Menu */}
+      {/* Notification Dropdown Menu (Floating Glass Card) */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] z-50 animate-in fade-in-0 zoom-in-95 text-black">
+        <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)]">
           {/* Header */}
-          <div className="p-3 bg-neutral-50 border-b border-black flex items-center justify-between">
+          <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[14px] border border-[var(--card-line)] flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-black">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--ink-primary)]">
                 Notifications
               </span>
               {unreadCount > 0 ? (
-                <Badge variant="solid" size="sm">
+                <Badge variant="blue" size="sm">
                   {unreadCount} NEW
                 </Badge>
               ) : (
@@ -136,7 +135,7 @@ export function NotificationBell() {
                 size="sm"
                 onClick={handleMarkAllRead}
                 isLoading={markAllAsReadMutation.isPending}
-                className="h-6 px-2 text-[10px] gap-1 hover:bg-neutral-200 text-black uppercase font-bold"
+                className="h-6 px-2 text-[10px] gap-1 rounded-full text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] uppercase font-bold"
               >
                 <CheckCheck className="h-3 w-3" />
                 <span>Mark All Read</span>
@@ -145,18 +144,17 @@ export function NotificationBell() {
           </div>
 
           {/* List of in-app notifications */}
-          <div className="max-h-80 overflow-y-auto divide-y divide-neutral-200">
+          <div className="max-h-80 overflow-y-auto space-y-1">
             {isLoading ? (
-              <div className="p-6 text-center text-xs text-neutral-500">
+              <div className="p-6 text-center text-xs text-[var(--ink-secondary)]">
                 Checking notification feed...
               </div>
             ) : notifications.length === 0 ? (
               <div className="p-8 text-center space-y-1">
-                <span className="text-lg text-neutral-400 block">[—]</span>
-                <p className="text-xs font-bold uppercase text-neutral-700">
+                <p className="text-xs font-bold uppercase text-[var(--ink-secondary)]">
                   Inbox is Clear
                 </p>
-                <p className="text-[11px] text-neutral-500">
+                <p className="text-[11px] text-[var(--ink-tertiary)]">
                   No notifications or announcements received yet.
                 </p>
               </div>
@@ -165,32 +163,32 @@ export function NotificationBell() {
                 <div
                   key={item.id}
                   onClick={() => handleNotificationClick(item)}
-                  className={`p-3 text-left transition-colors cursor-pointer flex items-start gap-2.5 ${
+                  className={`p-3 rounded-[12px] text-left transition-all cursor-pointer flex items-start gap-2.5 ${
                     !item.is_read
-                      ? "bg-neutral-50 hover:bg-neutral-100 font-medium"
-                      : "bg-white hover:bg-neutral-50 opacity-80"
+                      ? "bg-[var(--color-blue-dim)] hover:bg-[var(--color-blue-dim)]/80"
+                      : "hover:bg-[var(--card-solid-subtle)] opacity-80"
                   }`}
                 >
                   {/* Unread indicator bullet */}
                   <div className="pt-1 shrink-0">
                     {!item.is_read ? (
-                      <span className="block h-2 w-2 rounded-full bg-black" />
+                      <span className="block h-2 w-2 rounded-full bg-[var(--color-blue)]" />
                     ) : (
-                      <span className="block h-2 w-2 rounded-full border border-neutral-300" />
+                      <span className="block h-2 w-2 rounded-full bg-[var(--card-line)]" />
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex-1 min-w-0 space-y-0.5">
                     <div className="flex items-center justify-between gap-2">
-                      <h5 className="text-xs font-bold text-black truncate">
+                      <h5 className="text-xs font-bold text-[var(--ink-primary)] truncate">
                         {item.title}
                       </h5>
-                      <span className="text-[10px] text-neutral-500 shrink-0 whitespace-nowrap">
+                      <span className="text-[10px] text-[var(--ink-tertiary)] shrink-0 whitespace-nowrap">
                         {formatRelativeTime(item.created_at)}
                       </span>
                     </div>
 
-                    <p className="text-[11px] text-neutral-700 leading-snug line-clamp-2">
+                    <p className="text-[11px] text-[var(--ink-secondary)] leading-snug line-clamp-2">
                       {item.body}
                     </p>
 
@@ -199,7 +197,7 @@ export function NotificationBell() {
                         item.action_url.trim() &&
                         item.action_url !== "/"
                     ) && (
-                      <div className="pt-1 flex items-center gap-1 text-[10px] font-bold text-black underline">
+                      <div className="pt-1 flex items-center gap-1 text-[10px] font-bold text-[var(--color-blue)] hover:underline">
                         <span>Open link</span>
                         <ExternalLink className="h-2.5 w-2.5" />
                       </div>
@@ -211,8 +209,8 @@ export function NotificationBell() {
           </div>
 
           {/* Dropdown Footer */}
-          <div className="p-2 border-t border-neutral-200 bg-neutral-50 text-center">
-            <span className="text-[10px] text-neutral-500 uppercase tracking-wider">
+          <div className="p-2 border-t border-[var(--card-line)] text-center mt-1">
+            <span className="text-[10px] text-[var(--ink-tertiary)] uppercase tracking-wider">
               Press ESC or click outside to dismiss
             </span>
           </div>

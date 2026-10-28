@@ -176,28 +176,28 @@ export function UserBulkCreateDialog({
               Processed {result.total_processed} accounts.
             </Alert>
 
-            <div className="border border-neutral-300 divide-y divide-neutral-200 bg-neutral-50">
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Total Created</span>
-                <strong className="text-black">{result.total_created}</strong>
+            <div className="rounded-[16px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] bg-[var(--card-solid)] overflow-hidden">
+              <div className="flex justify-between p-3">
+                <span className="text-[var(--ink-secondary)]">Total Created</span>
+                <strong className="text-[var(--ink-primary)] font-mono">{result.total_created}</strong>
               </div>
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Invites Dispatched</span>
-                <strong className="text-black">{result.invites_dispatched}</strong>
+              <div className="flex justify-between p-3">
+                <span className="text-[var(--ink-secondary)]">Invites Dispatched</span>
+                <strong className="text-[var(--ink-primary)] font-mono">{result.invites_dispatched}</strong>
               </div>
-              <div className="flex justify-between p-2.5">
-                <span className="text-neutral-600">Skipped Records</span>
-                <span className="font-semibold text-neutral-800">
+              <div className="flex justify-between p-3">
+                <span className="text-[var(--ink-secondary)]">Skipped Records</span>
+                <span className="font-semibold text-[var(--ink-primary)] font-mono">
                   {result.skipped_count}
                 </span>
               </div>
             </div>
 
             {result.skipped_errors && result.skipped_errors.length > 0 && (
-              <div className="border border-neutral-300 p-2.5 bg-neutral-100 max-h-36 overflow-y-auto space-y-1">
-                <span className="font-bold text-[11px] uppercase">Skipped Warnings:</span>
+              <div className="rounded-[14px] border border-[var(--card-line)] p-3 bg-[var(--card-solid-subtle)] max-h-36 overflow-y-auto space-y-1">
+                <span className="font-bold text-[11px] uppercase text-[var(--ink-primary)]">Skipped Warnings:</span>
                 {result.skipped_errors.map((msg, i) => (
-                  <div key={i} className="text-[10px] text-neutral-700">
+                  <div key={i} className="text-[10px] text-[var(--ink-secondary)] font-mono">
                     • {msg}
                   </div>
                 ))}
@@ -207,7 +207,7 @@ export function UserBulkCreateDialog({
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-neutral-600 font-semibold uppercase">
+              <span className="text-[11px] text-[var(--ink-secondary)] font-semibold uppercase">
                 CSV Input Data
               </span>
               <Button
@@ -231,12 +231,12 @@ export function UserBulkCreateDialog({
                 parseCsv(e.target.value);
               }}
               placeholder={SAMPLE_CSV}
-              className="w-full border border-neutral-300 bg-white p-2.5 font-mono text-xs focus:border-black focus:outline-none"
+              className="w-full rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3 font-mono text-xs text-[var(--ink-primary)] focus:border-[#83A2DB] focus:outline-none"
             />
 
-            <div className="flex items-center justify-between border-t border-neutral-200 pt-2">
-              <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer border border-neutral-300 px-3 py-1.5 bg-neutral-50 hover:bg-neutral-100">
-                <Upload className="h-3.5 w-3.5" />
+            <div className="flex items-center justify-between border-t border-[var(--card-line)] pt-2">
+              <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer rounded-[12px] border border-[var(--card-line)] px-3.5 py-1.5 bg-[var(--card-solid-subtle)] hover:bg-[var(--color-blue-dim)] transition-colors">
+                <Upload className="h-3.5 w-3.5 text-[var(--color-blue)]" />
                 <span>Upload CSV File</span>
                 <input
                   type="file"
@@ -247,7 +247,7 @@ export function UserBulkCreateDialog({
               </label>
 
               {parsedUsers.length > 0 && (
-                <div className="flex items-center gap-1 text-black font-semibold">
+                <div className="flex items-center gap-1 text-[#2EB88A] font-semibold text-xs">
                   <CheckCircle2 className="h-4 w-4" />
                   <span>{parsedUsers.length} valid rows detected</span>
                 </div>
@@ -255,7 +255,7 @@ export function UserBulkCreateDialog({
             </div>
 
             {parseError && (
-              <div className="flex items-center gap-1.5 text-neutral-900 border border-black p-2 bg-neutral-100 font-bold">
+              <div className="flex items-center gap-2 text-[var(--color-coral)] rounded-[14px] border border-[#CE6969]/30 p-3 bg-[var(--color-coral-dim)] text-xs font-semibold">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <span>{parseError}</span>
               </div>

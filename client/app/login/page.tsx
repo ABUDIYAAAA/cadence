@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,7 +48,7 @@ export default function LoginPage() {
 
   if (isLoading || (isAuthenticated && user)) {
     return (
-      <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-mono">
+      <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-sans">
         <div className="w-full max-w-md">
           <SkeletonCard />
         </div>
@@ -56,78 +57,82 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-mono">
+    <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-sans">
       <div className="w-full max-w-md">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Sign In</CardTitle>
-              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
-                PORTAL AUTH
-              </span>
-            </div>
-            <CardDescription>
-              Enter credentials to access your Cadence workspace.
-            </CardDescription>
-          </CardHeader>
+        <div className="translucent-container p-2 sm:p-3">
+          <Card className="border border-[var(--card-border)] shadow-none">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
+                  Sign In
+                </CardTitle>
+                <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
+                  PORTAL AUTH
+                </Badge>
+              </div>
+              <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
+                Enter credentials to access your Cadence workspace.
+              </CardDescription>
+            </CardHeader>
 
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
-              <Input
-                label="Email"
-                type="email"
-                required
-                autoComplete="email"
-                placeholder="name@event.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+            <form onSubmit={handleSubmit}>
+              <CardContent className="space-y-4">
+                <Input
+                  label="Email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="name@event.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
 
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs uppercase tracking-wider text-neutral-700">
-                    Password
-                  </label>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
+                      Password
+                    </label>
+                    <Link
+                      href="/forgot-password"
+                      className="text-xs font-medium text-[var(--color-blue)] hover:underline transition-colors"
+                    >
+                      Forgot Password?
+                    </Link>
+                  </div>
+                  <Input
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+              </CardContent>
+
+              <CardFooter className="flex flex-col gap-3 pt-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full h-11 text-sm font-semibold"
+                  isLoading={loginMutation.isPending}
+                >
+                  Sign In
+                </Button>
+
+                <div className="flex w-full items-center justify-between text-xs text-[var(--ink-secondary)] pt-3 border-t border-[var(--card-line)]">
+                  <span>First time user?</span>
                   <Link
-                    href="/forgot-password"
-                    className="text-[11px] text-neutral-600 hover:text-black underline transition-colors"
+                    href="/setup-password"
+                    className="font-semibold text-[var(--ink-primary)] hover:text-[var(--color-blue)] transition-colors"
                   >
-                    Forgot Password?
+                    Setup Account →
                   </Link>
                 </div>
-                <Input
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-            </CardContent>
-
-            <CardFooter className="flex flex-col gap-3">
-              <Button
-                type="submit"
-                variant="primary"
-                className="w-full"
-                isLoading={loginMutation.isPending}
-              >
-                Sign In
-              </Button>
-
-              <div className="flex w-full items-center justify-between text-xs text-neutral-600 pt-2 border-t border-neutral-200">
-                <span>First time user?</span>
-                <Link
-                  href="/setup-password"
-                  className="font-bold underline text-black hover:text-neutral-800"
-                >
-                  Setup Account →
-                </Link>
-              </div>
-            </CardFooter>
-          </form>
-        </Card>
+              </CardFooter>
+            </form>
+          </Card>
+        </div>
       </div>
     </div>
   );

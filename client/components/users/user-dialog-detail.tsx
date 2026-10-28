@@ -92,70 +92,70 @@ export function UserDetailDialog({
         </div>
       }
     >
-      <div className="space-y-4 font-mono text-xs">
-        <div className="border border-neutral-300 divide-y divide-neutral-200">
-          <div className="flex justify-between p-2.5 bg-neutral-50">
-            <span className="text-neutral-500">Name</span>
-            <span className="font-bold text-black">{user.name}</span>
+      <div className="space-y-4 font-sans text-xs">
+        <div className="rounded-[16px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] overflow-hidden bg-[var(--card-solid)]">
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Name</span>
+            <span className="font-bold text-[var(--ink-primary)]">{user.name}</span>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Email</span>
-            <span className="font-semibold text-black">{user.email}</span>
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">Email</span>
+            <span className="font-semibold text-[var(--ink-primary)] font-mono">{user.email}</span>
           </div>
 
-          <div className="flex justify-between p-2.5 bg-neutral-50">
-            <span className="text-neutral-500">Role</span>
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Role</span>
             <Badge variant="solid" size="sm">
               {user.role}
             </Badge>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Account Status</span>
-            <span className="font-bold">
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">Account Status</span>
+            <span className="font-bold text-[var(--ink-primary)]">
               {user.is_active ? "Active" : "Deactivated"}
             </span>
           </div>
 
-          <div className="flex justify-between p-2.5 bg-neutral-50">
-            <span className="text-neutral-500">Phone Number</span>
-            <span>{user.phone_number || "— Not Provided"}</span>
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Phone Number</span>
+            <span className="text-[var(--ink-primary)]">{user.phone_number || "— Not Provided"}</span>
           </div>
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Assigned Team</span>
-            <span>
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">Assigned Team</span>
+            <span className="text-[var(--ink-primary)]">
               {user.team_name ? (
                 <>
-                  <strong className="text-black">{user.team_name}</strong>
+                  <strong className="text-[var(--ink-primary)]">{user.team_name}</strong>
                   {user.is_leader && " (Leader)"}
                 </>
               ) : (
-                "— Unassigned"
+                <span className="text-[var(--ink-tertiary)] italic">— Unassigned</span>
               )}
             </span>
           </div>
 
           {user.team_id && (
-            <div className="flex justify-between p-2.5 bg-neutral-50">
-              <span className="text-neutral-500">Team UUID</span>
-              <span className="text-[10px] text-neutral-600 break-all">
+            <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+              <span className="text-[var(--ink-secondary)]">Team UUID</span>
+              <span className="text-[10px] text-[var(--ink-secondary)] font-mono break-all">
                 {user.team_id}
               </span>
             </div>
           )}
 
-          <div className="flex justify-between p-2.5">
-            <span className="text-neutral-500">Password Configuration</span>
-            <span>
+          <div className="flex justify-between p-3">
+            <span className="text-[var(--ink-secondary)]">Password Configuration</span>
+            <span className="font-semibold text-[var(--ink-primary)]">
               {user.is_password_configured ? "Configured" : "Pending Onboarding Setup"}
             </span>
           </div>
 
-          <div className="flex justify-between p-2.5 bg-neutral-50">
-            <span className="text-neutral-500">Created At</span>
-            <span>{new Date(user.created_at).toLocaleString()}</span>
+          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)]">Created At</span>
+            <span className="text-[var(--ink-primary)] font-mono">{new Date(user.created_at).toLocaleString()}</span>
           </div>
         </div>
       </div>

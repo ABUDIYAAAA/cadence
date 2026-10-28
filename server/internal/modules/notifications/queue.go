@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -49,11 +50,25 @@ func NewQueue(
 		return nil, ErrNilRepository
 	}
 
-	// Parse VAPID keys
-	rawVAPIDJSON := fmt.Sprintf(`{"publicKey":"%s","privateKey":"%s"}`, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey)
-	var vapidKeys webpush.VAPIDKeys
-	if err := json.Unmarshal([]byte(rawVAPIDJSON), &vapidKeys); err != nil {
-		return nil, fmt.Errorf("parse vapid keys from config: %w", err)
+	// Parse VAPID keys: supports either direct base64 strings or a path to a .pem file
+	var vapidKeys *webpush.VAPIDKeys
+	if _, err := os.Stat(cfg.VAPIDPrivateKey); err == nil {
+		pemBytes, err := os.ReadFile(cfg.VAPIDPrivateKey)
+		if err != nil {
+			return nil, fmt.Errorf("read vapid private key pem file: %w", err)
+		}
+		loadedKeys, err := webpush.LoadVAPIDPrivateKeyPEM(pemBytes)
+		if err != nil {
+			return nil, fmt.Errorf("load vapid private key pem: %w", err)
+		}
+		vapidKeys = loadedKeys
+	} else {
+		rawVAPIDJSON := fmt.Sprintf(`{"publicKey":"%s","privateKey":"%s"}`, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey)
+		var directKeys webpush.VAPIDKeys
+		if err := json.Unmarshal([]byte(rawVAPIDJSON), &directKeys); err != nil {
+			return nil, fmt.Errorf("parse vapid keys from config: %w", err)
+		}
+		vapidKeys = &directKeys
 	}
 
 	conn, err := amqp.Dial(cfg.RabbitMQURL)
@@ -88,9 +103,17 @@ func NewQueue(
 		repo:      repo,
 		cfg:       cfg,
 		logger:    logger,
-		vapidKeys: &vapidKeys,
+		vapidKeys: vapidKeys,
 		queueName: DefaultPushQueue,
 	}, nil
+}
+
+// VAPIDPublicKey returns the active public key string.
+func (q *Queue) VAPIDPublicKey() string {
+	if q.vapidKeys != nil {
+		return q.vapidKeys.PublicKeyString()
+	}
+	return q.cfg.VAPIDPublicKey
 }
 
 // Enqueue publishes a Web Push task to RabbitMQ.

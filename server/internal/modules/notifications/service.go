@@ -33,6 +33,9 @@ func NewService(
 
 // GetVAPIDPublicKey returns the public key that web clients need to call PushManager.subscribe.
 func (s *Service) GetVAPIDPublicKey() string {
+	if s.queue != nil {
+		return s.queue.VAPIDPublicKey()
+	}
 	return s.cfg.VAPIDPublicKey
 }
 

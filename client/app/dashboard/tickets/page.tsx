@@ -88,10 +88,7 @@ export default function TicketsPage() {
     return (
       <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl mx-auto font-sans">
         <div className="pb-4 border-b border-[var(--card-line)]">
-          <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-            PARTICIPANT PASS
-          </Badge>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2 mt-1.5">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
             <Ticket className="h-6 w-6 text-[var(--color-blue)]" />
             <span>Digital Event Pass</span>
           </h1>
@@ -170,21 +167,18 @@ export default function TicketsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-              {isAdmin ? "ADMIN CONTROL" : "VOLUNTEER CHECK-IN"}
-            </Badge>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
+              <Ticket className="h-6 w-6 text-[var(--color-blue)]" />
+              <span>Ticketing & Gate Operations</span>
+            </h1>
             {analyticsData && (
-              <span className="text-xs text-[var(--ink-tertiary)] font-mono">
-                {analyticsData.checked_in_count} / {analyticsData.total_issued} CHECKED IN (
+              <Badge variant="subtle" size="sm">
+                {analyticsData.checked_in_count} / {analyticsData.total_issued} checked in (
                 {Math.round(analyticsData.attendance_rate * 100)}%)
-              </span>
+              </Badge>
             )}
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-            <Ticket className="h-6 w-6 text-[var(--color-blue)]" />
-            <span>Ticketing & Gate Operations</span>
-          </h1>
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
             QR badge distribution, bulk dispatch with domain filtering, and gate scanner verification.
           </p>

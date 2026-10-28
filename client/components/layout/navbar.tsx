@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, LayoutDashboard, Bell, Sun, Moon } from "lucide-react";
+import { LogOut, LayoutDashboard, Bell, Sun, Moon, Menu } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -11,7 +11,6 @@ import { useNotificationsContext } from "@/providers/notification-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -84,64 +83,13 @@ export function Navbar() {
     try {
       await logout();
       setDropdownOpen(false);
-      toast.info("You have been signed out.", "SESSION TERMINATED");
+      toast.info("You have been signed out.", "Session Ended");
     } finally {
       setIsLoggingOut(false);
     }
   };
 
   const homeHref = isAuthenticated && user ? getDashboardRoute(user.role) : "/login";
-
-  // Navigation Links based on role (Matching preview2.html header tabs)
-  const navLinks = useMemo(() => {
-    if (!isAuthenticated || !user) return [];
-    const baseDashboard = getDashboardRoute(user.role);
-    switch (user.role) {
-      case "admin":
-        return [
-          { label: "Overview", href: baseDashboard },
-          { label: "Users", href: "/dashboard/users" },
-          { label: "Teams", href: "/dashboard/teams" },
-          { label: "Judging", href: "/dashboard/judging" },
-          { label: "Tickets", href: "/dashboard/tickets" },
-          { label: "Audit", href: "/dashboard/audit" },
-        ];
-      case "judge":
-        return [
-          { label: "Overview", href: baseDashboard },
-          { label: "Judging Panel", href: "/dashboard/judging" },
-          { label: "Teams", href: "/dashboard/teams" },
-        ];
-      case "volunteer":
-        return [
-          { label: "Overview", href: baseDashboard },
-          { label: "Gate Scanner", href: "/dashboard/tickets" },
-          { label: "Teams", href: "/dashboard/teams" },
-        ];
-      case "participant":
-        return [
-          { label: "Overview", href: baseDashboard },
-          { label: "My Team", href: "/dashboard/teams" },
-          { label: "My Ticket", href: "/dashboard/tickets" },
-          { label: "Queue Status", href: "/dashboard/judging" },
-        ];
-      default:
-        return [{ label: "Dashboard", href: baseDashboard }];
-    }
-  }, [isAuthenticated, user]);
-
-  const isLinkActive = (href: string) => {
-    if (
-      href === "/dashboard/admin" ||
-      href === "/dashboard/judge" ||
-      href === "/dashboard/volunteer" ||
-      href === "/dashboard/participant" ||
-      href === "/dashboard"
-    ) {
-      return pathname === href;
-    }
-    return pathname.startsWith(href);
-  };
 
   // Compute initials
   const initials = user?.name
@@ -153,11 +101,26 @@ export function Navbar() {
         .toUpperCase()
     : "CD";
 
+  const isDashboard = pathname.startsWith("/dashboard");
+
   return (
     <header className="app-header font-sans transition-colors duration-200">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-        {/* Brand Section */}
-        <div className="flex items-center gap-6">
+        {/* Brand & Mobile Sidebar Trigger */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {isAuthenticated && user && isDashboard && (
+            <button
+              type="button"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent("cadence:toggle-sidebar"))
+              }
+              aria-label="Toggle navigation menu"
+              className="md:hidden flex items-center justify-center h-8 w-8 rounded-full bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] active:scale-95 transition-transform cursor-pointer"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+          )}
+
           <Link
             href={homeHref}
             className="flex items-center gap-2.5 text-decoration-none group select-none"
@@ -169,32 +132,9 @@ export function Navbar() {
               Cadence
             </span>
           </Link>
-
-          {/* Navigation Links (Matching preview2.html header tabs) */}
-          {isAuthenticated && user && navLinks.length > 0 && (
-            <nav className="hidden lg:flex items-center gap-1">
-              {navLinks.map((link) => {
-                const active = isLinkActive(link.href);
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={cn(
-                      "rounded-full px-3.5 py-1 text-xs font-semibold transition-all active:scale-95 whitespace-nowrap",
-                      active
-                        ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-[var(--shadow-dark)]"
-                        : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)]"
-                    )}
-                  >
-                    {link.label}
-                  </Link>
-                );
-              })}
-            </nav>
-          )}
         </div>
 
-        {/* Right Section: Notification Bell, Theme Switcher & User Avatar */}
+        {/* Right Section: Theme Switcher, Notification Bell & User Avatar */}
         <div className="flex items-center gap-2">
           {/* Theme Switcher Circle Button */}
           <button
@@ -222,13 +162,13 @@ export function Navbar() {
                   {initials}
                 </button>
 
-                {/* Dropdown Menu (Floating Glass Card) */}
+                {/* Dropdown Menu (Floating Glass Card with origin-top-right) */}
                 {dropdownOpen && (
                   <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
                     {/* User Profile Header */}
                     <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[14px] border border-[var(--card-line)] mb-1.5">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] uppercase font-bold text-[var(--ink-secondary)] tracking-wider">
+                        <span className="text-[11px] font-medium text-[var(--ink-secondary)]">
                           Active Account
                         </span>
                         <Badge variant="solid" size="sm">
@@ -267,7 +207,7 @@ export function Navbar() {
                           onClick={() =>
                             isSubscribed ? disablePush() : enablePush()
                           }
-                          className="text-[10px] uppercase font-bold rounded-full px-2.5 py-0.5 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] hover:bg-[var(--color-dark)] hover:text-[var(--ink-inverse)] transition-colors cursor-pointer"
+                          className="text-[11px] font-semibold rounded-full px-2.5 py-0.5 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] hover:bg-[var(--color-dark)] hover:text-[var(--ink-inverse)] transition-colors cursor-pointer"
                         >
                           {isSubscribed ? "Active" : "Enable"}
                         </button>

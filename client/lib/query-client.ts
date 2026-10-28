@@ -6,9 +6,10 @@ export function makeQueryClient(): QueryClient {
       queries: {
         staleTime: 1000 * 60 * 2, // 2 minutes
         gcTime: 1000 * 60 * 10,   // 10 minutes
-        retry: (failureCount, error: any) => {
+        retry: (failureCount, error: unknown) => {
           // Do not retry on 401, 403, 404, or 422
-          const status = error?.status || error?.response?.status;
+          const errObj = error as { status?: number; response?: { status?: number } } | null;
+          const status = errObj?.status || errObj?.response?.status;
           if (status === 401 || status === 403 || status === 404 || status === 422) {
             return false;
           }

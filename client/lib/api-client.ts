@@ -108,6 +108,7 @@ apiClient.interceptors.response.use(
           !window.location.pathname.startsWith("/login") &&
           !window.location.pathname.startsWith("/auth/login")
         ) {
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
           window.location.href = "/login";
         }
 

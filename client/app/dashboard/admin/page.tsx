@@ -17,18 +17,13 @@ export default function AdminDashboardPage() {
     >
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 font-sans">
         {/* Push & Broadcast Notifications Card */}
-        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
+        <Card className="hover:border-[var(--color-blue-border)] transition-[border-color,box-shadow] duration-150">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-                  <Bell className="h-4 w-4" />
-                </div>
-                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Push & Broadcast</CardTitle>
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                <Bell className="h-4 w-4" />
               </div>
-              <Badge variant="blue" size="sm">
-                Admin
-              </Badge>
+              <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Push & Broadcast</CardTitle>
             </div>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Publish real-time announcements, emergency alerts, and room calls via RabbitMQ Web Push and in-app feeds.
@@ -55,18 +50,13 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Users Management Quick Card */}
-        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
+        <Card className="hover:border-[var(--color-blue-border)] transition-[border-color,box-shadow] duration-150">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-                  <Users className="h-4 w-4" />
-                </div>
-                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">User Directory</CardTitle>
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                <Users className="h-4 w-4" />
               </div>
-              <Badge variant="blue" size="sm">
-                Admin
-              </Badge>
+              <CardTitle className="text-base font-bold text-[var(--ink-primary)]">User Directory</CardTitle>
             </div>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Manage accounts, assign roles (Judges, Volunteers, Participants), link teams, and track onboarding status.
@@ -93,18 +83,13 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Audit Trail Card */}
-        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
+        <Card className="hover:border-[var(--color-blue-border)] transition-[border-color,box-shadow] duration-150">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-                  <Activity className="h-4 w-4" />
-                </div>
-                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Security Audit Trail</CardTitle>
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                <Activity className="h-4 w-4" />
               </div>
-              <Badge variant="blue" size="sm">
-                Admin
-              </Badge>
+              <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Security Audit Trail</CardTitle>
             </div>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Immutable historical logs of user actions, auth attempts, ticket scans, score submissions, and broadcast notifications.
@@ -131,18 +116,13 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Squads & Teams Card */}
-        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
+        <Card className="hover:border-[var(--color-blue-border)] transition-[border-color,box-shadow] duration-150">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-                  <Layers className="h-4 w-4" />
-                </div>
-                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Teams & Squads</CardTitle>
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                <Layers className="h-4 w-4" />
               </div>
-              <Badge variant="blue" size="sm">
-                Admin
-              </Badge>
+              <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Teams & Squads</CardTitle>
             </div>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Organize hackathon squads, manage participant allocations, designate leaders, and inspect team rosters.
@@ -169,18 +149,13 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Ticketing & Gate Operations Card */}
-        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
+        <Card className="hover:border-[var(--color-blue-border)] transition-[border-color,box-shadow] duration-150">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-                  <Ticket className="h-4 w-4" />
-                </div>
-                <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Tickets & Gate Check-In</CardTitle>
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
+                <Ticket className="h-4 w-4" />
               </div>
-              <Badge variant="blue" size="sm">
-                Admin
-              </Badge>
+              <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Tickets & Gate Check-In</CardTitle>
             </div>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
               Bulk QR pass issuance, domain-filtered distribution, live camera scanner, and real-time attendance analytics.
@@ -207,7 +182,7 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Security & Access Policy Card */}
-        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
+        <Card className="hover:border-[var(--color-blue-border)] transition-[border-color,box-shadow] duration-150">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -216,8 +191,8 @@ export default function AdminDashboardPage() {
                 </div>
                 <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Access Control Policy</CardTitle>
               </div>
-              <Badge variant="subtle" size="sm">
-                Active
+              <Badge variant="blue" dot size="sm">
+                Enforced
               </Badge>
             </div>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">
@@ -243,7 +218,7 @@ export default function AdminDashboardPage() {
         </Card>
 
         {/* Observability & Grafana Telemetry Card */}
-        <Card className="hover:border-[var(--color-blue)]/50 transition-all hover:-translate-y-0.5">
+        <Card className="hover:border-[var(--color-blue-border)] transition-[border-color,box-shadow] duration-150">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -252,8 +227,8 @@ export default function AdminDashboardPage() {
                 </div>
                 <CardTitle className="text-base font-bold text-[var(--ink-primary)]">Grafana Telemetry</CardTitle>
               </div>
-              <Badge variant="blue" size="sm">
-                Port 3001
+              <Badge variant="emerald" dot size="sm">
+                Live
               </Badge>
             </div>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1.5">

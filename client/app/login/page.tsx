@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { ApiError } from "@/types/api";
 
 export default function LoginPage() {
@@ -69,13 +68,10 @@ export default function LoginPage() {
         <div className="translucent-container p-2 sm:p-3">
           <Card className="border border-[var(--card-border)] shadow-none">
             <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
+              <div className="pb-1">
                 <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
                   Sign In
                 </CardTitle>
-                <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-                  PORTAL AUTH
-                </Badge>
               </div>
               <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
                 Enter credentials to access your Cadence workspace.

@@ -122,12 +122,13 @@ export async function syncPushSubscription(options: {
       status: "granted",
       message: "Push notifications active",
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Push subscription sync failed:", err);
+    const errorObj = err as { error?: string; message?: string } | null;
     return {
       success: false,
       status: permission,
-      message: err?.error || err?.message || "Failed to sync push subscription",
+      message: errorObj?.error || errorObj?.message || "Failed to sync push subscription",
     };
   }
 }

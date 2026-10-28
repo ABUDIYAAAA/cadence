@@ -203,18 +203,17 @@ export default function TeamsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-              {isAdmin ? "ADMIN CONTROL" : isVolunteer ? "VOLUNTEER ACCESS" : "EVENT OPERATIONS"}
-            </Badge>
-            <span className="text-xs text-[var(--ink-tertiary)] font-mono">
-              {teamsResponse?.total_count ?? 0} SQUADS REGISTERED
-            </span>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
+              <Layers className="h-6 w-6 text-[var(--color-blue)]" />
+              <span>Teams & Squads</span>
+            </h1>
+            {teamsResponse?.total_count !== undefined && (
+              <Badge variant="subtle" size="sm">
+                {teamsResponse.total_count} {teamsResponse.total_count === 1 ? "squad" : "squads"}
+              </Badge>
+            )}
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-            <Layers className="h-6 w-6 text-[var(--color-blue)]" />
-            <span>Teams & Squads</span>
-          </h1>
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
             Directory of event teams, participant allocations, and designated leaders.
           </p>

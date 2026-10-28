@@ -58,11 +58,13 @@ export function NotificationProvider({
 
   // Initial browser support check
   useEffect(() => {
-    const supported = isPushSupported();
-    setIsSupported(supported);
-    if (supported) {
-      setPermission(Notification.permission);
-    }
+    requestAnimationFrame(() => {
+      const supported = isPushSupported();
+      setIsSupported(supported);
+      if (supported) {
+        setPermission(Notification.permission);
+      }
+    });
   }, []);
 
   // Listen to Service Worker postMessage for real-time live push notifications
@@ -85,30 +87,31 @@ export function NotificationProvider({
   // When authenticated, check status and sync
   useEffect(() => {
     if (!isAuthenticated || !user || !isSupported) {
-      setShowPromptBanner(false);
       return;
     }
 
-    const currentPermission = Notification.permission;
-    setPermission(currentPermission);
+    requestAnimationFrame(() => {
+      const currentPermission = Notification.permission;
+      setPermission(currentPermission);
 
-    if (currentPermission === "granted") {
-      // Sync subscription silently in background
-      setIsLoading(true);
-      syncPushSubscription()
-        .then((result) => {
-          setIsSubscribed(result.success);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    } else if (currentPermission === "default") {
-      // Check if user dismissed prompt this session
-      const dismissed = sessionStorage.getItem("cadence_push_prompt_dismissed");
-      if (!dismissed) {
-        setShowPromptBanner(true);
+      if (currentPermission === "granted") {
+        // Sync subscription silently in background
+        setIsLoading(true);
+        syncPushSubscription()
+          .then((result) => {
+            setIsSubscribed(result.success);
+          })
+          .finally(() => {
+            setIsLoading(false);
+          });
+      } else if (currentPermission === "default") {
+        // Check if user dismissed prompt this session
+        const dismissed = sessionStorage.getItem("cadence_push_prompt_dismissed");
+        if (!dismissed) {
+          setShowPromptBanner(true);
+        }
       }
-    }
+    });
   }, [isAuthenticated, user, isSupported]);
 
   const handleEnablePush = useCallback(async (): Promise<boolean> => {
@@ -134,10 +137,10 @@ export function NotificationProvider({
         }
         return false;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(
-        err?.message || "Failed to register notifications.",
-        "SUBSCRIPTION ERROR"
+        (err as Error)?.message || "Failed to register notifications.",
+        "Subscription Error"
       );
       return false;
     } finally {

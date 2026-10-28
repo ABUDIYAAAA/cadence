@@ -48,10 +48,11 @@ export function MyTicketView() {
             </div>
           </div>
           <Badge
-            variant={ticket.is_checked_in ? "blue" : "outline"}
-            className="text-[10px] uppercase font-semibold tracking-wider"
+            variant={ticket.is_checked_in ? "emerald" : "blue"}
+            dot
+            size="sm"
           >
-            {ticket.is_checked_in ? "CHECKED IN" : "VALID PASS"}
+            {ticket.is_checked_in ? "Checked In" : "Valid Pass"}
           </Badge>
         </div>
 

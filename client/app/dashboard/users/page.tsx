@@ -256,18 +256,17 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-              ADMIN CONTROL
-            </Badge>
-            <span className="text-xs text-[var(--ink-tertiary)] font-mono">
-              {usersResponse?.total_count ?? 0} TOTAL USERS
-            </span>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
+              <UsersIcon className="h-6 w-6 text-[var(--color-blue)]" />
+              <span>User Accounts</span>
+            </h1>
+            {usersResponse?.total_count !== undefined && (
+              <Badge variant="subtle" size="sm">
+                {usersResponse.total_count} {usersResponse.total_count === 1 ? "user" : "users"}
+              </Badge>
+            )}
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-            <UsersIcon className="h-6 w-6 text-[var(--color-blue)]" />
-            <span>User Accounts</span>
-          </h1>
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
             Directory of participants, judges, volunteers, and administrators.
           </p>

@@ -44,12 +44,9 @@ export function MyTeamView() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-                  MY SQUAD
+                <Badge variant="subtle" size="sm">
+                  {team.members.length} {team.members.length === 1 ? "participant" : "participants"}
                 </Badge>
-                <span className="text-xs text-[var(--ink-tertiary)] font-mono">
-                  {team.members.length} {team.members.length === 1 ? "PARTICIPANT" : "PARTICIPANTS"}
-                </span>
               </div>
               <CardTitle className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2.5">
                 <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">

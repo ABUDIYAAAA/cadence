@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from "react";
 import {
   Send,
-  Bell,
   History,
   ExternalLink,
   RefreshCw,
@@ -32,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ApiError } from "@/types/api";
 
 export default function AdminNotificationsPage() {
   const { user, isAdmin, isLoading: authLoading } = useAuth();
@@ -66,14 +66,14 @@ export default function AdminNotificationsPage() {
 
   // Fetch Teams for dropdown (only when team target is active or preloaded)
   const { data: teamsData, isLoading: teamsLoading } = useTeams({ limit: 100 });
-  const teams = teamsData?.data || [];
+  const teams = useMemo(() => teamsData?.data || [], [teamsData?.data]);
 
   // Fetch Users for dropdown (with optional search filter)
   const { data: usersData, isLoading: usersLoading } = useUsers({
     limit: 100,
     search: userSearchQuery.trim() || undefined,
   });
-  const users = usersData?.data || [];
+  const users = useMemo(() => usersData?.data || [], [usersData?.data]);
 
   // Currently selected team object
   const selectedTeam = useMemo(
@@ -145,11 +145,12 @@ export default function AdminNotificationsPage() {
       setIconUrl("");
       setTargetId("");
       refetchHistory();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
       const errorMsg =
-        err?.error || err?.message || "Failed to publish notification.";
+        apiErr?.error || (err as Error)?.message || "Failed to publish notification.";
       setFormError(errorMsg);
-      toast.error(errorMsg, "DISPATCH FAILED");
+      toast.error(errorMsg, "Dispatch Failed");
     }
   };
 
@@ -158,12 +159,6 @@ export default function AdminNotificationsPage() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--card-line)]">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-              ADMIN MESSAGING
-            </Badge>
-            <span className="text-xs text-[var(--ink-tertiary)]">RABBITMQ WEB PUSH</span>
-          </div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
             Notification Publication
           </h1>

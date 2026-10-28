@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { ApiError } from "@/types/api";
 
 function ResetPasswordForm() {
@@ -80,13 +79,10 @@ function ResetPasswordForm() {
         <div className="translucent-container p-2 sm:p-3">
           <Card className="border border-[var(--card-border)] shadow-none">
             <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
+              <div className="pb-1">
                 <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
                   Create New Password
                 </CardTitle>
-                <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-                  SECURITY
-                </Badge>
               </div>
               <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
                 Enter your security token and configure a new password.
@@ -119,9 +115,6 @@ function ResetPasswordForm() {
                         <span className="text-xs font-semibold text-[var(--ink-primary)]">
                           Security Verification Token
                         </span>
-                        <Badge variant="solid" size="sm">
-                          REQUIRED
-                        </Badge>
                       </div>
 
                       <Alert variant="warning" title="TOKEN REQUIRED">

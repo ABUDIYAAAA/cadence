@@ -126,18 +126,17 @@ export default function AuditLogsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-              SECURITY AUDIT
-            </Badge>
-            <span className="text-xs text-[var(--ink-tertiary)] font-mono">
-              {auditResponse?.total_count ?? 0} LOGGED EVENTS
-            </span>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
+              <Activity className="h-6 w-6 text-[var(--color-blue)]" />
+              <span>Immutable Audit Trail</span>
+            </h1>
+            {auditResponse?.total_count !== undefined && (
+              <Badge variant="subtle" size="sm">
+                {auditResponse.total_count} {auditResponse.total_count === 1 ? "event" : "events"}
+              </Badge>
+            )}
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-            <Activity className="h-6 w-6 text-[var(--color-blue)]" />
-            <span>Immutable Audit Trail</span>
-          </h1>
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
             Persistent log of authentication events, user operations, ticketing scans, and judging updates.
           </p>

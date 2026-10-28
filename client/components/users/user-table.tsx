@@ -168,7 +168,8 @@ export function UserTable({
                 {/* Status */}
                 <TableCell>
                   <Badge
-                    variant={user.is_active ? "solid" : "subtle"}
+                    variant={user.is_active ? "emerald" : "subtle"}
+                    dot
                     size="sm"
                   >
                     {user.is_active ? "Active" : "Inactive"}

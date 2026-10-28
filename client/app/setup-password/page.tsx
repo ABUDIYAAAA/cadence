@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { ApiError } from "@/types/api";
 
 function SetupPasswordForm() {
@@ -79,13 +78,10 @@ function SetupPasswordForm() {
         <div className="translucent-container p-2 sm:p-3">
           <Card className="border border-[var(--card-border)] shadow-none">
             <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
+              <div className="pb-1">
                 <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
                   Configure Account
                 </CardTitle>
-                <Badge variant="blue" className="text-[10px] tracking-wider uppercase font-semibold">
-                  ACTIVATION
-                </Badge>
               </div>
               <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
                 Enter your invitation token and set your account password.
@@ -118,9 +114,6 @@ function SetupPasswordForm() {
                         <span className="text-xs font-semibold text-[var(--ink-primary)]">
                           Invitation Setup Token
                         </span>
-                        <Badge variant="solid" size="sm">
-                          REQUIRED
-                        </Badge>
                       </div>
 
                       <Alert variant="warning" title="INVITATION TOKEN">

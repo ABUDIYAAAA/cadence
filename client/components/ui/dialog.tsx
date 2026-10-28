@@ -11,6 +11,7 @@ interface DialogProps {
   description?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  className?: string;
 }
 
 export function Dialog({
@@ -20,6 +21,7 @@ export function Dialog({
   description,
   children,
   footer,
+  className,
 }: DialogProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -42,7 +44,7 @@ export function Dialog({
       />
 
       {/* Modal Dialog */}
-      <div className="relative z-50 w-full max-w-lg border-2 border-black bg-white p-6 shadow-2xl font-mono">
+      <div className={cn("relative z-50 w-full max-w-lg border-2 border-black bg-white p-6 shadow-2xl font-mono", className)}>
         <div className="flex items-start justify-between pb-3 border-b border-neutral-300">
           <div>
             <h2 className="text-base font-bold uppercase tracking-wider text-black">

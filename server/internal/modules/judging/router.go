@@ -33,12 +33,17 @@ func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) 
 			r.Post("/slots/{slotId}/complete", h.HandleCompleteSlot)
 		})
 
+		// Judging rounds registry & criteria rubrics (accessible to admin, judge, and volunteer)
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireRoles("admin", "judge", "volunteer"))
+			r.Get("/rounds", h.HandleListRounds)
+			r.Get("/rounds/{id}", h.HandleGetRound)
+		})
+
 		// Admin management & leaderboard routes
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRoles("admin"))
 			r.Post("/rounds", h.HandleCreateRound)
-			r.Get("/rounds", h.HandleListRounds)
-			r.Get("/rounds/{id}", h.HandleGetRound)
 			r.Post("/rounds/{id}/activate", h.HandleActivateRound)
 			r.Get("/rounds/{id}/leaderboard", h.HandleGetAdminLeaderboard)
 			r.Post("/panels", h.HandleCreatePanel)

@@ -33,6 +33,7 @@ interface RoundTableProps {
   onAddPanel: (round: RoundSummary) => void;
   onConfigureSlots: (round: RoundSummary) => void;
   isActivatingId?: string | null;
+  isAdmin?: boolean;
 }
 
 export function RoundTable({
@@ -43,6 +44,7 @@ export function RoundTable({
   onAddPanel,
   onConfigureSlots,
   isActivatingId,
+  isAdmin = true,
 }: RoundTableProps) {
   if (isLoading) {
     return (
@@ -169,44 +171,48 @@ export function RoundTable({
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
 
-                    {/* Add Room/Panel */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onAddPanel(round)}
-                      title="Add Room / Judging Panel"
-                      className="h-7 px-2 text-xs gap-1"
-                    >
-                      <Plus className="h-3 w-3" />
-                      <span>Panel</span>
-                    </Button>
+                    {isAdmin && (
+                      <>
+                        {/* Add Room/Panel */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onAddPanel(round)}
+                          title="Add Room / Judging Panel"
+                          className="h-7 px-2 text-xs gap-1"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span>Panel</span>
+                        </Button>
 
-                    {/* Configure Slots */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onConfigureSlots(round)}
-                      title="Assign Teams to Slots"
-                      className="h-7 px-2 text-xs gap-1"
-                    >
-                      <Layers className="h-3 w-3" />
-                      <span>Slots</span>
-                    </Button>
+                        {/* Configure Slots */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onConfigureSlots(round)}
+                          title="Assign Teams to Slots"
+                          className="h-7 px-2 text-xs gap-1"
+                        >
+                          <Layers className="h-3 w-3" />
+                          <span>Slots</span>
+                        </Button>
 
-                    {/* Activate Round (if draft) */}
-                    {isDraft && (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={isActivating}
-                        isLoading={isActivating}
-                        onClick={() => onActivate(round.id)}
-                        title="Activate Judging Round (Triggers Live Queue)"
-                        className="h-7 px-2.5 text-xs gap-1"
-                      >
-                        <Play className="h-3 w-3" />
-                        <span>Activate</span>
-                      </Button>
+                        {/* Activate Round (if draft) */}
+                        {isDraft && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={isActivating}
+                            isLoading={isActivating}
+                            onClick={() => onActivate(round.id)}
+                            title="Activate Judging Round (Triggers Live Queue)"
+                            className="h-7 px-2.5 text-xs gap-1"
+                          >
+                            <Play className="h-3 w-3" />
+                            <span>Activate</span>
+                          </Button>
+                        )}
+                      </>
                     )}
                   </div>
                 </TableCell>

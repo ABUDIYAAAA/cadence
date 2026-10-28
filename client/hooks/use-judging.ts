@@ -132,11 +132,12 @@ export function useCompleteSlot() {
   });
 }
 
-// Admin
-export function useJudgingRounds() {
+// Rounds listing & inspection (Admin & Judge)
+export function useJudgingRounds(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "rounds"],
     queryFn: () => judgingService.listRounds(),
+    enabled: options?.enabled ?? true,
   });
 }
 

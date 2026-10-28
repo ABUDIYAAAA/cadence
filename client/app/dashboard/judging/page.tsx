@@ -11,7 +11,8 @@ import {
   CheckCircle2,
   Clock,
   Layers,
-  ShieldAlert,
+  DoorOpen,
+  UserCheck,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -32,7 +33,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Alert } from "@/components/ui/alert";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import {
   RoundTable,
@@ -40,12 +40,20 @@ import {
   RoundPanelCreateDialog,
   RoundSlotsConfigDialog,
   RoundDetailDialog,
+  RoundActivateDialog,
+  VolunteerScheduleView,
+  ParticipantJudgingStatusView,
 } from "@/components/judging";
+
+type AdminJudgingView = "rounds" | "volunteer_monitor" | "participant_preview";
 
 export default function JudgingPage() {
   const router = useRouter();
   const toast = useToast();
-  const { user, isAdmin, isJudge, isLoading: authLoading } = useAuth();
+  const { user, isAdmin, isJudge, isVolunteer, isParticipant, isLoading: authLoading } = useAuth();
+
+  // Active view tab for admins & judges
+  const [adminView, setAdminView] = useState<AdminJudgingView>("rounds");
 
   // Queries & Mutations
   const {
@@ -66,7 +74,7 @@ export default function JudgingPage() {
   const [selectedRoundForDetails, setSelectedRoundForDetails] = useState<RoundSummary | null>(null);
   const [selectedRoundForPanel, setSelectedRoundForPanel] = useState<RoundSummary | null>(null);
   const [selectedRoundForSlots, setSelectedRoundForSlots] = useState<RoundSummary | null>(null);
-  const [activatingRoundId, setActivatingRoundId] = useState<string | null>(null);
+  const [selectedRoundForActivation, setSelectedRoundForActivation] = useState<RoundSummary | null>(null);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -116,40 +124,42 @@ export default function JudgingPage() {
     );
   }
 
-  // Judging rounds listing & management restricted to admin and judge
-  if (!isAdmin && !isJudge) {
+  // 1. Participant dedicated judging view
+  if (isParticipant && !isAdmin && !isJudge && !isVolunteer) {
     return (
-      <div className="p-6 font-mono max-w-4xl mx-auto space-y-4">
-        <Alert variant="info" title="JUDGING WORKFLOW ACCESS">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="h-5 w-5 text-black" />
-            <span>
-              Judging orchestration, panel allocation, and rounds configuration are restricted to Administrators and Judges.
-            </span>
-          </div>
-        </Alert>
+      <div className="p-6 font-mono max-w-7xl mx-auto">
+        <ParticipantJudgingStatusView />
       </div>
     );
   }
 
-  const handleActivate = async (roundId: string) => {
+  // 2. Volunteer dedicated room & schedule coordination view
+  if (isVolunteer && !isAdmin && !isJudge) {
+    return (
+      <div className="p-6 font-mono max-w-7xl mx-auto">
+        <VolunteerScheduleView />
+      </div>
+    );
+  }
+
+  // 3. Admin & Judge View
+  const handleOpenActivate = (roundId: string) => {
     if (!isAdmin) {
       toast.error("Only administrators can activate judging rounds.");
       return;
     }
+    const r = rounds.find((item) => item.id === roundId);
+    if (r) {
+      setSelectedRoundForActivation(r);
+    }
+  };
 
-    const round = rounds.find((r) => r.id === roundId);
-    const roundName = round ? `"${round.name}"` : "this round";
-
-    const confirmed = window.confirm(
-      `Activate judging round ${roundName}?\n\nThis will open queues, start buffer allocations (${round?.buffer_size ?? 2} teams ahead), and notify assigned judges.`
-    );
-    if (!confirmed) return;
-
-    setActivatingRoundId(roundId);
+  const handleConfirmActivation = async () => {
+    if (!selectedRoundForActivation) return;
     try {
-      await activateRoundMutation.mutateAsync(roundId);
-      toast.success(`Round ${roundName} is now ACTIVE!`);
+      await activateRoundMutation.mutateAsync(selectedRoundForActivation.id);
+      toast.success(`Round "${selectedRoundForActivation.name}" is now ACTIVE!`);
+      setSelectedRoundForActivation(null);
       refetch();
     } catch (err: unknown) {
       const message =
@@ -157,8 +167,6 @@ export default function JudgingPage() {
           ? String((err as { message: string }).message)
           : "Failed to activate round";
       toast.error(message);
-    } finally {
-      setActivatingRoundId(null);
     }
   };
 
@@ -248,127 +256,189 @@ export default function JudgingPage() {
 
   return (
     <div className="p-6 font-mono max-w-7xl mx-auto space-y-6">
-      {/* Top Header */}
+      {/* View Switcher Tabs (For Admin and Judge) */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-black pb-4">
         <div>
           <div className="flex items-center gap-2">
             <Award className="h-6 w-6 text-black" />
             <h1 className="text-2xl font-bold tracking-tight uppercase">
-              Judging Rounds & Evaluation Workflows
+              Judging Operations Center
             </h1>
           </div>
           <p className="text-sm text-neutral-600 mt-1">
-            Configure evaluation rounds, scoring criteria rubrics, judging rooms/panels, and team sequence allocations.
+            Configure evaluation rounds, monitor volunteer staging rooms, and inspect participant queues.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="flex items-center gap-1.5 border-black text-black hover:bg-neutral-100"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
-            />
-            REFRESH
-          </Button>
-
-          {isAdmin && (
-            <Button
-              size="sm"
-              onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-1.5 bg-black text-white hover:bg-neutral-800 border border-black shadow-sm"
+          <div className="border border-black p-0.5 bg-neutral-100 flex items-center">
+            <button
+              onClick={() => setAdminView("rounds")}
+              className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+                adminView === "rounds"
+                  ? "bg-black text-white"
+                  : "text-neutral-700 hover:text-black"
+              }`}
             >
-              <Plus className="h-4 w-4" />
-              CREATE JUDGING ROUND
-            </Button>
-          )}
+              <Award className="h-3.5 w-3.5" />
+              Rounds Configuration
+            </button>
+            <button
+              onClick={() => setAdminView("volunteer_monitor")}
+              className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+                adminView === "volunteer_monitor"
+                  ? "bg-black text-white"
+                  : "text-neutral-700 hover:text-black"
+              }`}
+            >
+              <DoorOpen className="h-3.5 w-3.5" />
+              Room Staging (Volunteers)
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setAdminView("participant_preview")}
+                className={`px-3 py-1.5 text-xs uppercase font-bold flex items-center gap-1.5 transition-all ${
+                  adminView === "participant_preview"
+                    ? "bg-black text-white"
+                    : "text-neutral-700 hover:text-black"
+                }`}
+              >
+                <UserCheck className="h-3.5 w-3.5" />
+                Participant Queue View
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Metrics Banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="border border-black p-3 bg-white">
-          <div className="text-xs uppercase text-neutral-500 font-semibold">Total Rounds</div>
-          <div className="text-2xl font-bold text-black mt-1">{stats.total}</div>
-        </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
-            <CheckCircle2 className="h-3.5 w-3.5 text-black" />
-            Active
-          </div>
-          <div className="text-2xl font-bold text-black mt-1">{stats.active}</div>
-        </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5 text-neutral-400" />
-            Draft
-          </div>
-          <div className="text-2xl font-bold text-black mt-1">{stats.draft}</div>
-        </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-xs uppercase text-neutral-500 font-semibold">Completed</div>
-          <div className="text-2xl font-bold text-black mt-1">{stats.completed}</div>
-        </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
-            <Layers className="h-3.5 w-3.5 text-black" />
-            Total Panels
-          </div>
-          <div className="text-2xl font-bold text-black mt-1">{stats.totalPanels}</div>
-        </div>
-        <div className="border border-black p-3 bg-white">
-          <div className="text-xs uppercase text-neutral-500 font-semibold">Total Slots</div>
-          <div className="text-2xl font-bold text-black mt-1">{stats.totalSlots}</div>
-        </div>
-      </div>
+      {/* VIEW 1: VOLUNTEER STAGING SCHEDULE MONITOR */}
+      {adminView === "volunteer_monitor" && (
+        <VolunteerScheduleView />
+      )}
 
-      {/* Search and Filters */}
-      <div className="border border-black p-4 bg-white flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-          <Input
-            placeholder="Search rounds by name or ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 border-black font-mono text-sm"
+      {/* VIEW 2: PARTICIPANT PREVIEW */}
+      {adminView === "participant_preview" && (
+        <ParticipantJudgingStatusView />
+      )}
+
+      {/* VIEW 3: ROUNDS MANAGEMENT & CONFIGURATION */}
+      {adminView === "rounds" && (
+        <>
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm uppercase font-bold text-neutral-600">
+              Evaluation Rounds Registry
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="flex items-center gap-1.5 border-black text-black hover:bg-neutral-100"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+                />
+                REFRESH
+              </Button>
+
+              {isAdmin && (
+                <Button
+                  size="sm"
+                  onClick={() => setIsCreateOpen(true)}
+                  className="flex items-center gap-1.5 bg-black text-white hover:bg-neutral-800 border border-black shadow-sm"
+                >
+                  <Plus className="h-4 w-4" />
+                  CREATE JUDGING ROUND
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Metrics Banner */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="border border-black p-3 bg-white">
+              <div className="text-xs uppercase text-neutral-500 font-semibold">Total Rounds</div>
+              <div className="text-2xl font-bold text-black mt-1">{stats.total}</div>
+            </div>
+            <div className="border border-black p-3 bg-white">
+              <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5 text-black" />
+                Active
+              </div>
+              <div className="text-2xl font-bold text-black mt-1">{stats.active}</div>
+            </div>
+            <div className="border border-black p-3 bg-white">
+              <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5 text-neutral-400" />
+                Draft
+              </div>
+              <div className="text-2xl font-bold text-black mt-1">{stats.draft}</div>
+            </div>
+            <div className="border border-black p-3 bg-white">
+              <div className="text-xs uppercase text-neutral-500 font-semibold">Completed</div>
+              <div className="text-2xl font-bold text-black mt-1">{stats.completed}</div>
+            </div>
+            <div className="border border-black p-3 bg-white">
+              <div className="text-xs uppercase text-neutral-500 font-semibold flex items-center gap-1">
+                <Layers className="h-3.5 w-3.5 text-black" />
+                Total Panels
+              </div>
+              <div className="text-2xl font-bold text-black mt-1">{stats.totalPanels}</div>
+            </div>
+            <div className="border border-black p-3 bg-white">
+              <div className="text-xs uppercase text-neutral-500 font-semibold">Total Slots</div>
+              <div className="text-2xl font-bold text-black mt-1">{stats.totalSlots}</div>
+            </div>
+          </div>
+
+          {/* Search and Filters */}
+          <div className="border border-black p-4 bg-white flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+              <Input
+                placeholder="Search rounds by name or ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 border-black font-mono text-sm"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 text-xs uppercase font-semibold text-neutral-600 shrink-0">
+                <Filter className="h-3.5 w-3.5" />
+                Status:
+              </div>
+              <div className="w-40">
+                <Select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  options={[
+                    { value: "all", label: "ALL STATUSES" },
+                    { value: "draft", label: "DRAFT" },
+                    { value: "active", label: "ACTIVE" },
+                    { value: "completed", label: "COMPLETED" },
+                  ]}
+                  className="border-black font-mono text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Rounds Listing Table */}
+          <RoundTable
+            rounds={filteredRounds}
+            isLoading={roundsLoading}
+            onView={(round: RoundSummary) => setSelectedRoundForDetails(round)}
+            onAddPanel={(round: RoundSummary) => setSelectedRoundForPanel(round)}
+            onConfigureSlots={(round: RoundSummary) => setSelectedRoundForSlots(round)}
+            onActivate={(roundId: string) => handleOpenActivate(roundId)}
+            isActivatingId={activateRoundMutation.isPending ? selectedRoundForActivation?.id : null}
+            isAdmin={isAdmin}
           />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs uppercase font-semibold text-neutral-600 shrink-0">
-            <Filter className="h-3.5 w-3.5" />
-            Status:
-          </div>
-          <div className="w-40">
-            <Select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              options={[
-                { value: "all", label: "ALL STATUSES" },
-                { value: "draft", label: "DRAFT" },
-                { value: "active", label: "ACTIVE" },
-                { value: "completed", label: "COMPLETED" },
-              ]}
-              className="border-black font-mono text-sm"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Rounds Listing Table */}
-      <RoundTable
-        rounds={filteredRounds}
-        isLoading={roundsLoading}
-        onView={(round: RoundSummary) => setSelectedRoundForDetails(round)}
-        onAddPanel={(round: RoundSummary) => setSelectedRoundForPanel(round)}
-        onConfigureSlots={(round: RoundSummary) => setSelectedRoundForSlots(round)}
-        onActivate={(roundId: string) => handleActivate(roundId)}
-        isActivatingId={activatingRoundId}
-      />
+        </>
+      )}
 
       {/* Modals & Dialogs */}
       {/* 1. Main Round Creation Wizard (Rounds -> Panels -> Teams -> Slots) */}
@@ -402,8 +472,17 @@ export default function JudgingPage() {
         open={Boolean(selectedRoundForDetails)}
         onClose={() => setSelectedRoundForDetails(null)}
         round={selectedRoundForDetails}
-        onActivate={(roundId: string) => handleActivate(roundId)}
-        isActivating={activatingRoundId === selectedRoundForDetails?.id}
+        onActivate={(roundId: string) => handleOpenActivate(roundId)}
+        isActivating={activateRoundMutation.isPending}
+      />
+
+      {/* 5. Custom In-App Activation Confirmation Dialog (NO NATIVE ALERTS) */}
+      <RoundActivateDialog
+        open={Boolean(selectedRoundForActivation)}
+        onClose={() => setSelectedRoundForActivation(null)}
+        round={selectedRoundForActivation}
+        onConfirm={handleConfirmActivation}
+        isLoading={activateRoundMutation.isPending}
       />
     </div>
   );

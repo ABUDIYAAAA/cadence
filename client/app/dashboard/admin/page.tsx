@@ -228,6 +228,47 @@ export default function AdminDashboardPage() {
             </div>
           </CardContent>
         </Card>
+        {/* Observability & Grafana Telemetry Card */}
+        <Card className="hover:border-black transition-colors">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-black" />
+                <CardTitle className="text-sm">Grafana Telemetry</CardTitle>
+              </div>
+              <span className="text-[10px] bg-black text-white px-2 py-0.5 uppercase tracking-wider font-bold">
+                Port 3001
+              </span>
+            </div>
+            <CardDescription>
+              Live Prometheus metrics dashboard tracking RED requests, P95 latencies, auth events, rate limits, and PG pool connections.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-xs text-neutral-600 space-y-1">
+              <div className="flex justify-between py-1 border-b border-neutral-100">
+                <span>Prometheus Scrape:</span>
+                <span className="font-bold text-black">Every 5 Seconds</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-neutral-100">
+                <span>Metrics Tracked:</span>
+                <span className="font-bold text-black">RED, Security, PG Pool, Go GC</span>
+              </div>
+            </div>
+            <div className="pt-2">
+              <a
+                href="http://localhost:3001/d/cadence-overview/cadence-hackathon-operations-and-telemetry"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="primary" size="sm" className="w-full text-xs gap-1.5">
+                  <span>Open Grafana Dashboard</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </RoleDashboard>
   );

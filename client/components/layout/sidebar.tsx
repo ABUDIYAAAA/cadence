@@ -14,6 +14,8 @@ import {
   Ticket,
   FileText,
   Bell,
+  Activity,
+  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
@@ -28,6 +30,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
   roles?: UserRole[];
+  external?: boolean;
 }
 
 export function Sidebar() {
@@ -60,7 +63,7 @@ export function Sidebar() {
       label: "Judging",
       href: "/dashboard/judging",
       icon: Award,
-      roles: ["admin", "judge"],
+      roles: ["admin", "judge", "volunteer", "participant"],
     },
     {
       label: "Tickets",
@@ -73,6 +76,13 @@ export function Sidebar() {
       href: "/dashboard/audit",
       icon: FileText,
       roles: ["admin"],
+    },
+    {
+      label: "Grafana Metrics",
+      href: "http://localhost:3001/d/cadence-overview/cadence-hackathon-operations-and-telemetry",
+      icon: Activity,
+      roles: ["admin"],
+      external: true,
     },
   ];
 
@@ -138,6 +148,25 @@ export function Sidebar() {
               {visibleNavItems.map((item) => {
                 const active = isActive(item.href);
                 const Icon = item.icon;
+
+                if (item.external) {
+                  return (
+                    <a
+                      key={item.href}
+                      href={item.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between px-3 py-2 text-xs font-semibold tracking-wider transition-colors border-l-2 text-neutral-700 border-transparent hover:bg-neutral-100 hover:text-black"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="h-4 w-4 shrink-0 text-black" />
+                        <span>{item.label}</span>
+                      </div>
+                      <ExternalLink className="h-3 w-3 text-neutral-400" />
+                    </a>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.href}

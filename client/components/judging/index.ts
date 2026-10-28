@@ -3,3 +3,6 @@ export { RoundCreateDialog } from "./round-dialog-create";
 export { RoundPanelCreateDialog } from "./round-dialog-panel-create";
 export { RoundSlotsConfigDialog } from "./round-dialog-slots-config";
 export { RoundDetailDialog } from "./round-dialog-detail";
+export { RoundActivateDialog } from "./round-dialog-activate";
+export { VolunteerScheduleView } from "./volunteer-schedule-view";
+export { ParticipantJudgingStatusView } from "./participant-status-view";

@@ -5,6 +5,7 @@ interface EmptyStateProps {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
   className?: string;
 }
 
@@ -12,6 +13,7 @@ export function EmptyState({
   title,
   description,
   action,
+  icon: Icon,
   className,
 }: EmptyStateProps) {
   return (
@@ -21,7 +23,11 @@ export function EmptyState({
         className
       )}
     >
-      <div className="mb-2 text-2xl font-light text-neutral-400">[—]</div>
+      {Icon ? (
+        <Icon className="mb-2 h-7 w-7 text-neutral-400" />
+      ) : (
+        <div className="mb-2 text-2xl font-light text-neutral-400">[—]</div>
+      )}
       <h4 className="text-sm font-semibold uppercase tracking-wider text-black">
         {title}
       </h4>

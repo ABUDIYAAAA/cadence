@@ -51,7 +51,7 @@ jobs:
           mv ~/projects/.cadence.env .env
           chmod 600 .env
 
-          export METRICS_SCRAPE_TOKEN="$(grep '^METRICS_SCRAPE_TOKEN=' .env | cut -d= -f2- | tr -d '\r"')"
+          export METRICS_SCRAPE_TOKEN="$( (grep '^METRICS_SCRAPE_TOKEN=' .env || true) | cut -d= -f2- | tr -d '\r"')"
 
           COMPOSE="docker compose --env-file .env -f docker-compose.prod.yml"
 
@@ -59,25 +59,27 @@ jobs:
           $COMPOSE build backend
           $COMPOSE run --rm --entrypoint /app/cadence-migrate backend
           $COMPOSE run --rm --entrypoint /app/cadence-seed backend
-          $COMPOSE up -d --remove-orphans
+          $COMPOSE up -d --remove-orphans backend prometheus grafana
 
-          # Verify the persistent backend container exists and is running.
-          if ! docker inspect cadence-backend >/dev/null 2>&1; then
-            echo "ERROR: cadence-backend was not created."
-            $COMPOSE ps -a
-            exit 1
-          fi
+          # Verify backend, prometheus, and grafana containers exist and are running.
+          for cname in cadence-backend cadence-prometheus cadence-grafana; do
+            if ! docker inspect "$cname" >/dev/null 2>&1; then
+              echo "ERROR: $cname was not created."
+              $COMPOSE ps -a
+              exit 1
+            fi
 
-          if [ "$(docker inspect -f '{{.State.Running}}' cadence-backend)" != "true" ]; then
-            echo "ERROR: cadence-backend is not running."
-            $COMPOSE ps -a
-            $COMPOSE logs --tail=100 backend
-            exit 1
-          fi
+            if [ "$(docker inspect -f '{{.State.Running}}' "$cname")" != "true" ]; then
+              echo "ERROR: $cname is not running."
+              $COMPOSE ps -a
+              docker logs --tail=100 "$cname" || true
+              exit 1
+            fi
+          done
 
-          echo "Backend is running."
+          echo "Backend, Prometheus, and Grafana are running."
           $COMPOSE ps -a
-          $COMPOSE logs --tail=100 backend
+          $COMPOSE logs --tail=50 backend grafana
 
           docker image prune -f
           REMOTE

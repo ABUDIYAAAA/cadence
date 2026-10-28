@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
 	"devclubxnst.com/cadence/internal/config"
@@ -24,6 +25,7 @@ import (
 	"devclubxnst.com/cadence/internal/modules/users"
 	"devclubxnst.com/cadence/internal/ratelimit"
 	"devclubxnst.com/cadence/pkg/logger"
+	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
@@ -111,6 +113,9 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	router.Use(logger.HTTPMiddleware(appLogger))
 	router.Use(middleware.Recoverer)
 
+	// HTTP RED Metrics Middleware
+	router.Use(metrics.Middleware())
+
 	// Secure headers middleware
 	router.Use(secureHeadersMiddleware(cfg.IsProduction()))
 
@@ -137,6 +142,12 @@ func NewApplication(ctx context.Context) (*Application, error) {
 			"env":    cfg.Env,
 		})
 	})
+
+	// Prometheus metrics endpoint
+	router.Handle("/metrics", promhttp.Handler())
+
+	// Register PostgreSQL connection pool stats
+	metrics.RegisterDBStats(dbPool)
 
 	// Auth module initialization with instant Redis blocklist verification and audit recording
 	authRepo := auth.NewRepository(dbPool)

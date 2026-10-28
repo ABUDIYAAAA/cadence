@@ -180,4 +180,27 @@ export interface RoundSummary {
   buffer_size: number;
   slot_duration_mins: number;
   created_at: string;
+  panel_count?: number;
+  slot_count?: number;
+}
+
+export interface RoundDetail {
+  id: string;
+  name: string;
+  status: string;
+  buffer_size: number;
+  slot_duration_mins: number;
+  criteria: CriterionOutput[];
+}
+
+export interface CreateRoundResponse {
+  message: string;
+  round_id: string;
+  id?: string;
+}
+
+export interface CreatePanelResponse {
+  message: string;
+  panel_id: string;
+  id?: string;
 }

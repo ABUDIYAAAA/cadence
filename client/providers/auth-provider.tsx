@@ -21,9 +21,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data: user, isLoading, refetch } = useCurrentUser();
+  const { data: userData, isLoading, isError, refetch } = useCurrentUser();
   const logoutMutation = useLogout();
 
+  // If there's an auth error (e.g. 401 unauthenticated), user is null
+  const user = isError ? null : userData ?? null;
   const role = user?.role ?? null;
   const isAdmin = role === "admin";
   const isJudge = role === "judge";

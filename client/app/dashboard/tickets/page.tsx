@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Ticket,
@@ -68,17 +68,18 @@ export default function TicketsPage() {
   const sendSingleMutation = useSendSingleTicket();
 
   // Guards
-  if (authLoading) {
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace("/login");
+    }
+  }, [authLoading, user, router]);
+
+  if (authLoading || !user) {
     return (
       <div className="p-6 font-mono">
         <SkeletonCard />
       </div>
     );
-  }
-
-  if (!user) {
-    router.replace("/login");
-    return null;
   }
 
   // 1. PARTICIPANT VIEW: Show their personal QR pass if issued

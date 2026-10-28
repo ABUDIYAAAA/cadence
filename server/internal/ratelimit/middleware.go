@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/internal/config"
+	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
@@ -79,12 +80,19 @@ func RateLimitMiddleware(
 				limit = DefaultDeviceLimit
 			}
 
+			limiterType := "device"
+			if key != "" && strings.HasPrefix(key, "ratelimit:user:") {
+				limiterType = "user"
+			}
+
 			// 3. Evaluate identity/device sliding window limit
 			res, err := limiter.Allow(ctx, key, limit, 1*time.Minute)
 			if err == nil {
 				w.Header().Set("X-RateLimit-Limit", strconv.FormatInt(limit, 10))
 				w.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(res.Remaining, 10))
 				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(int64(res.ResetAfter.Seconds()), 10))
+
+				metrics.InstrumentRateLimit(limiterType, res.Allowed)
 
 				if !res.Allowed {
 					w.Header().Set("Retry-After", strconv.FormatInt(int64(res.ResetAfter.Seconds()), 10))
@@ -101,13 +109,16 @@ func RateLimitMiddleware(
 			if clientIP != "" {
 				ipKey := fmt.Sprintf("ratelimit:ip:%s", clientIP)
 				ipRes, ipErr := limiter.Allow(ctx, ipKey, DefaultCampusIPLimit, 1*time.Minute)
-				if ipErr == nil && !ipRes.Allowed {
-					w.Header().Set("Retry-After", strconv.FormatInt(int64(ipRes.ResetAfter.Seconds()), 10))
-					utils.JSON(w, http.StatusTooManyRequests, map[string]any{
-						"error":               "campus gateway traffic ceiling exceeded; please retry shortly",
-						"retry_after_seconds": int(ipRes.ResetAfter.Seconds()),
-					})
-					return
+				if ipErr == nil {
+					metrics.InstrumentRateLimit("campus_ip", ipRes.Allowed)
+					if !ipRes.Allowed {
+						w.Header().Set("Retry-After", strconv.FormatInt(int64(ipRes.ResetAfter.Seconds()), 10))
+						utils.JSON(w, http.StatusTooManyRequests, map[string]any{
+							"error":               "campus gateway traffic ceiling exceeded; please retry shortly",
+							"retry_after_seconds": int(ipRes.ResetAfter.Seconds()),
+						})
+						return
+					}
 				}
 			}
 

@@ -8,6 +8,7 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -63,6 +64,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAge
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
+		metrics.InstrumentAuthEvent("login", false)
 		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: invalid password for %s", req.Email), &user.Email, &user.Role, nil, &deviceID, &userAgent, &ip)
 		return nil, "", "", ErrInvalidCredentials
 	}
@@ -72,9 +74,11 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAge
 
 	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, userAgent, ip)
 	if err != nil {
+		metrics.InstrumentAuthEvent("login", false)
 		return nil, "", "", err
 	}
 
+	metrics.InstrumentAuthEvent("login", true)
 	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s logged in successfully", user.Email), &user.Email, &user.Role, nil, &deviceID, &userAgent, &ip)
 
 	return toUserResponse(user), accessToken, refreshToken, nil
@@ -218,6 +222,8 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, u
 
 	// Anti-Hijacking check: verify token is being refreshed from the same signed device that received it
 	if session.DeviceID != deviceID {
+		metrics.InstrumentAuthEvent("refresh", false)
+		metrics.InstrumentSecurityThreat("device_mismatch")
 		_ = s.repo.RevokeAllUserTokens(ctx, session.UserID)
 		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetSession, &session.UserID, "Session hijack detected: refresh token replayed from different device", nil, nil, map[string]any{"session_id": session.ID, "expected_device": session.DeviceID, "actual_device": deviceID}, &deviceID, &userAgent, &ip)
 		return "", "", ErrTokenDeviceMismatch
@@ -225,26 +231,32 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, u
 
 	// Replay attack detection: if token is already revoked, compromise detected
 	if session.IsRevoked {
+		metrics.InstrumentAuthEvent("refresh", false)
+		metrics.InstrumentSecurityThreat("token_replay")
 		_ = s.repo.RevokeAllUserTokens(ctx, session.UserID)
 		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetSession, &session.UserID, "Token replay detected: revoked refresh token used again", nil, nil, map[string]any{"session_id": session.ID}, &deviceID, &userAgent, &ip)
 		return "", "", ErrTokenReplayDetect
 	}
 
 	if time.Now().After(session.ExpiresAt) {
+		metrics.InstrumentAuthEvent("refresh", false)
 		return "", "", ErrTokenExpired
 	}
 
 	user, err := s.repo.GetUserByID(ctx, session.UserID)
 	if err != nil {
+		metrics.InstrumentAuthEvent("refresh", false)
 		return "", "", err
 	}
 
 	if !user.IsActive {
+		metrics.InstrumentAuthEvent("refresh", false)
 		return "", "", ErrInactiveUser
 	}
 
 	// Revoke the old token
 	if err := s.repo.RevokeRefreshToken(ctx, tokenHash); err != nil {
+		metrics.InstrumentAuthEvent("refresh", false)
 		return "", "", err
 	}
 
@@ -253,9 +265,11 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, u
 	parentID := &session.ID
 	newAccess, newRefresh, err := s.createSession(ctx, user, deviceID, &familyID, parentID, userAgent, ip)
 	if err != nil {
+		metrics.InstrumentAuthEvent("refresh", false)
 		return "", "", err
 	}
 
+	metrics.InstrumentAuthEvent("refresh", true)
 	return newAccess, newRefresh, nil
 }
 
@@ -263,6 +277,7 @@ func (s *Service) Logout(ctx context.Context, rawRefreshToken string) error {
 	tokenHash := utils.HashToken(rawRefreshToken)
 	session, _ := s.repo.GetRefreshTokenByHash(ctx, tokenHash)
 	if session != nil {
+		metrics.InstrumentAuthEvent("logout", true)
 		s.recordAudit(ctx, audit.ActionAuthLogout, audit.TargetSession, &session.UserID, "User logged out session", nil, nil, map[string]any{"session_id": session.ID}, &session.DeviceID, session.UserAgent, session.IPAddress)
 	}
 	return s.repo.RevokeRefreshToken(ctx, tokenHash)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/metrics"
 )
 
 var (
@@ -278,7 +279,11 @@ func (s *Service) SubmitScores(
 			return ErrJudgeNotAssigned
 		}
 	}
-	return s.repo.UpsertScores(ctx, slotID, judgeID, req.Scores)
+	err := s.repo.UpsertScores(ctx, slotID, judgeID, req.Scores)
+	if err == nil {
+		metrics.InstrumentScoreSubmission("draft")
+	}
+	return err
 }
 
 // LockScores locks the judge's score for the team.
@@ -308,6 +313,8 @@ func (s *Service) LockScores(
 	if err := s.repo.LockJudgeScorecard(ctx, slotID, judgeID); err != nil {
 		return err
 	}
+
+	metrics.InstrumentScoreSubmission("locked")
 
 	s.recordAudit(
 		ctx,

@@ -12,6 +12,7 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/metrics"
 )
 
 var (
@@ -240,8 +241,11 @@ func (s *Service) Broadcast(
 		recipientIDs,
 	)
 	if err != nil {
+		metrics.InstrumentNotification(req.TargetType, "in_app", "failure")
 		return nil, fmt.Errorf("create notification record: %w", err)
 	}
+
+	metrics.InstrumentNotification(req.TargetType, "in_app", "success")
 
 	enqueuedCount := 0
 	if s.queue != nil && len(recipientIDs) > 0 {
@@ -264,6 +268,7 @@ func (s *Service) Broadcast(
 				})
 				if err == nil {
 					enqueuedCount++
+					metrics.InstrumentNotification(req.TargetType, "web_push", "queued")
 				}
 			}
 		}

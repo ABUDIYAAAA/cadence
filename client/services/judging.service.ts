@@ -3,9 +3,12 @@ import {
   AdminLeaderboardResponse,
   ConfigureSlotsRequest,
   CreatePanelRequest,
+  CreatePanelResponse,
   CreateRoundRequest,
+  CreateRoundResponse,
   JudgePanelSummary,
   JudgeSlotDetails,
+  RoundDetail,
   RoundSummary,
   SubmitScoresRequest,
   TeamStatusResponse,
@@ -86,8 +89,8 @@ export const judgingService = {
   },
 
   // Admin
-  async createRound(payload: CreateRoundRequest): Promise<RoundSummary> {
-    const { data } = await apiClient.post<RoundSummary>("/judging/rounds", payload);
+  async createRound(payload: CreateRoundRequest): Promise<CreateRoundResponse> {
+    const { data } = await apiClient.post<CreateRoundResponse>("/judging/rounds", payload);
     return data;
   },
 
@@ -96,8 +99,8 @@ export const judgingService = {
     return data;
   },
 
-  async getRound(id: string): Promise<RoundSummary> {
-    const { data } = await apiClient.get<RoundSummary>(`/judging/rounds/${id}`);
+  async getRound(id: string): Promise<RoundDetail> {
+    const { data } = await apiClient.get<RoundDetail>(`/judging/rounds/${id}`);
     return data;
   },
 
@@ -115,8 +118,8 @@ export const judgingService = {
     return data;
   },
 
-  async createPanel(payload: CreatePanelRequest): Promise<{ id: string }> {
-    const { data } = await apiClient.post<{ id: string }>("/judging/panels", payload);
+  async createPanel(payload: CreatePanelRequest): Promise<CreatePanelResponse> {
+    const { data } = await apiClient.post<CreatePanelResponse>("/judging/panels", payload);
     return data;
   },
 

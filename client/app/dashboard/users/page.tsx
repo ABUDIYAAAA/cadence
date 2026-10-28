@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   UserPlus,
@@ -85,17 +85,18 @@ export default function UsersPage() {
   const [actionInProgressId, setActionInProgressId] = useState<string | null>(null);
 
   // Guards
-  if (authLoading) {
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+      router.replace("/login");
+    }
+  }, [authLoading, currentUser, router]);
+
+  if (authLoading || !currentUser) {
     return (
       <div className="p-6 font-mono">
         <SkeletonCard />
       </div>
     );
-  }
-
-  if (!currentUser) {
-    router.replace("/login");
-    return null;
   }
 
   if (!isAdmin) {

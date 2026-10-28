@@ -1,11 +1,9 @@
-import axios, {
-  AxiosError,
-  AxiosInstance,
-  InternalAxiosRequestConfig,
-} from "axios";
+import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from "axios";
 import { ApiError } from "@/types/api";
+import { getQueryClient } from "@/lib/query-client";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -33,6 +31,23 @@ const processQueue = (error: unknown) => {
   failedQueue = [];
 };
 
+/**
+ * Endpoints that should NOT trigger a token refresh when they return 401.
+ * /auth/me MUST NOT be in this list because when access token expires,
+ * /auth/me must seamlessly refresh via /auth/refresh and retry!
+ */
+function isNonRefreshableAuthRoute(url?: string): boolean {
+  if (!url) return false;
+  return (
+    url.includes("/auth/login") ||
+    url.includes("/auth/refresh") ||
+    url.includes("/auth/logout") ||
+    url.includes("/auth/forgot-password") ||
+    url.includes("/auth/setup-password") ||
+    url.includes("/auth/reset-password")
+  );
+}
+
 // Response interceptor: handle automatic token refresh and format errors
 apiClient.interceptors.response.use(
   (response) => response,
@@ -41,31 +56,26 @@ apiClient.interceptors.response.use(
       error?: string;
       message?: string;
       details?: Record<string, string>;
-    }>,
+    }>
   ) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
     };
 
-    // If 401 occurs and not already retried or on auth routes (login/refresh/me/reset)
-    const isAuthRoute =
-      originalRequest?.url?.includes("/auth/login") ||
-      originalRequest?.url?.includes("/auth/refresh") ||
-      originalRequest?.url?.includes("/auth/me") ||
-      originalRequest?.url?.includes("/auth/forgot-password") ||
-      originalRequest?.url?.includes("/auth/setup-password") ||
-      originalRequest?.url?.includes("/auth/reset-password");
-
     if (
       error.response?.status === 401 &&
-      !originalRequest?._retry &&
-      !isAuthRoute
+      originalRequest &&
+      !originalRequest._retry &&
+      !isNonRefreshableAuthRoute(originalRequest.url)
     ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
-          .then(() => apiClient(originalRequest))
+          .then(() => {
+            originalRequest._retry = true;
+            return apiClient(originalRequest);
+          })
           .catch((err) => Promise.reject(err));
       }
 
@@ -73,11 +83,34 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        await apiClient.post("/auth/refresh");
+        // Direct call without interceptors to avoid circular refresh loops
+        await axios.post(
+          `${API_BASE_URL}/auth/refresh`,
+          {},
+          { withCredentials: true }
+        );
+
         processQueue(null);
         return apiClient(originalRequest);
       } catch (refreshErr) {
         processQueue(refreshErr);
+
+        // Clear cached auth/query state to prevent redirect ping-pong loops
+        try {
+          const qc = getQueryClient();
+          qc.setQueryData(["auth", "me"], null);
+          qc.clear();
+        } catch {}
+
+        // If the refresh token is truly invalid/expired, redirect to login once
+        if (
+          typeof window !== "undefined" &&
+          !window.location.pathname.startsWith("/login") &&
+          !window.location.pathname.startsWith("/auth/login")
+        ) {
+          window.location.href = "/login";
+        }
+
         return Promise.reject(formatApiError(error));
       } finally {
         isRefreshing = false;
@@ -85,7 +118,7 @@ apiClient.interceptors.response.use(
     }
 
     return Promise.reject(formatApiError(error));
-  },
+  }
 );
 
 export function formatApiError(
@@ -93,7 +126,7 @@ export function formatApiError(
     error?: string;
     message?: string;
     details?: Record<string, string>;
-  }>,
+  }>
 ): ApiError {
   if (error.response?.data) {
     return {

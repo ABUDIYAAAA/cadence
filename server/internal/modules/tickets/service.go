@@ -13,6 +13,7 @@ import (
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/mailer"
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/skip2/go-qrcode"
 )
@@ -58,6 +59,7 @@ func (s *Service) CheckIn(
 ) (*CheckInResponse, *DuplicateCheckInResponse, error) {
 	info, err := s.repo.GetTicketByCode(ctx, ticketCode)
 	if err != nil {
+		metrics.InstrumentTicketScan("invalid")
 		return nil, nil, err
 	}
 
@@ -73,6 +75,7 @@ func (s *Service) CheckIn(
 
 	// Instant duplicate check-in detection
 	if info.IsCheckedIn {
+		metrics.InstrumentTicketScan("duplicate")
 		checkedAtStr := ""
 		if info.CheckedInAt != nil {
 			checkedAtStr = info.CheckedInAt.Format(time.RFC3339)
@@ -135,6 +138,7 @@ func (s *Service) CheckIn(
 	}
 
 	checkedAtStr := checkedInAt.Format(time.RFC3339)
+	metrics.InstrumentTicketScan("valid")
 
 	s.recordAudit(
 		ctx,

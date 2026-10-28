@@ -20,15 +20,22 @@ var (
 	ErrTokenReplayDetect = errors.New("token replay detected: session compromised")
 )
 
-type Service struct {
-	repo *Repository
-	cfg  *config.Config
+type EmailSender interface {
+	SendSetupPasswordEmail(ctx context.Context, to, name, setupURL string, expiryHours int) error
+	SendResetPasswordEmail(ctx context.Context, to, name, resetURL string, expiryHours int) error
 }
 
-func NewService(repo *Repository, cfg *config.Config) *Service {
+type Service struct {
+	repo        *Repository
+	cfg         *config.Config
+	emailSender EmailSender
+}
+
+func NewService(repo *Repository, cfg *config.Config, emailSender EmailSender) *Service {
 	return &Service{
-		repo: repo,
-		cfg:  cfg,
+		repo:        repo,
+		cfg:         cfg,
+		emailSender: emailSender,
 	}
 }
 
@@ -137,6 +144,11 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) (string, err
 
 	if err := s.repo.CreateResetToken(ctx, token); err != nil {
 		return "", err
+	}
+
+	if s.emailSender != nil {
+		resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s", s.cfg.FrontendURL, rawToken)
+		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
 	}
 
 	return rawToken, nil

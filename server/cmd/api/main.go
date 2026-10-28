@@ -23,6 +23,10 @@ func main() {
 	}
 	defer app.DB.Close()
 	defer app.Redis.Close()
+	if app.MailQueue != nil {
+		defer app.MailQueue.Close()
+	}
+	defer app.Mailer.Close()
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", app.Config.Port),

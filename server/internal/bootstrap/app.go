@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -13,20 +14,23 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/database"
+	"devclubxnst.com/cadence/internal/mailer"
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
-// Application encapsulates shared resources and routing.
+// Application encapsulates shared resources, background workers, and routing.
 type Application struct {
 	Config        *config.Config
 	DB            *pgxpool.Pool
 	Redis         *redis.Client
+	Mailer        *mailer.Mailer
+	MailQueue     *mailer.Queue
 	Router        *chi.Mux
 	CookieManager *utils.CookieManager
 }
 
-// NewApplication boots config, database, redis, middleware, and module routes.
+// NewApplication boots config, database, redis, rabbitmq mailer, middleware, and module routes.
 func NewApplication(ctx context.Context) (*Application, error) {
 	cfg, err := config.NewConfig()
 	if err != nil {
@@ -41,6 +45,26 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	redisClient, err := database.NewRedisClient(ctx, cfg.RedisURL)
 	if err != nil {
 		return nil, fmt.Errorf("connect redis client: %w", err)
+	}
+
+	// Initialize mailer template engine and SMTP transport
+	templateEngine, err := mailer.NewTemplateEngine()
+	if err != nil {
+		return nil, fmt.Errorf("init mailer template engine: %w", err)
+	}
+
+	mailClient, err := mailer.NewMailer(cfg, templateEngine)
+	if err != nil {
+		return nil, fmt.Errorf("init mailer: %w", err)
+	}
+
+	// Initialize RabbitMQ mail queue producer and background consumer pool
+	mailQueue, err := mailer.NewQueue(cfg.RabbitMQURL, mailClient)
+	if err != nil {
+		log.Printf("[WARN] RabbitMQ not reachable (%v). Mail queue disabled.", err)
+	} else {
+		// Launch 3 background consumer goroutines in separate threads of execution
+		mailQueue.StartConsumers(ctx, 3)
 	}
 
 	cookieManager := utils.NewCookieManager(
@@ -81,7 +105,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 
 	// Auth module initialization
 	authRepo := auth.NewRepository(dbPool)
-	authService := auth.NewService(authRepo, cfg)
+	authService := auth.NewService(authRepo, cfg, mailQueue)
 	authHandler := auth.NewHandler(authService, cookieManager, cfg)
 	authMiddleware := auth.AuthMiddleware(cfg, cookieManager)
 
@@ -94,6 +118,8 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		Config:        cfg,
 		DB:            dbPool,
 		Redis:         redisClient,
+		Mailer:        mailClient,
+		MailQueue:     mailQueue,
 		Router:        router,
 		CookieManager: cookieManager,
 	}, nil

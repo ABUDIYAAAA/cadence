@@ -12,11 +12,11 @@ import (
 )
 
 var (
-	ErrRoundNotFound       = errors.New("judging round not found")
-	ErrPanelNotFound       = errors.New("judging panel not found")
-	ErrSlotNotFound        = errors.New("judging slot not found")
-	ErrUnauthorizedSlot    = errors.New("unauthorized: you do not have permission to update links for this slot")
-	ErrJudgeNotAssigned    = errors.New("forbidden: judge is not assigned to evaluate this panel")
+	ErrRoundNotFound    = errors.New("judging round not found")
+	ErrPanelNotFound    = errors.New("judging panel not found")
+	ErrSlotNotFound     = errors.New("judging slot not found")
+	ErrUnauthorizedSlot = errors.New("unauthorized: you do not have permission to update links for this slot")
+	ErrJudgeNotAssigned = errors.New("forbidden: judge is not assigned to evaluate this panel")
 )
 
 type Repository struct {
@@ -829,14 +829,15 @@ func (r *Repository) GetVolunteerSchedule(ctx context.Context) ([]VolunteerPanel
 			}
 
 			panels[i].TotalCount++
-			if s.Status == "completed" {
+			switch s.Status {
+			case "completed":
 				panels[i].CompletedCount++
-			} else if s.Status == "in_progress" {
+			case "in_progress":
 				copyS := s
 				panels[i].ActiveTeam = &copyS
-			} else if s.Status == "queued" {
+			case "queued":
 				panels[i].QueuedTeams = append(panels[i].QueuedTeams, s)
-			} else if s.Status == "scheduled" {
+			case "scheduled":
 				panels[i].UpcomingTeams = append(panels[i].UpcomingTeams, s)
 			}
 		}

@@ -57,3 +57,20 @@ jobs:
           EOF
 
           rm -f ~/.ssh/id_deploy
+      - name: Verify production containers
+        run: |
+          cd ~/projects/cadence/server
+
+          docker compose \
+            --env-file .env \
+            -f docker-compose.prod.yml \
+            ps -a
+
+          docker inspect cadence-backend \
+            --format='Status={{.State.Status}} Running={{.State.Running}}' \
+            || true
+
+          docker compose \
+            --env-file .env \
+            -f docker-compose.prod.yml \
+            logs --tail=100 backend

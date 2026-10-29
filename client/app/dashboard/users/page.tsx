@@ -102,7 +102,7 @@ export default function UsersPage() {
 
   if (authLoading || !currentUser) {
     return (
-      <div className="p-6 font-mono">
+      <div className="font-mono">
         <SkeletonCard />
       </div>
     );
@@ -110,7 +110,7 @@ export default function UsersPage() {
 
   if (!isAdmin) {
     return (
-      <div className="p-6 font-sans max-w-4xl mx-auto space-y-4">
+      <div className="font-sans space-y-4">
         <Alert variant="error" title="Access restricted">
           <div>
             You do not have administrative privileges to manage user accounts.

@@ -77,7 +77,7 @@ export default function TicketsPage() {
 
   if (authLoading || !user) {
     return (
-      <div className="p-6 font-mono">
+      <div className="font-mono">
         <SkeletonCard />
       </div>
     );
@@ -86,15 +86,15 @@ export default function TicketsPage() {
   // 1. PARTICIPANT VIEW: Show their personal QR pass if issued
   if (isParticipant && !isAdmin && !isVolunteer) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl mx-auto font-sans">
-        <div className="pb-4 border-b border-[var(--card-line)]">
+      <div className="space-y-6 max-w-md mx-auto font-sans">
+        <header className="text-center">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
-            Digital event pass
+            Entry pass
           </h1>
-          <p className="text-xs text-[var(--ink-secondary)] mt-1">
-            Your admission ticket and QR verification code for registration check-in.
+          <p className="text-sm text-[var(--ink-secondary)] mt-1">
+            Show this at the entrance to check in.
           </p>
-        </div>
+        </header>
 
         <MyTicketView />
       </div>
@@ -307,7 +307,7 @@ export default function TicketsPage() {
       {isAdmin && (
         <>
           {adminTab === "scanner" && (
-            <div className="space-y-6 max-w-4xl mx-auto">
+            <div className="space-y-6">
               <TicketScanner />
             </div>
           )}

@@ -60,7 +60,7 @@ export default function AuditLogsPage() {
 
   if (authLoading || !user) {
     return (
-      <div className="p-6 font-mono">
+      <div className="font-mono">
         <SkeletonCard />
       </div>
     );
@@ -68,7 +68,7 @@ export default function AuditLogsPage() {
 
   if (!isAdmin) {
     return (
-      <div className="p-6 font-mono max-w-4xl mx-auto space-y-4">
+      <div className="font-mono space-y-4">
         <Alert variant="error" title="Access restricted">
           <div className="flex items-center gap-2">
             <ShieldAlert className="h-5 w-5" />

@@ -1,29 +1,26 @@
 "use client";
 
+
 import React, { useState } from "react";
+import { SectionToolbar, MetricGrid, Metric } from "./section-shell";
+import Link from "next/link";
 import {
-  Award,
   DoorOpen,
   Clock,
   Users,
-  CheckCircle2,
-  AlertCircle,
   ExternalLink,
   Edit2,
-  RefreshCw,
-  Play,
   Layers,
 } from "lucide-react";
 import { useTeamJudgingStatus, useUpdateSlotLinks } from "@/hooks/use-judging";
 import { useToast } from "@/providers/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
-export function ParticipantJudgingStatusView() {
+export function ParticipantJudgingStatusView({ compact = false }: { compact?: boolean } = {}) {
   const toast = useToast();
   const { data: status, isLoading, isFetching, refetch } = useTeamJudgingStatus();
 
@@ -66,54 +63,18 @@ export function ParticipantJudgingStatusView() {
   };
 
   const formatEstimatedTime = (iso?: string | null) => {
-    if (!iso) return "To be scheduled";
+    if (!iso) return "TBD";
     try {
       const date = new Date(iso);
       return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     } catch {
-      return "To be scheduled";
-    }
-  };
-
-  const getStatusBadge = (st?: string) => {
-    switch (st) {
-      case "in_progress":
-        return (
-          <Badge variant="blue" className="text-xs uppercase px-2.5 py-1 animate-pulse font-semibold">
-            PRESENTING NOW
-          </Badge>
-        );
-      case "queued":
-        return (
-          <Badge variant="coral" className="text-xs uppercase px-2.5 py-1 font-semibold">
-            ON-DECK (BUFFER)
-          </Badge>
-        );
-      case "scheduled":
-        return (
-          <Badge variant="subtle" className="text-xs uppercase px-2.5 py-1 font-semibold">
-            SCHEDULED
-          </Badge>
-        );
-      case "completed":
-        return (
-          <Badge variant="solid" className="text-xs uppercase px-2.5 py-1 font-semibold">
-            EVALUATION COMPLETED
-          </Badge>
-        );
-      default:
-        return (
-          <Badge variant="subtle" className="text-xs uppercase px-2.5 py-1 font-semibold">
-            WAITING
-          </Badge>
-        );
+      return "TBD";
     }
   };
 
   if (isLoading) {
     return (
       <div className="font-sans space-y-4">
-        <SkeletonCard />
         <SkeletonCard />
       </div>
     );
@@ -122,25 +83,11 @@ export function ParticipantJudgingStatusView() {
   if (!status || !status.has_active_round) {
     return (
       <div className="font-sans space-y-4">
-        <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-4">
-          <h2 className="text-lg font-bold text-[var(--ink-primary)]">
-            Judging status
-          </h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="text-xs"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
+        <SectionToolbar title="Judging status" onRefresh={() => refetch()} isFetching={isFetching} />
 
         <EmptyState
           title="No active judging round"
-          description="Judging is not currently underway for your team. Once an evaluation round is activated by organizers, your room, assigned panel, and time slot will be displayed here."
+          description="Once organizers start a round, your room, panel, and time slot will show up here."
         />
       </div>
     );
@@ -150,229 +97,168 @@ export function ParticipantJudgingStatusView() {
   const isPresenting = status.status === "in_progress";
   const isDone = status.status === "completed";
 
+  const hasQueue = status.queue_position !== undefined && status.queue_position > 0;
+  const timeLabel = formatEstimatedTime(status.estimated_start_time);
+
+  // The single most important message: what should I do right now?
+  const hero = isPresenting
+    ? {
+        tone: "blue",
+        label: "Presenting now",
+        title: "Your team is being evaluated",
+        body: `${status.room || "Your room"}${status.panel_name ? ` · ${status.panel_name}` : ""}`,
+      }
+    : isOnDeck
+    ? {
+        tone: "coral",
+        label: "On deck",
+        title: `Head to ${status.room || "your room"} now`,
+        body: "Check in with the volunteer outside the door. You present next.",
+      }
+    : isDone
+    ? {
+        tone: "emerald",
+        label: "Complete",
+        title: "You've finished this round",
+        body: "Scores and rankings appear once the round closes.",
+      }
+    : {
+        tone: "subtle",
+        label: "Scheduled",
+        title: status.estimated_start_time ? `You present around ${timeLabel}` : "Waiting for your slot",
+        body: status.room
+          ? `Be at ${status.room} 10 minutes early.`
+          : "Your room will be assigned as the round advances.",
+      };
+
+  const heroStyles: Record<string, string> = {
+    blue: "border-[var(--color-blue-border)] bg-[var(--color-blue-dim)]",
+    coral: "border-[#CE6969]/30 bg-[var(--color-coral-dim)]",
+    emerald: "border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)]",
+    subtle: "border-[var(--card-line)] bg-[var(--card-solid)]",
+  };
+
+  const ahead = (status.queue_position ?? 1) - 1;
+  const facts = [
+    {
+      icon: DoorOpen,
+      label: "Room",
+      value: status.room || "Pending",
+      note: status.panel_name || "Assigned as rounds advance",
+    },
+    {
+      icon: Clock,
+      label: "Start time",
+      value: timeLabel,
+      note: status.estimated_duration_mins
+        ? `${status.estimated_duration_mins} min slot`
+        : "Adjusts to room pace",
+    },
+    {
+      icon: Users,
+      label: "Queue",
+      value: hasQueue ? `#${status.queue_position}` : isPresenting ? "Now" : isDone ? "Done" : "—",
+      note:
+        status.queue_position === 1
+          ? "You're next"
+          : hasQueue
+          ? `${ahead} team${ahead === 1 ? "" : "s"} ahead`
+          : "Not queued yet",
+    },
+  ];
+
+  const links = status.submission_links ? Object.entries(status.submission_links) : [];
+
   return (
     <div className="font-sans space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
-            Judging schedule & status
-          </h2>
-          <p className="text-xs text-[var(--ink-secondary)] mt-1">
-            Active round: <strong className="text-[var(--ink-primary)]">{status.round_name || "General evaluation"}</strong>
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {getStatusBadge(status.status)}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="flex items-center gap-1.5 text-xs"
+      <SectionToolbar
+        title="Judging status"
+        subtitle={status.round_name || "General evaluation"}
+        onRefresh={() => refetch()}
+        isFetching={isFetching}
+      >
+        {compact && (
+          <Link
+            href="/dashboard/judging"
+            className="text-xs font-medium text-[var(--color-blue)] hover:underline"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+            Details
+          </Link>
+        )}
+      </SectionToolbar>
+
+      <MetricGrid cols={3}>
+        {facts.map((f) => (
+          <Metric key={f.label} label={f.label} value={f.value} note={f.note} />
+        ))}
+      </MetricGrid>
+
+      {/* Primary surface: what to do right now */}
+      <div className={`rounded-[16px] border p-4 sm:p-5 ${heroStyles[hero.tone]}`}>
+        <div className="flex items-center gap-2 mb-1.5">
+          {isPresenting && (
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--color-blue)] opacity-60 animate-ping" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--color-blue)]" />
+            </span>
+          )}
+          <span className="text-xs font-medium text-[var(--ink-secondary)]">{hero.label}</span>
         </div>
+        <div className="text-base font-semibold text-[var(--ink-primary)] text-balance">{hero.title}</div>
+        <p className="text-xs text-[var(--ink-secondary)] mt-1">{hero.body}</p>
       </div>
 
-      {/* Critical Status Callout Banner */}
-      {isOnDeck && (
-        <div className="rounded-[18px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] p-4.5 flex items-start gap-3.5 shadow-sm">
-          <div className="h-8 w-8 rounded-full bg-[#CE6969]/15 flex items-center justify-center text-[var(--color-coral)] shrink-0 mt-0.5">
-            <AlertCircle className="h-4 w-4" />
-          </div>
-          <div className="space-y-1">
-            <div className="font-bold text-sm text-[var(--color-coral)]">YOU ARE ON-DECK!</div>
-            <p className="text-xs text-[var(--color-coral)] leading-relaxed">
-              Your squad is in the staging buffer! Please proceed immediately to{" "}
-              <strong className="text-[var(--ink-primary)]">{status.room || "your designated room"}</strong> and check in with a volunteer coordinator outside the door.
-            </p>
-          </div>
+      {/* Secondary: notes + submission links */}
+      {!compact && status.instructions && (
+        <div className="text-xs text-[var(--ink-secondary)] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] rounded-[14px] p-3.5 leading-relaxed">
+          <strong className="text-[var(--ink-primary)]">Coordinator notes: </strong>
+          {status.instructions}
         </div>
       )}
 
-      {isPresenting && (
-        <div className="rounded-[12px] border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] p-4 flex items-start gap-3 shadow-xs">
-          <div className="space-y-1">
-            <div className="font-semibold text-xs text-[var(--color-blue)]">Evaluation in progress</div>
-            <p className="text-xs text-[var(--ink-secondary)] leading-relaxed">
-              Your team is currently being evaluated in <strong className="text-[var(--ink-primary)]">{status.room}</strong> with <strong className="text-[var(--ink-primary)]">{status.panel_name}</strong>.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {isDone && (
-        <div className="rounded-[12px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-4 flex items-start gap-3 shadow-xs">
-          <div className="space-y-1">
-            <div className="font-semibold text-xs text-[var(--color-emerald)]">Round evaluation complete</div>
-            <p className="text-xs text-[var(--ink-secondary)] leading-relaxed">
-              Your team has finished presenting for this round. Scores and rankings will be computed upon round completion.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Primary Status Grid: Room, Slot Time, Queue Position */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 1. ROOM ASSIGNMENT */}
-        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 shadow-xs flex flex-col justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-medium">
-              <span>Room</span>
-              <Badge variant={status.room ? "blue" : "subtle"} size="sm">
-                {status.room ? "Assigned" : "Pending"}
-              </Badge>
+      {!compact && (
+        <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold text-[var(--ink-primary)]">
+              <Layers className="h-4 w-4 text-[var(--ink-tertiary)]" />
+              Project links
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenEditLinks}
+              className="text-xs flex items-center gap-1.5 active:scale-[0.97] transition-transform duration-150"
+            >
+              <Edit2 className="h-3 w-3" />
+              {links.length > 0 ? "Edit" : "Add links"}
+            </Button>
+          </div>
 
-            {status.room ? (
-              <div>
-                <div className="text-xl font-bold text-[var(--ink-primary)] break-words mt-1">
-                  {status.room}
-                </div>
-                {status.panel_name && (
-                  <div className="text-xs text-[var(--ink-secondary)] mt-1 font-mono">
-                    Panel: {status.panel_name}
+          {links.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {links.map(([k, url]) => (
+                <a
+                  key={k}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-3 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] hover:bg-[var(--color-blue-dim)] transition-colors duration-150 flex items-center justify-between text-xs group"
+                >
+                  <div className="truncate mr-2">
+                    <div className="font-semibold capitalize text-[var(--ink-primary)]">{k}</div>
+                    <div className="truncate text-[var(--ink-tertiary)] mt-0.5">{url}</div>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="py-2">
-                <div className="text-base font-semibold text-[var(--ink-tertiary)]">
-                  Room Pending Allocation
-                </div>
-                <div className="text-xs text-[var(--ink-secondary)] mt-1">
-                  Rooms are dynamically staged as rounds advance.
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="pt-3 border-t border-[var(--card-line)] text-[10px] text-[var(--ink-tertiary)] uppercase font-mono tracking-wider">
-            Location Coordinate
-          </div>
-        </div>
-
-        {/* 2. ESTIMATED SLOT & TIME */}
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-semibold">
-              <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4 text-[var(--color-blue)]" />
-                Estimated Slot
-              </span>
-              <Badge variant="subtle" size="sm">
-                {status.estimated_duration_mins ? `${status.estimated_duration_mins}m SLOT` : "SCHEDULE"}
-              </Badge>
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] group-hover:text-[var(--color-blue)] transition-colors" />
+                </a>
+              ))}
             </div>
-
-            <div>
-              <div className="text-xl font-bold font-mono text-[var(--ink-primary)] mt-1">
-                {formatEstimatedTime(status.estimated_start_time)}
-              </div>
-              <div className="text-xs text-[var(--ink-secondary)] mt-1">
-                {status.estimated_duration_mins
-                  ? `Allocated pitch & demo: ~${status.estimated_duration_mins} mins`
-                  : "Time adjusts automatically based on room pace"}
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-[var(--card-line)] text-[10px] text-[var(--ink-tertiary)] uppercase font-mono tracking-wider">
-            Time Target
-          </div>
+          ) : (
+            <p className="text-xs text-[var(--ink-secondary)]">
+              Add your GitHub, demo, or slides so judges can review them during your slot.
+            </p>
+          )}
         </div>
-
-        {/* 3. QUEUE POSITION */}
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-semibold">
-              <span className="flex items-center gap-1.5">
-                <Users className="h-4 w-4 text-[var(--color-blue)]" />
-                Queue Staging
-              </span>
-              <Badge variant="subtle" size="sm">
-                LIVE POSITION
-              </Badge>
-            </div>
-
-            <div>
-              <div className="text-3xl font-extrabold font-mono text-[var(--ink-primary)] mt-1">
-                {status.queue_position !== undefined && status.queue_position > 0
-                  ? `#${status.queue_position}`
-                  : isPresenting
-                  ? "NOW"
-                  : isDone
-                  ? "DONE"
-                  : "—"}
-              </div>
-              <div className="text-xs text-[var(--ink-secondary)] mt-1">
-                {status.queue_position === 1
-                  ? "Next team in line for this room"
-                  : status.queue_position !== undefined && status.queue_position > 1
-                  ? `${status.queue_position - 1} team(s) ahead of you`
-                  : "Waiting in active schedule"}
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-[var(--card-line)] text-[10px] text-[var(--ink-tertiary)] uppercase font-mono tracking-wider">
-            Staging Order
-          </div>
-        </div>
-      </div>
-
-      {/* Instructions & Submission Links */}
-      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] space-y-4">
-        <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-3">
-          <div className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-[var(--color-blue)]" />
-            <span className="font-bold text-sm text-[var(--ink-primary)]">Squad Submission Material</span>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleOpenEditLinks}
-            className="text-xs flex items-center gap-1.5"
-          >
-            <Edit2 className="h-3 w-3" />
-            Edit Links
-          </Button>
-        </div>
-
-        {status.instructions && (
-          <div className="text-xs text-[var(--ink-secondary)] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] rounded-[14px] p-3.5 leading-relaxed">
-            <strong className="text-[var(--ink-primary)]">Coordinator Notes:</strong> {status.instructions}
-          </div>
-        )}
-
-        {status.submission_links && Object.keys(status.submission_links).length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {Object.entries(status.submission_links).map(([k, url]) => (
-              <a
-                key={k}
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="p-3.5 rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] hover:bg-[var(--color-blue-dim)] transition-all flex items-center justify-between text-xs group"
-              >
-                <div className="truncate mr-2">
-                  <div className="font-bold uppercase text-[10px] text-[var(--ink-tertiary)] tracking-wider">{k}</div>
-                  <div className="truncate text-[var(--ink-primary)] font-medium mt-0.5 group-hover:text-[var(--color-blue)] transition-colors">{url}</div>
-                </div>
-                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] group-hover:text-[var(--color-blue)] transition-colors" />
-              </a>
-            ))}
-          </div>
-        ) : (
-          <div className="text-xs text-[var(--ink-tertiary)] italic p-5 border border-dashed border-[var(--card-line)] rounded-[16px] text-center">
-            No project submission links registered yet. Click &apos;Edit Links&apos; to attach your GitHub repository, live demo, or slide deck for the evaluators.
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Links Edit Dialog */}
       <Dialog

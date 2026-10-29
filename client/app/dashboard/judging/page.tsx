@@ -143,7 +143,7 @@ export default function JudgingPage() {
 
 	if (authLoading || !user) {
 		return (
-			<div className='p-6 font-mono max-w-7xl mx-auto space-y-4'>
+			<div className='font-mono space-y-4'>
 				<SkeletonCard />
 				<SkeletonCard />
 			</div>
@@ -153,7 +153,7 @@ export default function JudgingPage() {
 	// 1. Participant dedicated judging view
 	if (isParticipant && !isAdmin && !isJudge && !isVolunteer) {
 		return (
-			<div className='p-6 font-mono max-w-7xl mx-auto'>
+			<div className='font-sans'>
 				<ParticipantJudgingStatusView />
 			</div>
 		);
@@ -162,7 +162,7 @@ export default function JudgingPage() {
 	// 2. Volunteer dedicated room & schedule coordination view
 	if (isVolunteer && !isAdmin && !isJudge) {
 		return (
-			<div className='p-6 font-mono max-w-7xl mx-auto'>
+			<div className='font-mono'>
 				<VolunteerScheduleView />
 			</div>
 		);

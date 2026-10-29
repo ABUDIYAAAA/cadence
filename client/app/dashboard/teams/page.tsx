@@ -81,7 +81,7 @@ export default function TeamsPage() {
 
   if (authLoading || !user) {
     return (
-      <div className="p-6 font-mono">
+      <div className="font-mono">
         <SkeletonCard />
       </div>
     );
@@ -90,7 +90,7 @@ export default function TeamsPage() {
   // Participants role guard (backend /teams endpoint requires admin, volunteer, or judge)
   if (isParticipant && !isAdmin && !isVolunteer && !isJudge) {
     return (
-      <div className="p-6 font-sans max-w-4xl mx-auto space-y-4">
+      <div className="font-sans space-y-4">
         <Alert variant="info" title="Team directory">
           <div>
             The full event squad directory is managed by organizers, volunteers, and judges. You can check your team roster directly in the participant portal.

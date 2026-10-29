@@ -2,10 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import {
-  DoorOpen,
-  RefreshCw,
   Search,
-  CheckCircle2,
   Clock,
   Play,
   ExternalLink,
@@ -14,6 +11,7 @@ import {
 } from "lucide-react";
 import { useVolunteerSchedule } from "@/hooks/use-judging";
 import { VolunteerPanelSchedule } from "@/types/judging";
+import { SectionToolbar, MetricGrid, Metric } from "./section-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -91,125 +89,72 @@ export function VolunteerScheduleView() {
 
   return (
     <div className="font-sans space-y-6">
-      {/* Volunteer Coordination Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-              <DoorOpen className="h-5 w-5" />
+      <SectionToolbar
+        title="Room staging"
+        subtitle="Live queues and on-deck teams for each room"
+        onRefresh={() => refetch()}
+        isFetching={isFetching}
+      />
+
+      <MetricGrid>
+        <Metric label="Active rooms" value={stats.activeRooms} suffix={`/ ${stats.totalRooms}`} />
+        <Metric label="Teams on deck" value={stats.onDeckCount} valueClassName="text-[var(--color-coral)]" />
+        <Metric label="Evaluations done" value={stats.totalCompleted} suffix={`/ ${stats.totalTeams}`} />
+        <Metric
+          label="Overall progress"
+          value={stats.totalTeams > 0 ? `${Math.round((stats.totalCompleted / stats.totalTeams) * 100)}%` : "0%"}
+          valueClassName="text-[var(--color-blue)]"
+        />
+      </MetricGrid>
+
+      {/* Primary Surface: Search/Filters + Rooms */}
+      <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-tertiary)]" />
+            <Input
+              placeholder="Search teams, rooms, or panels..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 text-xs"
+            />
+          </div>
+
+          {roomsList.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {["all", ...roomsList].map((room) => (
+                <Button
+                  key={room}
+                  variant={selectedRoom === room ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedRoom(room)}
+                  className="text-xs whitespace-nowrap rounded-full h-8 px-3"
+                >
+                  {room === "all" ? "All rooms" : room}
+                </Button>
+              ))}
             </div>
-            <h2 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
-              Volunteer Room & Staging Coordinator
-            </h2>
-          </div>
-          <p className="text-xs text-[var(--ink-secondary)] mt-1 ml-11">
-            Real-time staging schedules, on-deck buffer queues, and room escort monitors for volunteers.
-          </p>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="flex items-center gap-1.5 text-xs"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh Schedule
-          </Button>
-        </div>
-      </div>
-
-      {/* Metrics Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
-          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider">Active Rooms</div>
-          <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">
-            {stats.activeRooms} <span className="text-sm font-normal text-[var(--ink-tertiary)]">/ {stats.totalRooms}</span>
+        {isLoading ? (
+          <div className="space-y-4">
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
-        </div>
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
-          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider flex items-center gap-1">
-            <Volume2 className="h-3.5 w-3.5 text-[var(--color-coral)]" />
-            Teams On-Deck
-          </div>
-          <div className="text-2xl font-bold font-mono text-[var(--color-coral)] mt-1">{stats.onDeckCount}</div>
-        </div>
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
-          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider flex items-center gap-1">
-            <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-blue)]" />
-            Evaluations Done
-          </div>
-          <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">
-            {stats.totalCompleted} <span className="text-sm font-normal text-[var(--ink-tertiary)]">/ {stats.totalTeams}</span>
-          </div>
-        </div>
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-4 shadow-[var(--shadow-card)]">
-          <div className="text-[10px] uppercase text-[var(--ink-tertiary)] font-semibold tracking-wider">Overall Progress</div>
-          <div className="text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1">
-            {stats.totalTeams > 0
-              ? `${Math.round((stats.totalCompleted / stats.totalTeams) * 100)}%`
-              : "0%"}
-          </div>
-        </div>
-      </div>
-
-      {/* Toolbar Search & Filter */}
-      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-3 shadow-[var(--shadow-card)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-tertiary)]" />
-          <Input
-            placeholder="Search teams, rooms, or panels..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 text-xs"
+        ) : filteredSchedule.length === 0 ? (
+          <EmptyState
+            title="No active judging schedules"
+            description="Once an administrator activates a judging round, room staging queues will populate automatically."
           />
-        </div>
-
-        {roomsList.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-            <Button
-              variant={selectedRoom === "all" ? "primary" : "outline"}
-              size="sm"
-              onClick={() => setSelectedRoom("all")}
-              className="text-xs whitespace-nowrap rounded-full h-8 px-3"
-            >
-              All Rooms
-            </Button>
-            {roomsList.map((room) => (
-              <Button
-                key={room}
-                variant={selectedRoom === room ? "primary" : "outline"}
-                size="sm"
-                onClick={() => setSelectedRoom(room)}
-                className="text-xs whitespace-nowrap rounded-full h-8 px-3"
-              >
-                {room}
-              </Button>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {filteredSchedule.map((panel) => (
+              <RoomScheduleCard key={panel.panel_id} panel={panel} formatTime={formatTime} />
             ))}
           </div>
         )}
       </div>
-
-      {/* Content Area */}
-      {isLoading ? (
-        <div className="space-y-4">
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      ) : filteredSchedule.length === 0 ? (
-        <EmptyState
-          title="No active judging schedules"
-          description="There are currently no active judging panels or rooms scheduled. Once an administrator activates a judging round, room staging queues will populate automatically."
-        />
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {filteredSchedule.map((panel) => (
-            <RoomScheduleCard key={panel.panel_id} panel={panel} formatTime={formatTime} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -227,7 +172,7 @@ function RoomScheduleCard({
       : 0;
 
   return (
-    <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-card)] flex flex-col justify-between overflow-hidden">
+    <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] flex flex-col justify-between overflow-hidden">
       {/* Card Header */}
       <div className="border-b border-[var(--card-line)] p-5 bg-[var(--card-solid-subtle)]">
         <div className="flex items-start justify-between gap-2">
@@ -270,7 +215,7 @@ function RoomScheduleCard({
       <div className="p-5 space-y-4 flex-1">
         {/* 1. CURRENTLY PRESENTING TEAM */}
         <div>
-          <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] mb-1.5 flex items-center gap-1.5 tracking-wider">
+          <div className="text-xs font-semibold text-[var(--ink-tertiary)] mb-1.5 flex items-center gap-1.5">
             <Play className="h-3 w-3 fill-[#83A2DB] text-[var(--color-blue)]" />
             Currently In Room (Presenting)
           </div>
@@ -320,7 +265,7 @@ function RoomScheduleCard({
 
         {/* 2. ON-DECK QUEUED TEAMS (BUFFER TO ESCORT) */}
         <div>
-          <div className="text-[10px] uppercase font-bold text-[var(--color-coral)] mb-1.5 flex items-center justify-between tracking-wider">
+          <div className="text-xs font-semibold text-[var(--color-coral)] mb-1.5 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <Volume2 className="h-3.5 w-3.5" />
               On-Deck Staging Buffer ({panel.queued_teams.length} Call-Ups)
@@ -363,7 +308,7 @@ function RoomScheduleCard({
         {/* 3. UPCOMING SCHEDULE */}
         {panel.upcoming_teams.length > 0 && (
           <div>
-            <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] mb-1.5 tracking-wider">
+            <div className="text-xs font-semibold text-[var(--ink-tertiary)] mb-1.5">
               Later in Schedule ({panel.upcoming_teams.length} Teams)
             </div>
 

@@ -694,7 +694,7 @@ func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
 		}
-		if errors.Is(err, ErrSlotLive) {
+		if errors.Is(err, ErrSlotNotMovable) {
 			utils.ErrorJSON(w, http.StatusConflict, err.Error())
 			return
 		}

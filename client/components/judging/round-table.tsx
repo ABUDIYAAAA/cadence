@@ -199,9 +199,9 @@ export function RoundTable({
                           </>
                         )}
 
-                        {/* Moving teams between rooms is only possible before the round starts */}
-                        {isDraft && (
-                          <Button
+                        {/* Teams waiting in the queue can be moved until the round ends */}
+                        {!isFinished && (
+                        <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => onReassignTeams(round)}

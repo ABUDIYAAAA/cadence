@@ -54,7 +54,7 @@ export function RoundTeamReassignDialog({
       open={open}
       onClose={onClose}
       title="Move teams"
-      description={`Round: ${round.name}. Move teams to another room or change their order. This is only possible before the round starts.`}
+      description={`Round: ${round.name}. Teams waiting in the queue can move to another room or change order. Presenting and finished teams stay put.`}
       footer={
         <div className="flex justify-end">
           <Button variant="outline" size="sm" onClick={onClose}>
@@ -99,7 +99,12 @@ export function RoundTeamReassignDialog({
                 <div className="text-[var(--ink-tertiary)] italic">No teams in this room.</div>
               ) : (
                 <ul className="space-y-1.5">
-                  {panel.slots.map((slot, idx) => (
+                  {panel.slots.map((slot, idx) => {
+                    const movable = slot.status === "scheduled" || slot.status === "queued";
+                    const prevMovable = idx > 0 && ["scheduled", "queued"].includes(panel.slots[idx - 1].status);
+                    const nextMovable =
+                      idx < panel.slots.length - 1 && ["scheduled", "queued"].includes(panel.slots[idx + 1].status);
+                    return (
                     <li
                       key={slot.slot_id}
                       className="flex items-center gap-2 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] p-2"
@@ -110,6 +115,21 @@ export function RoundTeamReassignDialog({
                       <span className="flex-1 truncate font-semibold text-[var(--ink-primary)]">
                         {slot.team_name}
                       </span>
+                      {slot.status === "in_progress" && (
+                        <Badge variant="coral" size="sm">
+                          Presenting
+                        </Badge>
+                      )}
+                      {slot.status === "completed" && (
+                        <Badge variant="subtle" size="sm">
+                          Done
+                        </Badge>
+                      )}
+                      {slot.status === "queued" && (
+                        <Badge variant="blue" size="sm">
+                          On deck
+                        </Badge>
+                      )}
 
                       <div className="flex items-center gap-0.5">
                         <Button
@@ -117,7 +137,7 @@ export function RoundTeamReassignDialog({
                           size="sm"
                           type="button"
                           aria-label={`Move ${slot.team_name} up`}
-                          disabled={idx === 0 || moveSlot.isPending}
+                          disabled={!movable || !prevMovable || moveSlot.isPending}
                           onClick={() =>
                             run(slot.slot_id, { target_sequence_order: slot.sequence_order - 1 })
                           }
@@ -130,7 +150,7 @@ export function RoundTeamReassignDialog({
                           size="sm"
                           type="button"
                           aria-label={`Move ${slot.team_name} down`}
-                          disabled={idx === panel.slots.length - 1 || moveSlot.isPending}
+                          disabled={!movable || !nextMovable || moveSlot.isPending}
                           onClick={() =>
                             run(slot.slot_id, { target_sequence_order: slot.sequence_order + 1 })
                           }
@@ -140,7 +160,7 @@ export function RoundTeamReassignDialog({
                         </Button>
                       </div>
 
-                      {list.length > 1 && (
+                      {list.length > 1 && movable && (
                         <div className="w-40 shrink-0">
                           <Select
                             aria-label={`Move ${slot.team_name} to another room`}
@@ -165,7 +185,8 @@ export function RoundTeamReassignDialog({
                         </div>
                       )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </section>

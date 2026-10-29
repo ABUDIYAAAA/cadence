@@ -902,6 +902,11 @@ export function RoundCreateDialog({
                 })}
               </div>
 
+              <p className="text-[11px] leading-relaxed text-[var(--ink-secondary)] pt-1">
+                Judges score each criterion from 0 up to its <strong>max score</strong>. The <strong>weight</strong> sets
+                how much that criterion counts toward a team&apos;s total (a weight of 2 counts double).
+              </p>
+
               {/* Criteria List */}
               <div className="space-y-2.5 pt-2">
                 {criteria.map((c, i) => (
@@ -936,7 +941,9 @@ export function RoundCreateDialog({
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
                       <div className="sm:col-span-8">
                         <Input
-                          placeholder="Criterion Name (e.g. Technical Architecture)"
+                          label="Criterion name"
+                          id={`criterion-${i}-name`}
+                          placeholder="e.g. Technical Architecture"
                           value={c.name}
                           onChange={(e) =>
                             handleCriterionChange(i, "name", e.target.value)
@@ -947,6 +954,8 @@ export function RoundCreateDialog({
 
                       <div className="sm:col-span-2">
                         <Input
+                          label="Max score"
+                          id={`criterion-${i}-max`}
                           type="number"
                           min={1}
                           max={100}
@@ -959,13 +968,14 @@ export function RoundCreateDialog({
                             )
                           }
                           className="h-9 text-xs font-mono"
-                          title="Max Score"
-                          placeholder="Max"
+                                                    placeholder="Max"
                         />
                       </div>
 
                       <div className="sm:col-span-2">
                         <Input
+                          label="Weight"
+                          id={`criterion-${i}-weight`}
                           type="number"
                           step="0.1"
                           min={0.1}
@@ -979,14 +989,15 @@ export function RoundCreateDialog({
                             )
                           }
                           className="h-9 text-xs font-mono"
-                          title="Weight Multiplier"
-                          placeholder="Weight"
+                                                    placeholder="Weight"
                         />
                       </div>
                     </div>
 
                     <Input
-                      placeholder="Scoring rubrics guidance & evaluation notes (optional)"
+                      label="Guidance for judges (optional)"
+                      id={`criterion-${i}-guidance`}
+                      placeholder="What should judges look for?"
                       value={c.description || ""}
                       onChange={(e) =>
                         handleCriterionChange(i, "description", e.target.value)

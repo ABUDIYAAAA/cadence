@@ -126,9 +126,24 @@ func TestStage6_AdminRoundControls(t *testing.T) {
 	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/judging/rounds/%s", throwaway.RoundID), nil, http.StatusOK, nil)
 	admin.DoJSON(t, http.MethodGet, fmt.Sprintf("/api/v1/judging/rounds/%s", throwaway.RoundID), nil, http.StatusNotFound, nil)
 
-	// 3. Once active, an active round cannot be deleted, and it must be ended first
+	// 3. Once active, an active round cannot be deleted until it is ended
 	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/rounds/%s/activate", round.RoundID), nil, http.StatusOK, nil)
 	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/judging/rounds/%s", round.RoundID), nil, http.StatusConflict, nil)
+
+	// Teams can still be moved between rooms after the round has started
+	var teamBLive string
+	for _, sl := range panelsOf()[panel2] {
+		if sl.TeamID == teamB {
+			teamBLive = sl.SlotID
+		}
+	}
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/move", teamBLive), map[string]any{
+		"target_panel_id": panel1, "target_sequence_order": 1,
+	}, http.StatusOK, nil)
+	live := panelsOf()
+	if len(live[panel1]) != 2 || live[panel1][0].TeamID != teamB || len(live[panel2]) != 1 || live[panel2][0].TeamID != teamC {
+		t.Fatalf("expected room one [B, A] and room two [C] after the live move, got %+v", live)
+	}
 
 	// 4. Ending an active round with no pitch running succeeds (the running-pitch guard needs a judge session)
 	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/rounds/%s/end", round.RoundID), nil, http.StatusOK, nil)

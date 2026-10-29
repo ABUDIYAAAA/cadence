@@ -28,8 +28,8 @@ var (
 	ErrRoundIsActive    = errors.New("end the round before deleting it")
 	ErrRoundFinished    = errors.New("this round has already finished and cannot be activated")
 	ErrPanelBusy        = errors.New("another team is already presenting in this room; complete that pitch first")
-	ErrSlotLive         = errors.New("this team is presenting right now and cannot be moved")
 	ErrPanelStarted     = errors.New("panel has started or finished pitches; add teams instead of replacing the sequence")
+	ErrSlotNotMovable   = errors.New("only teams waiting in the queue can be moved; presenting and finished teams stay where they are")
 	ErrPitchEnded       = errors.New("pitch has ended; the timer can no longer be changed")
 	ErrIncompleteScore  = errors.New("scorecard is incomplete: every criterion must be scored before locking")
 	ErrTimerPaused      = errors.New("timer is already paused")
@@ -1702,11 +1702,9 @@ func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRe
 		return fmt.Errorf("fetch current slot: %w", err)
 	}
 
-	if currentStatus == "completed" {
-		return errors.New("cannot move an already completed slot")
-	}
-	if currentStatus == "in_progress" {
-		return ErrSlotLive
+	// Only teams still waiting (scheduled or on deck) can be moved; presenting and finished teams are fixed.
+	if currentStatus != "scheduled" && currentStatus != "queued" {
+		return ErrSlotNotMovable
 	}
 
 	targetPanelID := sourcePanelID
@@ -1733,6 +1731,7 @@ func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRe
 		if targetRoundID != sourceRoundID {
 			return errors.New("cannot move team across different judging rounds")
 		}
+
 		durationMins = targetDuration
 	}
 
@@ -1804,10 +1803,11 @@ func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRe
 		return fmt.Errorf("offset target panel slots: %w", err)
 	}
 
-	// Update slot's panel and status
+	// Update slot's panel and status. Its order moves to a value no other slot holds (the offsets above
+	// can otherwise collide with the target panel's offset slots); renumbering below sets the final order.
 	if _, err := tx.Exec(ctx, `
 		UPDATE judging_slots
-		SET panel_id = $1, status = $2::judging_slot_status, updated_at = CURRENT_TIMESTAMP
+		SET panel_id = $1, status = $2::judging_slot_status, sequence_order = 20000, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $3;
 	`, targetPanelID, newStatus, slotID); err != nil {
 		return fmt.Errorf("update moving slot: %w", err)

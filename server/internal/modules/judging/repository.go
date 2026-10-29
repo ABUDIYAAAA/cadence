@@ -232,7 +232,9 @@ func (r *Repository) ActivateRound(ctx context.Context, roundID string) error {
 }
 
 // EndRound closes an active round. Rooms, teams and scores are kept; the leaderboard stays available.
-func (r *Repository) EndRound(ctx context.Context, roundID string) error {
+// With force, pitches still running are closed (completed now, scores not yet locked don't count);
+// without it the end is refused while a team is presenting.
+func (r *Repository) EndRound(ctx context.Context, roundID string, force bool) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -260,7 +262,19 @@ func (r *Repository) EndRound(ctx context.Context, roundID string) error {
 		return fmt.Errorf("check running pitches: %w", err)
 	}
 	if presenting > 0 {
-		return ErrPitchesRunning
+		if !force {
+			return ErrPitchesRunning
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE judging_slots s
+			SET status = 'completed',
+			    actual_end_time = CURRENT_TIMESTAMP,
+			    pitch_ended_at = COALESCE(s.pitch_ended_at, s.paused_at, CURRENT_TIMESTAMP),
+			    updated_at = CURRENT_TIMESTAMP
+			FROM judging_panels p
+			WHERE s.panel_id = p.id AND p.round_id = $1 AND s.status = 'in_progress'`, roundID); err != nil {
+			return fmt.Errorf("close running pitches: %w", err)
+		}
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -272,8 +286,8 @@ func (r *Repository) EndRound(ctx context.Context, roundID string) error {
 }
 
 // DeleteRound permanently removes a round with its criteria, rooms, slots and scores.
-// An active round must be ended first.
-func (r *Repository) DeleteRound(ctx context.Context, roundID string) error {
+// An active round is only deleted when force is set.
+func (r *Repository) DeleteRound(ctx context.Context, roundID string, force bool) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -289,7 +303,7 @@ func (r *Repository) DeleteRound(ctx context.Context, roundID string) error {
 		}
 		return fmt.Errorf("fetch round: %w", err)
 	}
-	if status == "active" {
+	if status == "active" && !force {
 		return ErrRoundIsActive
 	}
 

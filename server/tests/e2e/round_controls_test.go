@@ -159,3 +159,84 @@ func TestStage6_AdminRoundControls(t *testing.T) {
 	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/judging/rounds/%s", round.RoundID), nil, http.StatusOK, nil)
 	admin.DoJSON(t, http.MethodGet, fmt.Sprintf("/api/v1/judging/rounds/%s", round.RoundID), nil, http.StatusNotFound, nil)
 }
+
+// Ending a round while a pitch is running needs an explicit force; deleting a live round does too.
+func TestStage6_ForceEndRoundWithLivePitch(t *testing.T) {
+	ResetState(t)
+	admin := LoginAsAdmin(t)
+
+	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
+		"users": []map[string]any{
+			{"email": "force.judge@cadence.local", "name": "Force Judge", "role": "judge", "send_invite": true},
+			{"email": "force.team@cadence.local", "name": "Force Lead", "role": "participant", "team_name": "Force Team", "is_leader": true},
+		},
+	}, http.StatusCreated, nil)
+	judge := OnboardUserViaMailpit(t, "ForceJudge", "force.judge@cadence.local", "JudgePass123!")
+
+	var teams struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	admin.DoJSON(t, http.MethodGet, "/api/v1/teams", nil, http.StatusOK, &teams)
+	if len(teams.Data) != 1 {
+		t.Fatalf("expected 1 team, got %d", len(teams.Data))
+	}
+
+	var round struct {
+		RoundID string `json:"round_id"`
+	}
+	admin.DoJSON(t, http.MethodPost, "/api/v1/judging/rounds", map[string]any{
+		"name": "Force Round", "buffer_size": 1, "slot_duration_mins": 10,
+		"criteria": []map[string]any{{"name": "Tech", "max_score": 10, "weight": 1.0, "order_index": 1}},
+	}, http.StatusCreated, &round)
+	var panel struct {
+		PanelID string `json:"panel_id"`
+	}
+	admin.DoJSON(t, http.MethodPost, "/api/v1/judging/panels", map[string]any{
+		"round_id": round.RoundID, "name": "P", "room": "R", "judge_ids": []string{judge.UserID},
+	}, http.StatusCreated, &panel)
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/panels/%s/slots", panel.PanelID), map[string]any{
+		"slots": []map[string]any{{"team_id": teams.Data[0].ID, "sequence_order": 1}},
+	}, http.StatusOK, nil)
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/rounds/%s/activate", round.RoundID), nil, http.StatusOK, nil)
+
+	var panels []judging.JudgePanelSummary
+	judge.DoJSON(t, http.MethodGet, "/api/v1/judging/judge/panels", nil, http.StatusOK, &panels)
+	slotID := panels[0].Slots[0].SlotID
+	judge.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/start", slotID), nil, http.StatusOK, nil)
+
+	// A team that is presenting cannot be moved
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/move", slotID), map[string]any{
+		"target_sequence_order": 1,
+	}, http.StatusConflict, nil)
+
+	// Ending without force is refused while the pitch runs; with force it closes the pitch and the round
+	endURL := fmt.Sprintf("/api/v1/judging/rounds/%s/end", round.RoundID)
+	admin.DoJSON(t, http.MethodPost, endURL, nil, http.StatusConflict, nil)
+	admin.DoJSON(t, http.MethodPost, endURL+"?force=true", nil, http.StatusOK, nil)
+
+	var overview []judging.RoundPanelOverview
+	admin.DoJSON(t, http.MethodGet, fmt.Sprintf("/api/v1/judging/rounds/%s/panels", round.RoundID), nil, http.StatusOK, &overview)
+	if len(overview) != 1 || len(overview[0].Slots) != 1 || overview[0].Slots[0].Status != "completed" {
+		t.Fatalf("expected the live pitch to be closed as completed, got %+v", overview)
+	}
+	// The closed pitch no longer accepts scores
+	judge.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/scores", slotID), map[string]any{
+		"scores": []map[string]any{{"criterion_id": panels[0].Criteria[0].ID, "score": 5}},
+	}, http.StatusConflict, nil)
+
+	// A live (active) round needs force to be deleted
+	var live struct {
+		RoundID string `json:"round_id"`
+	}
+	admin.DoJSON(t, http.MethodPost, "/api/v1/judging/rounds", map[string]any{
+		"name": "Live Round", "buffer_size": 1, "slot_duration_mins": 10,
+		"criteria": []map[string]any{{"name": "C", "max_score": 10, "weight": 1.0, "order_index": 1}},
+	}, http.StatusCreated, &live)
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/rounds/%s/activate", live.RoundID), nil, http.StatusOK, nil)
+	liveURL := fmt.Sprintf("/api/v1/judging/rounds/%s", live.RoundID)
+	admin.DoJSON(t, http.MethodDelete, liveURL, nil, http.StatusConflict, nil)
+	admin.DoJSON(t, http.MethodDelete, liveURL+"?force=true", nil, http.StatusOK, nil)
+	admin.DoJSON(t, http.MethodGet, liveURL, nil, http.StatusNotFound, nil)
+}

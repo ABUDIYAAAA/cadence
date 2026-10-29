@@ -231,7 +231,8 @@ export function useEndRound() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => judgingService.endRound(id),
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      judgingService.endRound(id, force),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
     },
@@ -242,7 +243,8 @@ export function useDeleteRound() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => judgingService.deleteRound(id),
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      judgingService.deleteRound(id, force),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
     },

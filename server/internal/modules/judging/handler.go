@@ -147,7 +147,7 @@ func (h *Handler) HandleEndRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	roundID := chi.URLParam(r, "id")
-	if err := h.service.EndRound(r.Context(), roundID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.EndRound(r.Context(), roundID, r.URL.Query().Get("force") == "true", claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
 		roundLifecycleError(w, err, "end")
 		return
 	}
@@ -162,7 +162,7 @@ func (h *Handler) HandleDeleteRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	roundID := chi.URLParam(r, "id")
-	if err := h.service.DeleteRound(r.Context(), roundID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.DeleteRound(r.Context(), roundID, r.URL.Query().Get("force") == "true", claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
 		roundLifecycleError(w, err, "delete")
 		return
 	}

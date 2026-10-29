@@ -203,10 +203,10 @@ export default function JudgingPage() {
 		}
 	};
 
-	const handleConfirmEnd = async () => {
+	const handleConfirmEnd = async (force: boolean) => {
 		if (!roundToEnd) return;
 		try {
-			await endRoundMutation.mutateAsync(roundToEnd.id);
+			await endRoundMutation.mutateAsync({ id: roundToEnd.id, force });
 			toast.success(`Round "${roundToEnd.name}" has ended.`);
 			setRoundToEnd(null);
 		} catch (err: unknown) {
@@ -214,10 +214,10 @@ export default function JudgingPage() {
 		}
 	};
 
-	const handleConfirmDelete = async () => {
+	const handleConfirmDelete = async (force: boolean) => {
 		if (!roundToDelete) return;
 		try {
-			await deleteRoundMutation.mutateAsync(roundToDelete.id);
+			await deleteRoundMutation.mutateAsync({ id: roundToDelete.id, force });
 			toast.success(`Round "${roundToDelete.name}" was deleted.`);
 			setRoundToDelete(null);
 		} catch (err: unknown) {

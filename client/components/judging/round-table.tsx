@@ -241,18 +241,16 @@ export function RoundTable({
                           </Button>
                         )}
 
-                        {!isActive && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onDelete(round)}
-                            title="Delete this round"
-                            aria-label={`Delete ${round.name}`}
-                            className="h-7 w-7 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onDelete(round)}
+                          title="Delete this round"
+                          aria-label={`Delete ${round.name}`}
+                          className="h-7 w-7 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </>
                     )}
                   </div>

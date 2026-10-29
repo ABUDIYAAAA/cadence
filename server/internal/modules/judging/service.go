@@ -104,15 +104,16 @@ func (s *Service) GetRound(ctx context.Context, roundID string) (*CreateRoundReq
 func (s *Service) EndRound(
 	ctx context.Context,
 	roundID string,
+	force bool,
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
-	if err := s.repo.EndRound(ctx, roundID); err != nil {
+	if err := s.repo.EndRound(ctx, roundID, force); err != nil {
 		return err
 	}
 	s.recordAudit(ctx, audit.ActionJudgingRoundEnd, audit.TargetJudgingRound, &roundID,
-		fmt.Sprintf("Judging round ended by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID}, &ip, &userAgent)
+		fmt.Sprintf("Judging round ended by %s (force: %t)", actorEmail, force),
+		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID, "force": force}, &ip, &userAgent)
 	return nil
 }
 
@@ -120,15 +121,16 @@ func (s *Service) EndRound(
 func (s *Service) DeleteRound(
 	ctx context.Context,
 	roundID string,
+	force bool,
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
-	if err := s.repo.DeleteRound(ctx, roundID); err != nil {
+	if err := s.repo.DeleteRound(ctx, roundID, force); err != nil {
 		return err
 	}
 	s.recordAudit(ctx, audit.ActionJudgingRoundDelete, audit.TargetJudgingRound, &roundID,
-		fmt.Sprintf("Judging round deleted by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID}, &ip, &userAgent)
+		fmt.Sprintf("Judging round deleted by %s (force: %t)", actorEmail, force),
+		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID, "force": force}, &ip, &userAgent)
 	return nil
 }
 

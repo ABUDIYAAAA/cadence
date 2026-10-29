@@ -119,14 +119,14 @@ export function Dialog({
         aria-describedby={description ? "dialog-description" : undefined}
         ref={dialogRef}
         className={cn(
-          "relative z-50 w-full max-w-lg rounded-[24px] border border-[var(--card-border)] bg-[var(--card-solid)] p-6 sm:p-7 shadow-[var(--shadow-container)] text-[var(--ink-primary)] font-sans transition-all duration-150 ease-out transform",
+          "relative z-50 flex w-full max-w-lg max-h-[calc(100dvh-2rem)] flex-col rounded-[24px] border border-[var(--card-border)] bg-[var(--card-solid)] p-6 sm:p-7 shadow-[var(--shadow-container)] text-[var(--ink-primary)] font-sans transition-all duration-150 ease-out transform",
           visible
             ? "opacity-100 scale-100 translate-y-0"
             : "opacity-0 scale-95 translate-y-1",
           className
         )}
       >
-        <div className="flex items-start justify-between pb-4 border-b border-[var(--card-line)]">
+        <div className="flex shrink-0 items-start justify-between pb-4 border-b border-[var(--card-line)]">
           <div>
             <h2
               id="dialog-title"
@@ -153,10 +153,11 @@ export function Dialog({
           </button>
         </div>
 
-        <div className="py-4 text-xs">{children}</div>
+        {/* The body scrolls when content is taller than the screen; header and footer stay put */}
+        <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-4 text-xs">{children}</div>
 
         {footer && (
-          <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-[var(--card-line)]">
+          <div className="flex shrink-0 items-center justify-end gap-2.5 pt-4 border-t border-[var(--card-line)]">
             {footer}
           </div>
         )}

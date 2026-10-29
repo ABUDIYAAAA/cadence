@@ -129,16 +129,19 @@ export const judgingService = {
     return data;
   },
 
-  async endRound(id: string): Promise<MessageResponse> {
+  async endRound(id: string, force = false): Promise<MessageResponse> {
     const { data } = await apiClient.post<MessageResponse>(
-      `/judging/rounds/${id}/end`
+      `/judging/rounds/${id}/end`,
+      null,
+      { params: force ? { force: true } : undefined }
     );
     return data;
   },
 
-  async deleteRound(id: string): Promise<MessageResponse> {
+  async deleteRound(id: string, force = false): Promise<MessageResponse> {
     const { data } = await apiClient.delete<MessageResponse>(
-      `/judging/rounds/${id}`
+      `/judging/rounds/${id}`,
+      { params: force ? { force: true } : undefined }
     );
     return data;
   },

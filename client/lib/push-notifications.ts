@@ -123,8 +123,20 @@ export async function syncPushSubscription(options: {
       message: "Push notifications active",
     };
   } catch (err: unknown) {
-    console.error("Push subscription sync failed:", err);
-    const errorObj = err as { error?: string; message?: string } | null;
+    const errorObj = err as { name?: string; error?: string; message?: string } | null;
+    const isPushServiceUnavailable =
+      errorObj?.name === "AbortError" ||
+      errorObj?.message?.includes("push service error") ||
+      errorObj?.message?.includes("Registration failed");
+
+    if (isPushServiceUnavailable) {
+      // Browser's push service (e.g., Google FCM or Apple WebPush) is unavailable/offline on localhost.
+      // Log as a silent debug warning instead of crashing or throwing an error in console.
+      console.warn("Browser push service is currently unavailable:", errorObj?.message);
+    } else {
+      console.error("Push subscription sync failed:", err);
+    }
+
     return {
       success: false,
       status: permission,

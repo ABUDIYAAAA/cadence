@@ -55,7 +55,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col font-sans selection:bg-[#83A2DB]/20">
+      <body
+        suppressHydrationWarning
+        className="min-h-full flex flex-col font-sans selection:bg-[#83A2DB]/20"
+      >
         <QueryProvider>
           <AuthProvider>
             <ToastProvider>

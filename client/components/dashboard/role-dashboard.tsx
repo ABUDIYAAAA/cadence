@@ -44,7 +44,7 @@ export function RoleDashboard({
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-4xl p-6 space-y-6">
+      <div className="space-y-6">
         <SkeletonCard />
       </div>
     );
@@ -52,7 +52,7 @@ export function RoleDashboard({
 
   if (!isAuthenticated || !user) {
     return (
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="">
         <SkeletonCard />
       </div>
     );
@@ -61,7 +61,7 @@ export function RoleDashboard({
   const isRoleMismatch = user.role !== expectedRole;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 font-sans">
+    <div className="space-y-6 font-sans">
       {isRoleMismatch && (
         <Alert variant="warning" title="Role mismatch">
           Your account role is{" "}

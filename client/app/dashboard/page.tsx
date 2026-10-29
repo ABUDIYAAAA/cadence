@@ -21,7 +21,7 @@ export default function DashboardRedirectPage() {
   }, [isLoading, isAuthenticated, user, router]);
 
   return (
-    <div className="mx-auto max-w-4xl p-6 font-mono">
+    <div className="font-mono">
       <SkeletonCard />
     </div>
   );

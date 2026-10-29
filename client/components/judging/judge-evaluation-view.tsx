@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  Award,
   Clock,
   CheckCircle2,
   Lock,
@@ -16,8 +15,6 @@ import {
   FileText,
   AlertTriangle,
   RefreshCw,
-  DoorOpen,
-  Layers,
   Save,
 } from "lucide-react";
 import {
@@ -37,6 +34,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
+import { SectionToolbar, MetricGrid, Metric } from "./section-shell";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
@@ -70,7 +68,7 @@ export function JudgeEvaluationView() {
 
   if (panelsLoading) {
     return (
-      <div className="p-6 font-mono max-w-7xl mx-auto space-y-4">
+      <div className="font-sans space-y-4">
         <SkeletonCard />
         <SkeletonCard />
       </div>
@@ -79,7 +77,7 @@ export function JudgeEvaluationView() {
 
   if (panels.length === 0) {
     return (
-      <div className="font-sans space-y-4 max-w-4xl mx-auto py-6">
+      <div className="font-sans space-y-4">
         <EmptyState
           title="No judging panels assigned"
           description="You are currently not assigned to evaluate any rooms or panels. Event administrators allocate evaluators to rooms during round setup."
@@ -100,41 +98,18 @@ export function JudgeEvaluationView() {
   }
 
   return (
-    <div className="font-sans space-y-6 max-w-7xl mx-auto">
-      {/* Top Header & Panel Switcher */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-              <Award className="h-5 w-5" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
-              Judge Evaluation Center
-            </h1>
-          </div>
-          <p className="text-xs text-[var(--ink-secondary)] mt-1 ml-11">
-            Grade team pitches, review submitted code repositories, run countdown timers, and lock in scorecards.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetchPanels()}
-            disabled={isFetching}
-            className="flex items-center gap-1.5 text-xs"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
-      </div>
+    <div className="font-sans space-y-6">
+      <SectionToolbar
+        title="Scorecards"
+        subtitle={activePanel ? `${activePanel.round_name} · ${activePanel.room} — ${activePanel.panel_name}` : undefined}
+        onRefresh={() => refetchPanels()}
+        isFetching={isFetching}
+      />
 
       {/* Multi-Panel Tabs if assigned to >1 panel */}
       {panels.length > 1 && (
-        <div className="flex items-center gap-2 border-b border-[var(--card-line)] pb-3 overflow-x-auto">
-          <span className="text-xs font-semibold text-[var(--ink-tertiary)] shrink-0">Your Panels:</span>
+        <div className="flex items-center gap-2 overflow-x-auto">
+          <span className="text-xs font-medium text-[var(--ink-secondary)] shrink-0">Your panels</span>
           {panels.map((p) => {
             const isActive = p.panel_id === activePanel?.panel_id;
             return (
@@ -144,7 +119,7 @@ export function JudgeEvaluationView() {
                   setUserSelectedPanelId(p.panel_id);
                   setUserSelectedSlotId(null);
                 }}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-colors cursor-pointer ${
                   isActive
                     ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
                     : "bg-[var(--card-solid)] text-[var(--ink-secondary)] border border-[var(--card-line)] hover:text-[var(--ink-primary)]"
@@ -157,43 +132,18 @@ export function JudgeEvaluationView() {
         </div>
       )}
 
-      {/* Panel Context Banner */}
       {activePanel && (
-        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-base text-[var(--ink-primary)]">
-                {activePanel.room} — {activePanel.panel_name}
-              </span>
-              <Badge variant="blue" size="sm">
-                {activePanel.round_name}
-              </Badge>
-            </div>
-            <div className="text-xs text-[var(--ink-secondary)] flex items-center gap-3">
-              <span>Duration: <strong className="text-[var(--ink-primary)] font-mono">{activePanel.slot_duration_mins}m</strong> per pitch</span>
-              <span>•</span>
-              <span>Buffer depth: <strong className="text-[var(--ink-primary)] font-mono">{activePanel.buffer_size}</strong> teams</span>
-            </div>
-          </div>
-
-          <div className="text-left md:text-right shrink-0">
-            <div className="text-xs font-semibold text-[var(--ink-primary)]">
-              {activePanel.completed_slots} / {activePanel.total_slots} teams evaluated
-            </div>
-            <div className="w-40 bg-[var(--card-line)] h-2 rounded-full mt-1.5 overflow-hidden">
-              <div
-                className="bg-[#83A2DB] h-full rounded-full transition-all duration-300"
-                style={{
-                  width: `${
-                    activePanel.total_slots > 0
-                      ? Math.round((activePanel.completed_slots / activePanel.total_slots) * 100)
-                      : 0
-                  }%`,
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <MetricGrid>
+          <Metric label="Room" value={activePanel.room} />
+          <Metric
+            label="Teams evaluated"
+            value={activePanel.completed_slots}
+            suffix={`/ ${activePanel.total_slots}`}
+            valueClassName="text-[var(--color-blue)]"
+          />
+          <Metric label="Slot length" value={`${activePanel.slot_duration_mins}m`} />
+          <Metric label="Buffer depth" value={activePanel.buffer_size} suffix="teams" />
+        </MetricGrid>
       )}
 
       {/* Main Evaluator Work Area: Sidebar Slots & Active Scorecard Center */}
@@ -519,7 +469,7 @@ function JudgeSlotScorecardForm({
   return (
     <div className="space-y-6 font-sans">
       {/* Top Slot Header */}
-      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 sm:p-6 shadow-[var(--shadow-card)] space-y-4">
+      <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-5 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2.5">
@@ -571,7 +521,7 @@ function JudgeSlotScorecardForm({
       </div>
 
       {/* Submitted Repositories & Artifacts Section */}
-      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] space-y-3">
+      <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-5 space-y-3">
         <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-3">
           <div className="flex items-center gap-2">
             <Globe className="h-4 w-4 text-[var(--color-blue)]" />
@@ -650,7 +600,7 @@ function JudgeSlotScorecardForm({
       </div>
 
       {/* Evaluation Rubrics & Scorecard */}
-      <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 sm:p-6 shadow-[var(--shadow-card)] space-y-5">
+      <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-5 sm:p-6 space-y-5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[var(--card-line)] pb-4">
           <div>
             <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-primary)]">

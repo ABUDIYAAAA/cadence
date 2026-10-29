@@ -14,7 +14,7 @@ import {
   FileText,
   Bell,
   Activity,
-  ExternalLink,
+  ArrowUpRight,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
@@ -29,6 +29,126 @@ interface NavItem {
   external?: boolean;
 }
 
+// Fixed geometry so one indicator can glide between rows with a single transform.
+const ITEM_H = 44;
+const ITEM_GAP = 4;
+const EASE_DRAWER = "ease-[cubic-bezier(0.32,0.72,0,1)]";
+
+interface NavListProps {
+  items: NavItem[];
+  activeIndex: number;
+  /** Labels always visible (mobile drawer). Otherwise revealed by rail hover/focus. */
+  pinned?: boolean;
+  onNavigate?: () => void;
+}
+
+function NavList({ items, activeIndex, pinned, onNavigate }: NavListProps) {
+  const labelCls = cn(
+    "whitespace-nowrap text-[13px] transition-opacity duration-200 motion-reduce:transition-none",
+    pinned ? "opacity-100" : "opacity-0 group-hover/rail:opacity-100 group-has-[:focus-visible]/rail:opacity-100"
+  );
+
+  return (
+    <nav className="relative flex flex-col" style={{ gap: ITEM_GAP }} aria-label="Primary">
+      {/* Single gliding indicator */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute left-0 top-0 w-full rounded-[14px] bg-[var(--color-dark)] shadow-[0_6px_16px_-6px_rgba(10,14,24,0.45)]",
+          "transition-[transform,opacity] duration-300 motion-reduce:transition-none",
+          EASE_DRAWER,
+          activeIndex < 0 ? "opacity-0" : "opacity-100"
+        )}
+        style={{
+          height: ITEM_H,
+          transform: `translateY(${Math.max(activeIndex, 0) * (ITEM_H + ITEM_GAP)}px)`,
+        }}
+      />
+
+      {items.map((item, i) => {
+        const active = i === activeIndex;
+        const Icon = item.icon;
+        const base = cn(
+          "relative z-10 flex items-center rounded-[14px] outline-none",
+          "focus-visible:ring-2 focus-visible:ring-[var(--color-blue)] focus-visible:ring-offset-0",
+          "transition-[color,background-color,transform] duration-150 active:scale-[0.97]",
+          active
+            ? "text-[var(--ink-inverse)]"
+            : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)]"
+        );
+
+        const inner = (
+          <>
+            <span className="grid place-items-center shrink-0" style={{ width: ITEM_H, height: ITEM_H }}>
+              <Icon className="h-[18px] w-[18px]" />
+            </span>
+            <span className={cn(labelCls, active ? "font-semibold" : "font-medium")}>{item.label}</span>
+            {item.external && (
+              <ArrowUpRight className={cn("ml-auto mr-3 h-3.5 w-3.5 shrink-0", labelCls)} />
+            )}
+          </>
+        );
+
+        return item.external ? (
+          <a
+            key={item.href}
+            href={item.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={base}
+            style={{ height: ITEM_H }}
+          >
+            {inner}
+          </a>
+        ) : (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            aria-current={active ? "page" : undefined}
+            className={base}
+            style={{ height: ITEM_H }}
+          >
+            {inner}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+function UserChip({ name, role, pinned }: { name: string; role: string; pinned?: boolean }) {
+  const initials = name
+    .split(" ")
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  return (
+    <div className="flex items-center rounded-[14px]" style={{ height: ITEM_H }}>
+      <span
+        className="grid place-items-center shrink-0"
+        style={{ width: ITEM_H, height: ITEM_H }}
+      >
+        <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--color-blue-dim)] text-[11px] font-semibold text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]">
+          {initials || "?"}
+        </span>
+      </span>
+      <span
+        className={cn(
+          "min-w-0 pr-3 leading-tight transition-opacity duration-200 motion-reduce:transition-none",
+          pinned ? "opacity-100" : "opacity-0 group-hover/rail:opacity-100 group-has-[:focus-visible]/rail:opacity-100"
+        )}
+      >
+        <span className="block truncate text-[13px] font-semibold text-[var(--ink-primary)]">{name}</span>
+        <span className="block truncate text-[11px] capitalize text-[var(--ink-secondary)]">{role}</span>
+      </span>
+    </div>
+  );
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuth();
@@ -41,50 +161,28 @@ export function Sidebar() {
     return () => window.removeEventListener("cadence:toggle-sidebar", handleToggle);
   }, []);
 
+  useEffect(() => {
+    if (!isOpenMobile) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setIsOpenMobile(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpenMobile]);
+
   const dashboardHref = user ? getDashboardRoute(user.role) : "/dashboard";
 
   const allNavItems: NavItem[] = [
-    {
-      label: "Overview",
-      href: dashboardHref,
-      icon: LayoutDashboard,
-    },
-    {
-      label: "Users",
-      href: "/dashboard/users",
-      icon: Users,
-      roles: ["admin"],
-    },
-    {
-      label: "Teams",
-      href: "/dashboard/teams",
-      icon: Layers,
-      roles: ["admin", "volunteer", "judge"],
-    },
-    {
-      label: "Broadcasts",
-      href: "/dashboard/admin/notifications",
-      icon: Bell,
-      roles: ["admin"],
-    },
+    { label: "Overview", href: dashboardHref, icon: LayoutDashboard },
+    { label: "Users", href: "/dashboard/users", icon: Users, roles: ["admin"] },
+    { label: "Teams", href: "/dashboard/teams", icon: Layers, roles: ["admin", "volunteer", "judge"] },
+    { label: "Broadcasts", href: "/dashboard/admin/notifications", icon: Bell, roles: ["admin"] },
     {
       label: "Judging",
       href: "/dashboard/judging",
       icon: Award,
       roles: ["admin", "judge", "volunteer", "participant"],
     },
-    {
-      label: "Tickets",
-      href: "/dashboard/tickets",
-      icon: Ticket,
-      roles: ["admin", "volunteer", "participant"],
-    },
-    {
-      label: "Audit log",
-      href: "/dashboard/audit",
-      icon: FileText,
-      roles: ["admin"],
-    },
+    { label: "Tickets", href: "/dashboard/tickets", icon: Ticket, roles: ["admin", "volunteer", "participant"] },
+    { label: "Audit log", href: "/dashboard/audit", icon: FileText, roles: ["admin"] },
     {
       label: "Metrics",
       href: "http://localhost:3001/d/cadence-overview/cadence-hackathon-operations-and-telemetry",
@@ -94,16 +192,16 @@ export function Sidebar() {
     },
   ];
 
-  const visibleNavItems = allNavItems.filter((item) =>
-    !item.roles || (user?.role && item.roles.includes(user.role))
+  const visibleNavItems = allNavItems.filter(
+    (item) => !item.roles || (user?.role && item.roles.includes(user.role))
   );
 
-  const isActive = (href: string) => {
-    if (href === "/dashboard" || href === dashboardHref) {
-      return pathname === href;
-    }
-    return pathname.startsWith(href);
+  const isActive = (item: NavItem) => {
+    if (item.external) return false;
+    if (item.href === "/dashboard" || item.href === dashboardHref) return pathname === item.href;
+    return pathname.startsWith(item.href);
   };
+  const activeIndex = visibleNavItems.findIndex(isActive);
 
   return (
     <>
@@ -112,7 +210,8 @@ export function Sidebar() {
         <button
           onClick={() => setIsOpenMobile(!isOpenMobile)}
           aria-label="Toggle navigation menu"
-          className="h-11 w-11 rounded-[10px] bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-md flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
+          aria-expanded={isOpenMobile}
+          className="h-12 w-12 rounded-full bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-lg flex items-center justify-center transition-transform duration-150 active:scale-[0.95] cursor-pointer"
         >
           {isOpenMobile ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
@@ -121,8 +220,8 @@ export function Sidebar() {
       {/* Mobile Drawer */}
       <div
         className={cn(
-          "fixed inset-0 z-50 md:hidden transition-all duration-200",
-          isOpenMobile ? "pointer-events-auto visible" : "pointer-events-none invisible"
+          "fixed inset-0 z-40 md:hidden",
+          isOpenMobile ? "pointer-events-auto visible" : "pointer-events-none invisible delay-300"
         )}
       >
         <div
@@ -135,138 +234,46 @@ export function Sidebar() {
         />
         <aside
           className={cn(
-            "fixed inset-y-0 left-0 z-50 w-64 bg-[var(--card-solid)] border-r border-[var(--card-line)] p-4 shadow-xl flex flex-col justify-between font-sans transition-transform duration-200 ease-out transform",
+            "fixed inset-y-0 left-0 w-64 bg-[var(--card-solid)] p-3 pt-5 shadow-2xl flex flex-col justify-between font-sans",
+            "transition-transform duration-300 motion-reduce:transition-none",
+            EASE_DRAWER,
             isOpenMobile ? "translate-x-0" : "-translate-x-full"
           )}
         >
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--card-line)] mb-3">
-              <span className="text-xs font-semibold text-[var(--ink-secondary)]">
-                Navigation
-              </span>
-              <button
-                onClick={() => setIsOpenMobile(false)}
-                className="h-7 w-7 rounded-[6px] bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] flex items-center justify-center cursor-pointer"
-                aria-label="Close navigation"
-              >
-                ✕
-              </button>
-            </div>
-
-            <nav className="space-y-1">
-              {visibleNavItems.map((item) => {
-                const active = isActive(item.href);
-                const Icon = item.icon;
-
-                if (item.external) {
-                  return (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between px-3 py-2 rounded-[8px] text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className="h-4 w-4 text-[var(--ink-secondary)]" />
-                        <span>{item.label}</span>
-                      </div>
-                      <ExternalLink className="h-3 w-3 opacity-60" />
-                    </a>
-                  );
-                }
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setIsOpenMobile(false)}
-                    className={cn(
-                      "flex items-center justify-between px-3 py-2 rounded-[8px] text-xs transition-colors duration-150 active:scale-[0.98]",
-                      active
-                        ? "bg-[var(--card-solid-subtle)] text-[var(--ink-primary)] font-semibold border-l-2 border-[var(--color-blue)]"
-                        : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] font-medium"
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <Icon className={cn("h-4 w-4", active ? "text-[var(--color-blue)]" : "text-[var(--ink-secondary)]")} />
-                      <span>{item.label}</span>
-                    </div>
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
-
+          <NavList
+            items={visibleNavItems}
+            activeIndex={activeIndex}
+            pinned
+            onNavigate={() => setIsOpenMobile(false)}
+          />
           {user && (
             <div className="pt-3 border-t border-[var(--card-line)]">
-              <div className="p-2.5 bg-[var(--card-solid-subtle)] rounded-[8px] border border-[var(--card-line)]">
-                <div className="text-xs font-semibold text-[var(--ink-primary)] truncate">
-                  {user.name}
-                </div>
-                <div className="text-[11px] text-[var(--ink-secondary)] truncate capitalize">
-                  {user.role}
-                </div>
-              </div>
+              <UserChip name={user.name} role={user.role} pinned />
             </div>
           )}
         </aside>
       </div>
 
-      {/* Desktop Navigation Sidebar (Anchored full-height sidebar column) */}
-      <aside className="hidden md:flex flex-col justify-between w-56 shrink-0 border-r border-[var(--card-line)] bg-[var(--card-solid)] p-3 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto font-sans">
-        <nav className="space-y-0.5">
-          {visibleNavItems.map((item) => {
-            const active = isActive(item.href);
-            const Icon = item.icon;
-
-            if (item.external) {
-              return (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between px-2.5 py-2 rounded-[6px] text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Icon className="h-4 w-4 text-[var(--ink-secondary)]" />
-                    <span>{item.label}</span>
-                  </div>
-                  <ExternalLink className="h-3 w-3 opacity-50" />
-                </a>
-              );
-            }
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-2.5 px-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 active:scale-[0.98]",
-                  active
-                    ? "bg-[var(--card-solid-subtle)] text-[var(--ink-primary)] font-semibold border-l-2 border-[var(--color-blue)]"
-                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] font-medium"
-                )}
-              >
-                <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[var(--color-blue)]" : "text-[var(--ink-secondary)]")} />
-                <span className="truncate">{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        {user && (
-          <div className="pt-2 mt-2 border-t border-[var(--card-line)] px-1 pb-1">
-            <div className="text-[11px] font-medium text-[var(--ink-primary)] truncate">
-              {user.name}
+      {/* Desktop rail: reserves 72px, expands over content on hover/focus (no layout shift) */}
+      <div className="hidden md:block relative shrink-0 w-[72px] sticky top-14 h-[calc(100vh-3.5rem)] z-30">
+        <aside
+          className={cn(
+            "group/rail absolute inset-y-0 left-0 flex flex-col justify-between overflow-hidden font-sans",
+            "w-[72px] hover:w-[232px] has-[:focus-visible]:w-[232px] p-3",
+            "bg-[var(--card-solid)] border-r border-[var(--card-line)]",
+            "transition-[width,box-shadow] duration-300 motion-reduce:transition-none",
+            EASE_DRAWER,
+            "hover:shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)] has-[:focus-visible]:shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)]"
+          )}
+        >
+          <NavList items={visibleNavItems} activeIndex={activeIndex} />
+          {user && (
+            <div className="pt-3 border-t border-[var(--card-line)]">
+              <UserChip name={user.name} role={user.role} />
             </div>
-            <div className="text-[10px] text-[var(--ink-secondary)] truncate capitalize">
-              {user.role}
-            </div>
-          </div>
-        )}
-      </aside>
+          )}
+        </aside>
+      </div>
     </>
   );
 }

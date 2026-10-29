@@ -8,6 +8,7 @@ import {
   CreateRoundResponse,
   JudgePanelSummary,
   JudgeSlotDetails,
+  MoveSlotRequest,
   RoundDetail,
   RoundSummary,
   SubmitScoresRequest,

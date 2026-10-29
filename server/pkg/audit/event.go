@@ -37,6 +37,8 @@ const (
 	// Judging actions
 	ActionJudgingRoundCreate   = "judging.round_create"
 	ActionJudgingRoundActivate = "judging.round_activate"
+	ActionJudgingRoundEnd      = "judging.round_end"
+	ActionJudgingRoundDelete   = "judging.round_delete"
 	ActionJudgingSlotStart     = "judging.slot_start"
 	ActionJudgingTimerPause    = "judging.timer_pause"
 	ActionJudgingTimerResume   = "judging.timer_resume"

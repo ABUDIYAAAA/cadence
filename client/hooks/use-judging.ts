@@ -227,6 +227,28 @@ export function useActivateRound() {
   });
 }
 
+export function useEndRound() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => judgingService.endRound(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useDeleteRound() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => judgingService.deleteRound(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
 export function useRoundPanels(roundId?: string) {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "round-panels", roundId],

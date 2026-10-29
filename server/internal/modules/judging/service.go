@@ -100,6 +100,38 @@ func (s *Service) GetRound(ctx context.Context, roundID string) (*CreateRoundReq
 	return s.repo.GetRound(ctx, roundID)
 }
 
+// EndRound closes an active round.
+func (s *Service) EndRound(
+	ctx context.Context,
+	roundID string,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.EndRound(ctx, roundID); err != nil {
+		return err
+	}
+	s.recordAudit(ctx, audit.ActionJudgingRoundEnd, audit.TargetJudgingRound, &roundID,
+		fmt.Sprintf("Judging round ended by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID}, &ip, &userAgent)
+	return nil
+}
+
+// DeleteRound permanently deletes a round that is not active.
+func (s *Service) DeleteRound(
+	ctx context.Context,
+	roundID string,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.DeleteRound(ctx, roundID); err != nil {
+		return err
+	}
+	s.recordAudit(ctx, audit.ActionJudgingRoundDelete, audit.TargetJudgingRound, &roundID,
+		fmt.Sprintf("Judging round deleted by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID}, &ip, &userAgent)
+	return nil
+}
+
 // GetRoundPanels lists a round's panels and the teams each holds.
 func (s *Service) GetRoundPanels(ctx context.Context, roundID string) ([]RoundPanelOverview, error) {
 	return s.repo.GetRoundPanels(ctx, roundID)

@@ -129,6 +129,20 @@ export const judgingService = {
     return data;
   },
 
+  async endRound(id: string): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/rounds/${id}/end`
+    );
+    return data;
+  },
+
+  async deleteRound(id: string): Promise<MessageResponse> {
+    const { data } = await apiClient.delete<MessageResponse>(
+      `/judging/rounds/${id}`
+    );
+    return data;
+  },
+
   async getRoundPanels(roundId: string): Promise<RoundPanelOverview[]> {
     const { data } = await apiClient.get<RoundPanelOverview[]>(
       `/judging/rounds/${roundId}/panels`

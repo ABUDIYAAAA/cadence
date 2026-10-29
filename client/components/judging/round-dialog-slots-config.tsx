@@ -93,8 +93,8 @@ export function RoundSlotsConfigDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Add Teams to a Room"
-      description={`Round: ${round.name}. Teams are added after the ones already scheduled, so you can distribute them in stages.`}
+      title="Add teams to a room"
+      description={`Round: ${round.name}. New teams join the end of the room's order, so you can add teams in stages.`}
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -152,7 +152,7 @@ export function RoundSlotsConfigDialog({
         {/* Add Team Dropdown */}
         <div className="space-y-1.5 pt-1 border-t border-[var(--card-line)]">
           <label className="block text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
-            Enroll Team to Sequence
+            Team to add
           </label>
           <Select
             onChange={(e) => {
@@ -164,7 +164,7 @@ export function RoundSlotsConfigDialog({
             disabled={teamsLoading || isLoading}
             className="h-8 text-xs font-mono"
           >
-            <option value="">Select a registered team to append...</option>
+            <option value="">Choose a team...</option>
             {availableTeams
               .filter((t) => !slottedTeamIds.includes(t.id) && !scheduledIds.has(t.id))
               .map((t) => (
@@ -178,7 +178,7 @@ export function RoundSlotsConfigDialog({
         {/* Slotted Teams List */}
         <div className="space-y-1.5 rounded-[16px] border border-[var(--card-line)] p-3 bg-[var(--card-solid-subtle)]">
           <div className="flex justify-between items-center text-[10px] uppercase font-bold text-[var(--ink-secondary)] border-b border-[var(--card-line)] pb-1.5">
-            <span>New teams, in pitch order</span>
+            <span>Pitch order for new teams</span>
             <span>{slottedTeamIds.length} Teams</span>
           </div>
 

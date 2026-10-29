@@ -67,11 +67,11 @@ export function RoundPanelCreateDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!panelName.trim() || !room.trim()) {
-      setError("Panel name and room location are required.");
+      setError("Room name and location are required.");
       return;
     }
     if (selectedJudgeIds.length === 0) {
-      setError("Please assign at least one evaluator/judge to this room.");
+      setError("Choose at least one judge for this room.");
       return;
     }
 
@@ -87,7 +87,7 @@ export function RoundPanelCreateDialog({
       setError(
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
-          : "Failed to create panel"
+          : "Failed to add room"
       );
     }
   };
@@ -96,8 +96,8 @@ export function RoundPanelCreateDialog({
     <Dialog
       open={open}
       onClose={handleClose}
-      title="Add Evaluation Room / Panel"
-      description={`Adding to round: ${round.name}`}
+      title="Add a room"
+      description={`Round: ${round.name}. A room is where teams pitch; choose the judges who score there.`}
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -116,7 +116,7 @@ export function RoundPanelCreateDialog({
             className="gap-1.5"
           >
             <DoorOpen className="h-3.5 w-3.5" />
-            <span>Create Room Panel</span>
+            <span>Add room</span>
           </Button>
         </div>
       }
@@ -129,8 +129,8 @@ export function RoundPanelCreateDialog({
         )}
 
         <Input
-          label="Panel Name *"
-          placeholder="e.g. Panel Beta - FinTech"
+          label="Room name *"
+          placeholder="e.g. FinTech track"
           value={panelName}
           onChange={(e) => {
             setPanelName(e.target.value);
@@ -141,8 +141,8 @@ export function RoundPanelCreateDialog({
         />
 
         <Input
-          label="Room Location *"
-          placeholder="e.g. Room 302 - Executive Boardroom"
+          label="Location *"
+          placeholder="e.g. Room 302"
           value={room}
           onChange={(e) => {
             setRoom(e.target.value);
@@ -154,11 +154,11 @@ export function RoundPanelCreateDialog({
 
         <div className="space-y-1 pt-1 border-t border-[var(--card-line)]">
           <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-            Select Evaluators ({selectedJudgeIds.length} Selected) *
+            Judges for this room ({selectedJudgeIds.length} selected) *
           </label>
 
           {usersLoading || assignedLoading ? (
-            <div className="text-[var(--ink-tertiary)]">Loading evaluators...</div>
+            <div className="text-[var(--ink-tertiary)]">Loading judges...</div>
           ) : availableJudges.length === 0 ? (
             <div className="text-[var(--ink-tertiary)] italic p-3 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
               {allJudges.length === 0

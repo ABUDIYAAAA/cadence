@@ -23,6 +23,9 @@ var (
 	ErrJudgeAssigned    = errors.New("one or more judges are already assigned to another panel in this round")
 	ErrTeamSlotted      = errors.New("one or more teams are already scheduled in this round")
 	ErrRoundNotActive   = errors.New("this round is not active; pitches can only start once the round has been activated")
+	ErrRoundNotRunning  = errors.New("only an active round can be ended")
+	ErrPitchesRunning   = errors.New("a team is still presenting; complete that pitch before ending the round")
+	ErrRoundIsActive    = errors.New("end the round before deleting it")
 	ErrRoundFinished    = errors.New("this round has already finished and cannot be activated")
 	ErrPanelBusy        = errors.New("another team is already presenting in this room; complete that pitch first")
 	ErrSlotLive         = errors.New("this team is presenting right now and cannot be moved")
@@ -224,6 +227,74 @@ func (r *Repository) ActivateRound(ctx context.Context, roundID string) error {
 		  AND s.status = 'scheduled' AND s.sequence_order <= $2`, roundID, bufferSize,
 	); err != nil {
 		return fmt.Errorf("stage first teams: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// EndRound closes an active round. Rooms, teams and scores are kept; the leaderboard stays available.
+func (r *Repository) EndRound(ctx context.Context, roundID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	if err := tx.QueryRow(ctx,
+		`SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID,
+	).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoundNotFound
+		}
+		return fmt.Errorf("fetch round: %w", err)
+	}
+	if status != "active" {
+		return ErrRoundNotRunning
+	}
+
+	var presenting int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		WHERE p.round_id = $1 AND s.status = 'in_progress'`, roundID).Scan(&presenting); err != nil {
+		return fmt.Errorf("check running pitches: %w", err)
+	}
+	if presenting > 0 {
+		return ErrPitchesRunning
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE judging_rounds SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, roundID,
+	); err != nil {
+		return fmt.Errorf("end round: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// DeleteRound permanently removes a round with its criteria, rooms, slots and scores.
+// An active round must be ended first.
+func (r *Repository) DeleteRound(ctx context.Context, roundID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	if err := tx.QueryRow(ctx,
+		`SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID,
+	).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoundNotFound
+		}
+		return fmt.Errorf("fetch round: %w", err)
+	}
+	if status == "active" {
+		return ErrRoundIsActive
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM judging_rounds WHERE id = $1`, roundID); err != nil {
+		return fmt.Errorf("delete round: %w", err)
 	}
 	return tx.Commit(ctx)
 }

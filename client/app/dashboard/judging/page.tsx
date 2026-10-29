@@ -20,6 +20,8 @@ import { useToast } from '@/providers/toast-provider';
 import {
 	useJudgingRounds,
 	useActivateRound,
+	useEndRound,
+	useDeleteRound,
 	useCreateRound,
 	useCreatePanel,
 	useConfigureSlots,
@@ -34,6 +36,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { apiErrorMessage } from '@/lib/utils';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import {
 	RoundTable,
@@ -44,6 +47,7 @@ import {
 	RoundDetailDialog,
 	RoundLeaderboardView,
 	RoundActivateDialog,
+	RoundConfirmDialog,
 	VolunteerScheduleView,
 	ParticipantJudgingStatusView,
 	JudgeEvaluationView,
@@ -75,6 +79,8 @@ export default function JudgingPage() {
 	} = useJudgingRounds();
 
 	const activateRoundMutation = useActivateRound();
+	const endRoundMutation = useEndRound();
+	const deleteRoundMutation = useDeleteRound();
 	const createRoundMutation = useCreateRound();
 	const createPanelMutation = useCreatePanel();
 	const configureSlotsMutation = useConfigureSlots();
@@ -90,6 +96,8 @@ export default function JudgingPage() {
 		useState<RoundSummary | null>(null);
 	const [selectedRoundForReassign, setSelectedRoundForReassign] =
 		useState<RoundSummary | null>(null);
+	const [roundToEnd, setRoundToEnd] = useState<RoundSummary | null>(null);
+	const [roundToDelete, setRoundToDelete] = useState<RoundSummary | null>(null);
 	const [selectedRoundForActivation, setSelectedRoundForActivation] =
 		useState<RoundSummary | null>(null);
 
@@ -184,16 +192,36 @@ export default function JudgingPage() {
 				selectedRoundForActivation.id,
 			);
 			toast.success(
-				`Round "${selectedRoundForActivation.name}" is now ACTIVE!`,
+				`Round "${selectedRoundForActivation.name}" has started.`,
 			);
 			setSelectedRoundForActivation(null);
 			refetch();
 		} catch (err: unknown) {
 			const message =
-				err && typeof err === 'object' && 'message' in err
-					? String((err as { message: string }).message)
-					: 'Failed to activate round';
+				apiErrorMessage(err, 'Failed to activate round');
 			toast.error(message);
+		}
+	};
+
+	const handleConfirmEnd = async () => {
+		if (!roundToEnd) return;
+		try {
+			await endRoundMutation.mutateAsync(roundToEnd.id);
+			toast.success(`Round "${roundToEnd.name}" has ended.`);
+			setRoundToEnd(null);
+		} catch (err: unknown) {
+			toast.error(apiErrorMessage(err, 'Failed to end round'));
+		}
+	};
+
+	const handleConfirmDelete = async () => {
+		if (!roundToDelete) return;
+		try {
+			await deleteRoundMutation.mutateAsync(roundToDelete.id);
+			toast.success(`Round "${roundToDelete.name}" was deleted.`);
+			setRoundToDelete(null);
+		} catch (err: unknown) {
+			toast.error(apiErrorMessage(err, 'Failed to delete round'));
 		}
 	};
 
@@ -252,9 +280,7 @@ export default function JudgingPage() {
 			refetch();
 		} catch (err: unknown) {
 			const message =
-				err && typeof err === 'object' && 'message' in err
-					? String((err as { message: string }).message)
-					: 'Failed to create round workflow';
+				apiErrorMessage(err, 'Failed to create round workflow');
 			toast.error(message);
 			throw err;
 		} finally {
@@ -270,9 +296,7 @@ export default function JudgingPage() {
 			refetch();
 		} catch (err: unknown) {
 			const message =
-				err && typeof err === 'object' && 'message' in err
-					? String((err as { message: string }).message)
-					: 'Failed to create panel';
+				apiErrorMessage(err, 'Failed to create panel');
 			toast.error(message);
 		}
 	};
@@ -290,9 +314,7 @@ export default function JudgingPage() {
 			refetch();
 		} catch (err: unknown) {
 			const message =
-				err && typeof err === 'object' && 'message' in err
-					? String((err as { message: string }).message)
-					: 'Failed to configure slots';
+				apiErrorMessage(err, 'Failed to configure slots');
 			toast.error(message);
 		}
 	};
@@ -504,6 +526,8 @@ export default function JudgingPage() {
 							onReassignTeams={(round: RoundSummary) =>
 								setSelectedRoundForReassign(round)
 							}
+							onEnd={(round: RoundSummary) => setRoundToEnd(round)}
+							onDelete={(round: RoundSummary) => setRoundToDelete(round)}
 							onActivate={(roundId: string) =>
 								handleOpenActivate(roundId)
 							}
@@ -559,6 +583,24 @@ export default function JudgingPage() {
 				round={selectedRoundForDetails}
 				onActivate={(roundId: string) => handleOpenActivate(roundId)}
 				isActivating={activateRoundMutation.isPending}
+			/>
+
+			<RoundConfirmDialog
+				mode='end'
+				open={Boolean(roundToEnd)}
+				onClose={() => setRoundToEnd(null)}
+				round={roundToEnd}
+				onConfirm={handleConfirmEnd}
+				isLoading={endRoundMutation.isPending}
+			/>
+
+			<RoundConfirmDialog
+				mode='delete'
+				open={Boolean(roundToDelete)}
+				onClose={() => setRoundToDelete(null)}
+				round={roundToDelete}
+				onConfirm={handleConfirmDelete}
+				isLoading={deleteRoundMutation.isPending}
 			/>
 
 			{/* 5. Custom In-App Activation Confirmation Dialog (NO NATIVE ALERTS) */}

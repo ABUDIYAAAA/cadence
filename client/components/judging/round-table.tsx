@@ -10,6 +10,8 @@ import {
   Plus,
   DoorOpen,
   ArrowRightLeft,
+  Square,
+  Trash2,
 } from "lucide-react";
 import { RoundSummary } from "@/types/judging";
 import {
@@ -33,6 +35,8 @@ interface RoundTableProps {
   onAddPanel: (round: RoundSummary) => void;
   onConfigureSlots: (round: RoundSummary) => void;
   onReassignTeams: (round: RoundSummary) => void;
+  onEnd: (round: RoundSummary) => void;
+  onDelete: (round: RoundSummary) => void;
   isActivatingId?: string | null;
   isAdmin?: boolean;
 }
@@ -45,6 +49,8 @@ export function RoundTable({
   onAddPanel,
   onConfigureSlots,
   onReassignTeams,
+  onEnd,
+  onDelete,
   isActivatingId,
   isAdmin = true,
 }: RoundTableProps) {
@@ -82,10 +88,10 @@ export function RoundTable({
           <TableRow>
             <TableHead>Round Name</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Queue Buffer</TableHead>
-            <TableHead>Slot Duration</TableHead>
-            <TableHead>Rooms / Panels</TableHead>
-            <TableHead>Teams Scheduled</TableHead>
+            <TableHead>On deck</TableHead>
+            <TableHead>Time per team</TableHead>
+            <TableHead>Rooms</TableHead>
+            <TableHead>Teams</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -94,6 +100,7 @@ export function RoundTable({
             const isActivating = isActivatingId === round.id;
             const isDraft = round.status === "draft";
             const isActive = round.status === "active";
+            const isFinished = round.status === "completed";
 
             return (
               <TableRow key={round.id} className="group">
@@ -102,9 +109,6 @@ export function RoundTable({
                   <div className="flex flex-col">
                     <span className="font-semibold text-[var(--ink-primary)] text-sm">
                       {round.name}
-                    </span>
-                    <span className="text-[10px] text-[var(--ink-tertiary)] font-mono">
-                      ID: {round.id.slice(0, 8)}...
                     </span>
                   </div>
                 </TableCell>
@@ -123,25 +127,25 @@ export function RoundTable({
                 <TableCell className="text-xs">
                   <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
                     <Users className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                    <span>{round.buffer_size || 2} in queue</span>
+                    <span>{round.buffer_size || 2} teams</span>
                   </div>
-                  <span className="text-[10px] text-[var(--ink-tertiary)]">staging depth</span>
+                  <span className="text-[10px] text-[var(--ink-tertiary)]">per room</span>
                 </TableCell>
 
                 {/* Slot Duration */}
                 <TableCell className="text-xs">
                   <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
                     <Clock className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                    <span>{round.slot_duration_mins || 10} mins</span>
+                    <span>{round.slot_duration_mins || 10} min</span>
                   </div>
-                  <span className="text-[10px] text-[var(--ink-tertiary)]">per evaluation</span>
+                  <span className="text-[10px] text-[var(--ink-tertiary)]">pitch + Q&amp;A</span>
                 </TableCell>
 
                 {/* Panels count */}
                 <TableCell className="text-xs">
                   <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
                     <DoorOpen className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                    <span>{round.panel_count ?? 0} Rooms</span>
+                    <span>{round.panel_count ?? 0} {round.panel_count === 1 ? "room" : "rooms"}</span>
                   </div>
                 </TableCell>
 
@@ -149,7 +153,7 @@ export function RoundTable({
                 <TableCell className="text-xs">
                   <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
                     <Layers className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                    <span>{round.slot_count ?? 0} Teams</span>
+                    <span>{round.slot_count ?? 0} {round.slot_count === 1 ? "team" : "teams"}</span>
                   </div>
                 </TableCell>
 
@@ -169,45 +173,46 @@ export function RoundTable({
 
                     {isAdmin && (
                       <>
-                        {/* Add Room/Panel */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onAddPanel(round)}
-                          title="Add Room / Judging Panel"
-                          className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
-                        >
-                          <Plus className="h-3 w-3" />
-                          <span>Panel</span>
-                        </Button>
+                        {!isFinished && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onAddPanel(round)}
+                              title="Add a room and choose its judges"
+                              className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                            >
+                              <Plus className="h-3 w-3" />
+                              <span>Add room</span>
+                            </Button>
 
-                        {/* Configure Slots */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onConfigureSlots(round)}
-                          title="Assign Teams to Slots"
-                          className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
-                        >
-                          <Layers className="h-3 w-3" />
-                          <span>Slots</span>
-                        </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onConfigureSlots(round)}
+                              title="Add teams to a room"
+                              className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                            >
+                              <Layers className="h-3 w-3" />
+                              <span>Add teams</span>
+                            </Button>
+                          </>
+                        )}
 
-                        {/* Reassign teams between rooms (only before the round starts) */}
+                        {/* Moving teams between rooms is only possible before the round starts */}
                         {isDraft && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => onReassignTeams(round)}
-                            title="Move teams between rooms"
+                            title="Move teams between rooms or change their order"
                             className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                           >
                             <ArrowRightLeft className="h-3 w-3" />
-                            <span>Reassign</span>
+                            <span>Move teams</span>
                           </Button>
                         )}
 
-                        {/* Activate Round (if draft) */}
                         {isDraft && (
                           <Button
                             variant="primary"
@@ -215,11 +220,37 @@ export function RoundTable({
                             disabled={isActivating}
                             isLoading={isActivating}
                             onClick={() => onActivate(round.id)}
-                            title="Activate Judging Round (Triggers Live Queue)"
+                            title="Start the round: judges can begin scoring"
                             className="h-7 px-2.5 text-xs gap-1"
                           >
                             <Play className="h-3 w-3" />
-                            <span>Activate</span>
+                            <span>Start round</span>
+                          </Button>
+                        )}
+
+                        {isActive && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onEnd(round)}
+                            title="End the round: judges can no longer score"
+                            className="h-7 px-2.5 text-xs gap-1"
+                          >
+                            <Square className="h-3 w-3" />
+                            <span>End round</span>
+                          </Button>
+                        )}
+
+                        {!isActive && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onDelete(round)}
+                            title="Delete this round"
+                            aria-label={`Delete ${round.name}`}
+                            className="h-7 w-7 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         )}
                       </>

@@ -5,6 +5,7 @@ export { RoundSlotsConfigDialog } from "./round-dialog-slots-config";
 export { RoundTeamReassignDialog } from "./round-dialog-reassign";
 export { RoundLeaderboardView } from "./round-leaderboard-view";
 export { RoundDetailDialog } from "./round-dialog-detail";
+export { RoundConfirmDialog } from "./round-dialog-confirm";
 export { RoundActivateDialog } from "./round-dialog-activate";
 export { VolunteerScheduleView } from "./volunteer-schedule-view";
 export { ParticipantJudgingStatusView } from "./participant-status-view";

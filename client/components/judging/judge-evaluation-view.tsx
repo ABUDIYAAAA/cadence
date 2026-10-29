@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { apiErrorMessage } from "@/lib/utils";
 import {
   Clock,
   CheckCircle2,
@@ -398,9 +399,7 @@ function JudgeSlotScorecardForm({
       onRefetch();
     } catch (err: unknown) {
       const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Failed to start pitch";
+        apiErrorMessage(err, "Failed to start pitch");
       toast.error(message);
     }
   };
@@ -413,9 +412,7 @@ function JudgeSlotScorecardForm({
       onRefetch();
     } catch (err: unknown) {
       const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Timer action failed";
+        apiErrorMessage(err, "Timer action failed");
       toast.error(message);
     }
   };
@@ -449,9 +446,7 @@ function JudgeSlotScorecardForm({
       onRefetch();
     } catch (err: unknown) {
       const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Failed to save scores";
+        apiErrorMessage(err, "Failed to save scores");
       toast.error(message);
     }
   };
@@ -479,9 +474,7 @@ function JudgeSlotScorecardForm({
       onRefetch();
     } catch (err: unknown) {
       const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Failed to lock scores";
+        apiErrorMessage(err, "Failed to lock scores");
       toast.error(message);
     }
   };
@@ -502,9 +495,7 @@ function JudgeSlotScorecardForm({
       }
     } catch (err: unknown) {
       const message =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Failed to advance slot";
+        apiErrorMessage(err, "Failed to advance slot");
       toast.error(message);
     }
   };

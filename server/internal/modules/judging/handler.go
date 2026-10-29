@@ -127,6 +127,48 @@ func (h *Handler) HandleGetRound(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCreatePanel creates a judging panel in a room and assigns judges.
+// roundLifecycleError maps end/delete round errors onto HTTP responses.
+func roundLifecycleError(w http.ResponseWriter, err error, verb string) {
+	switch {
+	case errors.Is(err, ErrRoundNotFound):
+		utils.ErrorJSON(w, http.StatusNotFound, "judging round not found")
+	case errors.Is(err, ErrRoundNotRunning), errors.Is(err, ErrPitchesRunning), errors.Is(err, ErrRoundIsActive):
+		utils.ErrorJSON(w, http.StatusConflict, err.Error())
+	default:
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to "+verb+" round")
+	}
+}
+
+// HandleEndRound closes an active round.
+func (h *Handler) HandleEndRound(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	roundID := chi.URLParam(r, "id")
+	if err := h.service.EndRound(r.Context(), roundID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		roundLifecycleError(w, err, "end")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Judging round ended", "round_id": roundID})
+}
+
+// HandleDeleteRound permanently deletes a round that is not active.
+func (h *Handler) HandleDeleteRound(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	roundID := chi.URLParam(r, "id")
+	if err := h.service.DeleteRound(r.Context(), roundID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		roundLifecycleError(w, err, "delete")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Judging round deleted", "round_id": roundID})
+}
+
 // HandleGetRoundPanels lists a round's panels and the teams each already holds.
 func (h *Handler) HandleGetRoundPanels(w http.ResponseWriter, r *http.Request) {
 	panels, err := h.service.GetRoundPanels(r.Context(), chi.URLParam(r, "id"))

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { apiErrorMessage } from "@/lib/utils";
 import { RoundSummary } from "@/types/judging";
 import { useRoundPanels, useMoveSlot } from "@/hooks/use-judging";
 import { Dialog } from "@/components/ui/dialog";
@@ -43,9 +44,7 @@ export function RoundTeamReassignDialog({
       await moveSlot.mutateAsync({ slotId, payload });
     } catch (err: unknown) {
       setError(
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Failed to move team"
+        apiErrorMessage(err, "Failed to move team")
       );
     }
   };
@@ -54,8 +53,8 @@ export function RoundTeamReassignDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Reassign Teams"
-      description={`Round: ${round.name}. Move teams between rooms or change their order before the round starts.`}
+      title="Move teams"
+      description={`Round: ${round.name}. Move teams to another room or change their order. This is only possible before the round starts.`}
       footer={
         <div className="flex justify-end">
           <Button variant="outline" size="sm" onClick={onClose}>

@@ -15,11 +15,14 @@ interface RoundSlotMoveDialogProps {
   slot: TeamSlotSummary | null;
   currentPanel: VolunteerPanelSchedule | null;
   allPanels: VolunteerPanelSchedule[];
-  onMove: (slotId: string, payload: {
-    target_panel_id?: string;
-    target_sequence_order?: number;
-    status?: string;
-  }) => Promise<void>;
+  onMove: (
+    slotId: string,
+    payload: {
+      target_panel_id?: string;
+      target_sequence_order?: number;
+      status?: string;
+    },
+  ) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -48,9 +51,11 @@ export function RoundSlotMoveDialog({
 
   if (!open || !slot || !currentPanel) return null;
 
-  const targetPanel = allPanels.find((p) => p.panel_id === targetPanelId) || currentPanel;
+  const targetPanel =
+    allPanels.find((p) => p.panel_id === targetPanelId) || currentPanel;
   const isChangingRoom = targetPanelId !== currentPanel.panel_id;
-  const isOverBuffer = forceQueued && (targetPanel.queued_teams.length >= targetPanel.buffer_size);
+  const isOverBuffer =
+    forceQueued && targetPanel.queued_teams.length >= targetPanel.buffer_size;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,7 +78,7 @@ export function RoundSlotMoveDialog({
       setError(
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
-          : "Failed to move team"
+          : "Failed to move team",
       );
     }
   };
@@ -109,7 +114,11 @@ export function RoundSlotMoveDialog({
         </div>
       }
     >
-      <form id="slot-move-form" onSubmit={handleSubmit} className="space-y-4 text-xs font-sans">
+      <form
+        id="slot-move-form"
+        onSubmit={handleSubmit}
+        className="space-y-4 text-xs font-sans"
+      >
         {error && (
           <Alert variant="error" title="MOVE ERROR">
             {error}
@@ -117,20 +126,22 @@ export function RoundSlotMoveDialog({
         )}
 
         {/* Current Info */}
-        <div className="rounded-[14px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] p-3 space-y-1">
+        <div className="rounded-[14px] bg-card-subtle border border-card-line p-3 space-y-1">
           <div className="flex justify-between items-center">
-            <span className="text-[var(--ink-secondary)]">Team:</span>
-            <span className="font-bold text-[var(--ink-primary)] text-sm">{slot.team_name}</span>
+            <span className="text-ink-secondary">Team:</span>
+            <span className="font-bold text-ink-primary text-sm">
+              {slot.team_name}
+            </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-[var(--ink-secondary)]">Current Room & Panel:</span>
-            <span className="font-mono text-[var(--ink-primary)]">
+            <span className="text-ink-secondary">Current Room & Panel:</span>
+            <span className="font-mono text-ink-primary">
               {currentPanel.room} ({currentPanel.panel_name})
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-[var(--ink-secondary)]">Current Status:</span>
-            <span className="font-mono uppercase font-semibold text-[var(--color-blue)]">
+            <span className="text-ink-secondary">Current Status:</span>
+            <span className="font-mono uppercase font-semibold text-(--color-blue)">
               {slot.status} (Slot #{slot.sequence_order})
             </span>
           </div>
@@ -138,8 +149,8 @@ export function RoundSlotMoveDialog({
 
         {/* Target Room / Panel */}
         <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-[var(--ink-primary)] flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
+          <label className="text-xs font-semibold text-ink-primary flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5 text-ink-tertiary" />
             Destination Room & Panel
           </label>
           <Select
@@ -150,13 +161,15 @@ export function RoundSlotMoveDialog({
           >
             {allPanels.map((p) => (
               <option key={p.panel_id} value={p.panel_id}>
-                {p.room} — {p.panel_name} ({p.total_count} teams, buffer: {p.buffer_size})
+                {p.room} — {p.panel_name} ({p.total_count} teams, buffer:{" "}
+                {p.buffer_size})
               </option>
             ))}
           </Select>
           {isChangingRoom && (
             <p className="text-[11px] text-[var(--color-blue)]">
-              Team will be transferred from {currentPanel.room} to {targetPanel.room}.
+              Team will be transferred from {currentPanel.room} to{" "}
+              {targetPanel.room}.
             </p>
           )}
         </div>
@@ -176,7 +189,8 @@ export function RoundSlotMoveDialog({
             className="text-xs font-mono"
           />
           <p className="text-[11px] text-[var(--ink-secondary)]">
-            Position 1 places this team at the front of the room's evaluation order. Existing slots will adjust automatically.
+            Position 1 places this team at the front of the room's evaluation
+            order. Existing slots will adjust automatically.
           </p>
         </div>
 
@@ -195,7 +209,8 @@ export function RoundSlotMoveDialog({
                 Throw directly into room staging queue (On-Deck)
               </span>
               <p className="text-[11px] text-[var(--ink-secondary)] mt-0.5">
-                Immediately flags this squad as On-Deck, notifying participants and volunteer escorts to bring them to the room right away.
+                Immediately flags this squad as On-Deck, notifying participants
+                and volunteer escorts to bring them to the room right away.
               </p>
             </div>
           </label>
@@ -204,7 +219,11 @@ export function RoundSlotMoveDialog({
             <div className="rounded-[10px] bg-[var(--color-coral-dim)] border border-[#CE6969]/30 p-2.5 flex items-start gap-2 text-[11px] text-[var(--color-coral)]">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>
-                <strong>Note:</strong> {targetPanel.room} already has {targetPanel.queued_teams.length} team(s) in its queue (standard buffer size: {targetPanel.buffer_size}). Throwing this team in will exceed the buffer limit, which is fully permitted for admin interventions.
+                <strong>Note:</strong> {targetPanel.room} already has{" "}
+                {targetPanel.queued_teams.length} team(s) in its queue (standard
+                buffer size: {targetPanel.buffer_size}). Throwing this team in
+                will exceed the buffer limit, which is fully permitted for admin
+                interventions.
               </span>
             </div>
           )}

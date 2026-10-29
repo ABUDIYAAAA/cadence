@@ -81,7 +81,7 @@ services:
       - cadence-prod-net
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.1
     container_name: cadence-prometheus
     restart: unless-stopped
     volumes:

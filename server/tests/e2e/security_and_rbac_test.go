@@ -63,6 +63,9 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 		},
 	}, http.StatusOK, nil)
 
+	// Judges only see panels of rounds that have been activated
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/rounds/%s/activate", roundResp.RoundID), nil, http.StatusOK, nil)
+
 	var judgePanels []judging.JudgePanelSummary
 	judge1.DoJSON(t, http.MethodGet, "/api/v1/judging/judge/panels", nil, http.StatusOK, &judgePanels)
 	slotID := judgePanels[0].Slots[0].SlotID

@@ -48,6 +48,9 @@ func TestStage5_ConcurrentTicketScanRaceCondition(t *testing.T) {
 		scanners[i] = OnboardUserViaMailpit(t, fmt.Sprintf("Scanner%d", i+1), email, "ScannerPass123!")
 	}
 
+	// Passes exist only once an admin dispatches them
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/tickets/users/%s/send", attendee.UserID), nil, http.StatusOK, nil)
+
 	// Fetch attendee's ticket code
 	var myTicket tickets.MyTicketResponse
 	attendee.DoJSON(t, http.MethodGet, "/api/v1/tickets/me", nil, http.StatusOK, &myTicket)

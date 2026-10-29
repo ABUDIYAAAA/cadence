@@ -107,12 +107,12 @@ services:
       - GF_SERVER_ROOT_URL=https://grafana.cadence.devclubxnst.com
       - GF_SERVER_DOMAIN=grafana.cadence.devclubxnst.com
       - GF_SERVER_PROTOCOL=http
-      - GF_SMTP_ENABLED="true"
-      - GF_SMTP_HOST="${SMTP_HOST}"
-      - GF_SMTP_USER="${SMTP_USER}"
-      - GF_SMTP_PASSWORD="${SMTP_PASSWORD}"
-      - GF_SMTP_FROM_ADDRESS="no-reply@devclubxnst.com"
-      - GF_SMTP_FROM_NAME="Cadence Grafana"
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=${SMTP_HOST}
+      - GF_SMTP_USER=${SMTP_USER}
+      - GF_SMTP_PASSWORD=${SMTP_PASSWORD}
+      - GF_SMTP_FROM_ADDRESS=no-reply@devclubxnst.com
+      - GF_SMTP_FROM_NAME=Cadence Grafana
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro

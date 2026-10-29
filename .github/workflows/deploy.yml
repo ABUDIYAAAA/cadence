@@ -17,71 +17,87 @@ jobs:
     environment: production
 
     steps:
-      - name: Deploy over SSH
+      - name: Deploy to VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           ENV_FILE: ${{ secrets.ENV }}
         run: |
-          set -e
+          set -euo pipefail
 
           mkdir -p ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
+          trap 'rm -f ~/.ssh/id_deploy' EXIT
 
-          SSH_OPTS="-i ~/.ssh/id_deploy -o StrictHostKeyChecking=no"
+          SSH=(ssh -i ~/.ssh/id_deploy
+            -o StrictHostKeyChecking=no
+            -o ConnectTimeout=15)
 
-          # Write .env to VPS
-          ssh $SSH_OPTS "ubuntu@${VPS_HOST}" "mkdir -p ~/projects"
-          printf '%s\n' "$ENV_FILE" | ssh $SSH_OPTS "ubuntu@${VPS_HOST}" "cat > ~/projects/.cadence.env"
+          # Upload production environment.
+          "${SSH[@]}" "ubuntu@${VPS_HOST}" 'mkdir -p ~/projects'
+          printf '%s\n' "$ENV_FILE" |
+            "${SSH[@]}" "ubuntu@${VPS_HOST}" 'cat > ~/projects/.cadence.env'
 
-          # Clone/pull, migrate, seed, start containers, and verify
-          ssh $SSH_OPTS "ubuntu@${VPS_HOST}" 'bash -s' <<'REMOTE'
-          set -e
+          # Deploy on the VPS.
+          "${SSH[@]}" "ubuntu@${VPS_HOST}" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
 
-          if [ ! -d ~/projects/cadence/.git ]; then
-            git clone https://github.com/ABUDIYAAAA/cadence.git ~/projects/cadence
+          cd ~/projects
+
+          if [ ! -d cadence/.git ]; then
+            git clone https://github.com/ABUDIYAAAA/cadence.git cadence
           fi
 
-          cd ~/projects/cadence
+          cd cadence
           git fetch origin main
           git reset --hard origin/main
-
           cd server
+
           mv ~/projects/.cadence.env .env
           chmod 600 .env
 
-          export METRICS_SCRAPE_TOKEN="$( (grep '^METRICS_SCRAPE_TOKEN=' .env || true) | cut -d= -f2- | tr -d '\r"')"
+          export METRICS_SCRAPE_TOKEN="$(
+            sed -n 's/^METRICS_SCRAPE_TOKEN=//p' .env |
+            head -n 1 | tr -d '\r"'
+          )"
 
-          COMPOSE="docker compose --env-file .env -f docker-compose.prod.yml"
+          dc() {
+            docker compose --env-file .env \
+              -f docker-compose.prod.yml "$@"
+          }
 
-          $COMPOSE up -d db redis rabbitmq
-          $COMPOSE build backend
-          $COMPOSE run --rm --entrypoint /app/cadence-migrate backend
-          $COMPOSE run --rm --entrypoint /app/cadence-seed backend
-          $COMPOSE up -d --remove-orphans backend prometheus grafana
+          # Print useful diagnostics if any deployment command fails.
+          trap 'echo "Deployment failed; collecting diagnostics"; dc ps -a || true; dc logs --tail=80 backend prometheus grafana || true' ERR
 
-          # Verify backend, prometheus, and grafana containers exist and are running.
-          for cname in cadence-backend cadence-prometheus cadence-grafana; do
-            if ! docker inspect "$cname" >/dev/null 2>&1; then
-              echo "ERROR: $cname was not created."
-              $COMPOSE ps -a
-              exit 1
-            fi
+          dc config --quiet
+          dc up -d db redis rabbitmq
+          dc build backend
 
-            if [ "$(docker inspect -f '{{.State.Running}}' "$cname")" != "true" ]; then
-              echo "ERROR: $cname is not running."
-              $COMPOSE ps -a
-              docker logs --tail=100 "$cname" || true
+          dc run --rm --entrypoint /app/cadence-migrate backend
+          dc run --rm --entrypoint /app/cadence-seed backend
+
+          # Start every service declared in Compose.
+          dc up -d --remove-orphans
+
+          # Fail deployment if required application services are not running.
+          for name in cadence-backend cadence-prometheus cadence-grafana; do
+            for attempt in $(seq 1 10); do
+              if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" = "true" ]; then
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" != "true" ]; then
+              echo "ERROR: $name did not remain running."
+              dc ps -a
+              dc logs --tail=100 backend prometheus grafana || true
               exit 1
             fi
           done
 
-          echo "Backend, Prometheus, and Grafana are running."
-          $COMPOSE ps -a
-          $COMPOSE logs --tail=50 backend grafana
-
+          echo "Deployment successful."
+          dc ps -a
           docker image prune -f
           REMOTE
-
-          rm -f ~/.ssh/id_deploy

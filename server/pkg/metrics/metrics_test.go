@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestMetricsAuthMiddleware(t *testing.T) {
@@ -86,5 +87,27 @@ func TestREDMetricsMiddleware(t *testing.T) {
 	r.ServeHTTP(metricsRec, metricsReq)
 	if metricsRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on /metrics, got %d", metricsRec.Code)
+	}
+}
+
+func TestStatsCollectorsNilHandling(t *testing.T) {
+	// Must not panic on nil clients or duplicate registration
+	RegisterDBStats(nil)
+	RegisterRedisStats(nil)
+
+	dbCollector := NewDBStatsCollector(nil)
+	ch := make(chan prometheus.Metric, 10)
+	dbCollector.Collect(ch)
+	close(ch)
+	if len(ch) != 0 {
+		t.Fatalf("expected 0 metrics for nil db pool, got %d", len(ch))
+	}
+
+	redisCollector := NewRedisStatsCollector(nil)
+	rCh := make(chan prometheus.Metric, 10)
+	redisCollector.Collect(rCh)
+	close(rCh)
+	if len(rCh) != 0 {
+		t.Fatalf("expected 0 metrics for nil redis client, got %d", len(rCh))
 	}
 }

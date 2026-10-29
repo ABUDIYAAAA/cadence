@@ -6,6 +6,7 @@ import "time"
 type CreateCriteriaRequest struct {
 	Name        string  `json:"name" validate:"required,max=150"`
 	Description string  `json:"description"`
+	MinScore    int     `json:"min_score" validate:"min=0"`
 	MaxScore    int     `json:"max_score" validate:"required,min=1"`
 	Weight      float64 `json:"weight" validate:"required,min=0"`
 	OrderIndex  int     `json:"order_index"`
@@ -61,6 +62,7 @@ type CriterionOutput struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
+	MinScore    int     `json:"min_score"`
 	MaxScore    int     `json:"max_score"`
 	Weight      float64 `json:"weight"`
 	OrderIndex  int     `json:"order_index"`
@@ -68,12 +70,14 @@ type CriterionOutput struct {
 
 // CriterionScoreOutput holds a judge's score for a criterion.
 type CriterionScoreOutput struct {
-	CriterionID   string   `json:"criterion_id"`
-	CriterionName string   `json:"criterion_name"`
-	MaxScore      int      `json:"max_score"`
-	Weight        float64  `json:"weight"`
-	Score         *float64 `json:"score"`
-	Notes         *string  `json:"notes"`
+	CriterionID     string   `json:"criterion_id"`
+	CriterionName   string   `json:"criterion_name"`
+	MinScore        int      `json:"min_score"`
+	MaxScore        int      `json:"max_score"`
+	Weight          float64  `json:"weight"`
+	Score           *float64 `json:"score"`
+	NormalizedScore *float64 `json:"normalized_score,omitempty"`
+	Notes           *string  `json:"notes"`
 }
 
 // JudgeSlotSummary lightweight slot item for judge queue overview.
@@ -172,26 +176,32 @@ type VolunteerPanelSchedule struct {
 
 // AdminLeaderboardEntry ranking row for admin eyes only.
 type AdminLeaderboardEntry struct {
-	Rank                  int                `json:"rank"`
-	TeamID                string             `json:"team_id"`
-	TeamName              string             `json:"team_name"`
-	PanelName             string             `json:"panel_name"`
-	Room                  string             `json:"room"`
-	SlotStatus            string             `json:"slot_status"`
-	CriteriaAverages      map[string]float64 `json:"criteria_averages"`
-	TotalWeightedScore    float64            `json:"total_weighted_score"`
-	JudgesEvaluatedCount  int                `json:"judges_evaluated_count"`
-	TotalJudgesOnPanel    int                `json:"total_judges_on_panel"`
-	AllPanelJudgesLocked  bool               `json:"all_panel_judges_locked"`
+	Rank                   int                `json:"rank"`
+	TeamID                 string             `json:"team_id"`
+	TeamName               string             `json:"team_name"`
+	PanelName              string             `json:"panel_name"`
+	Room                   string             `json:"room"`
+	SlotStatus             string             `json:"slot_status"`
+	CriteriaAverages       map[string]float64 `json:"criteria_averages"`
+	CriteriaWeightedScores map[string]float64 `json:"criteria_weighted_scores,omitempty"`
+	TotalWeightedScore     float64            `json:"total_weighted_score"`
+	MaxPossibleScore       float64            `json:"max_possible_score"`
+	AverageRawScore        float64            `json:"average_raw_score"`
+	AverageScore           float64            `json:"average_score"`
+	JudgesEvaluatedCount   int                `json:"judges_evaluated_count"`
+	TotalJudgesOnPanel     int                `json:"total_judges_on_panel"`
+	AllPanelJudgesLocked   bool               `json:"all_panel_judges_locked"`
 }
 
 // AdminLeaderboardResponse complete round leaderboard for administrators.
 type AdminLeaderboardResponse struct {
-	RoundID      string                  `json:"round_id"`
-	RoundName    string                  `json:"round_name"`
-	Status       string                  `json:"status"`
-	Criteria     []CriterionOutput       `json:"criteria"`
-	Leaderboard  []AdminLeaderboardEntry `json:"leaderboard"`
-	TotalTeams   int                     `json:"total_teams"`
-	GradedTeams  int                     `json:"graded_teams"`
+	RoundID          string                  `json:"round_id"`
+	RoundName        string                  `json:"round_name"`
+	Status           string                  `json:"status"`
+	Criteria         []CriterionOutput       `json:"criteria"`
+	Leaderboard      []AdminLeaderboardEntry `json:"leaderboard"`
+	TotalTeams       int                     `json:"total_teams"`
+	GradedTeams      int                     `json:"graded_teams"`
+	MaxPossibleScore float64                 `json:"max_possible_score"`
+	AverageScore     float64                 `json:"average_score"`
 }

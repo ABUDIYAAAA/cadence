@@ -55,10 +55,14 @@ func (r *Repository) CreateRound(ctx context.Context, req CreateRoundRequest) (s
 	}
 
 	critQuery := `
-		INSERT INTO judging_criteria (round_id, name, description, max_score, weight, order_index)
-		VALUES ($1, $2, $3, $4, $5, $6);
+		INSERT INTO judging_criteria (round_id, name, description, min_score, max_score, weight, order_index)
+		VALUES ($1, $2, $3, $4, $5, $6, $7);
 	`
 	for i, c := range req.Criteria {
+		minScore := c.MinScore
+		if minScore < 0 {
+			minScore = 0
+		}
 		maxScore := c.MaxScore
 		if maxScore <= 0 {
 			maxScore = 10
@@ -71,7 +75,7 @@ func (r *Repository) CreateRound(ctx context.Context, req CreateRoundRequest) (s
 		if orderIdx == 0 {
 			orderIdx = i + 1
 		}
-		if _, err := tx.Exec(ctx, critQuery, roundID, c.Name, c.Description, maxScore, weight, orderIdx); err != nil {
+		if _, err := tx.Exec(ctx, critQuery, roundID, c.Name, c.Description, minScore, maxScore, weight, orderIdx); err != nil {
 			return "", fmt.Errorf("insert criterion %s: %w", c.Name, err)
 		}
 	}
@@ -96,7 +100,7 @@ func (r *Repository) GetRound(ctx context.Context, id string) (*CreateRoundReque
 	}
 
 	critQuery := `
-		SELECT id, name, COALESCE(description, ''), max_score, weight, order_index
+		SELECT id, name, COALESCE(description, ''), min_score, max_score, weight, order_index
 		FROM judging_criteria
 		WHERE round_id = $1
 		ORDER BY order_index ASC, id ASC;
@@ -110,7 +114,7 @@ func (r *Repository) GetRound(ctx context.Context, id string) (*CreateRoundReque
 	var criteria []CriterionOutput
 	for rows.Next() {
 		var c CriterionOutput
-		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.MaxScore, &c.Weight, &c.OrderIndex); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.MinScore, &c.MaxScore, &c.Weight, &c.OrderIndex); err != nil {
 			return nil, "", 0, 0, nil, fmt.Errorf("scan criterion: %w", err)
 		}
 		criteria = append(criteria, c)
@@ -369,7 +373,7 @@ func (r *Repository) GetJudgePanels(ctx context.Context, judgeID string) ([]Judg
 // GetRoundCriteria fetches criteria for a round.
 func (r *Repository) GetRoundCriteria(ctx context.Context, roundID string) ([]CriterionOutput, error) {
 	query := `
-		SELECT id, name, COALESCE(description, ''), max_score, weight, order_index
+		SELECT id, name, COALESCE(description, ''), min_score, max_score, weight, order_index
 		FROM judging_criteria
 		WHERE round_id = $1
 		ORDER BY order_index ASC;
@@ -383,7 +387,7 @@ func (r *Repository) GetRoundCriteria(ctx context.Context, roundID string) ([]Cr
 	var list []CriterionOutput
 	for rows.Next() {
 		var c CriterionOutput
-		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.MaxScore, &c.Weight, &c.OrderIndex); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.MinScore, &c.MaxScore, &c.Weight, &c.OrderIndex); err != nil {
 			return nil, fmt.Errorf("scan criterion: %w", err)
 		}
 		list = append(list, c)
@@ -462,7 +466,7 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	// Fetch criteria scores for this judge
 	scoresQuery := `
 		SELECT 
-			c.id, c.name, c.max_score, c.weight, sc.score, sc.notes, COALESCE(sc.is_locked, false)
+			c.id, c.name, c.min_score, c.max_score, c.weight, sc.score, sc.notes, COALESCE(sc.is_locked, false)
 		FROM judging_criteria c
 		JOIN judging_panels p ON p.round_id = c.round_id
 		JOIN judging_slots s ON s.panel_id = p.id
@@ -481,11 +485,18 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	for rows.Next() {
 		var c CriterionScoreOutput
 		var locked bool
-		if err := rows.Scan(&c.CriterionID, &c.CriterionName, &c.MaxScore, &c.Weight, &c.Score, &c.Notes, &locked); err != nil {
+		if err := rows.Scan(&c.CriterionID, &c.CriterionName, &c.MinScore, &c.MaxScore, &c.Weight, &c.Score, &c.Notes, &locked); err != nil {
 			return nil, fmt.Errorf("scan criteria score: %w", err)
 		}
 		if c.Score != nil {
 			hasAnyScore = true
+			if c.MaxScore > c.MinScore {
+				norm := ((*c.Score - float64(c.MinScore)) / float64(c.MaxScore-c.MinScore)) * c.Weight
+				c.NormalizedScore = &norm
+			} else {
+				norm := c.Weight
+				c.NormalizedScore = &norm
+			}
 		}
 		if !locked {
 			allMyLocked = false
@@ -564,6 +575,44 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 	}
 	if lockedCount > 0 {
 		return errors.New("scorecard is locked and cannot be edited")
+	}
+
+	// Fetch criteria bounds for this slot to validate score ranges
+	critBoundsQuery := `
+		SELECT c.id, c.name, c.min_score, c.max_score
+		FROM judging_criteria c
+		JOIN judging_panels p ON p.round_id = c.round_id
+		JOIN judging_slots s ON s.panel_id = p.id
+		WHERE s.id = $1;
+	`
+	bRows, err := tx.Query(ctx, critBoundsQuery, slotID)
+	if err != nil {
+		return fmt.Errorf("fetch criteria bounds: %w", err)
+	}
+	defer bRows.Close()
+
+	type bound struct {
+		name     string
+		minScore int
+		maxScore int
+	}
+	bounds := make(map[string]bound)
+	for bRows.Next() {
+		var id string
+		var b bound
+		if err := bRows.Scan(&id, &b.name, &b.minScore, &b.maxScore); err != nil {
+			return fmt.Errorf("scan criteria bound: %w", err)
+		}
+		bounds[id] = b
+	}
+	bRows.Close()
+
+	for _, sc := range scores {
+		if b, ok := bounds[sc.CriterionID]; ok {
+			if sc.Score < float64(b.minScore) || sc.Score > float64(b.maxScore) {
+				return fmt.Errorf("%w: criterion '%s' expects score between %d and %d, got %.2f", ErrScoreOutOfRange, b.name, b.minScore, b.maxScore, sc.Score)
+			}
+		}
 	}
 
 	upsertQuery := `
@@ -860,6 +909,11 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		return nil, err
 	}
 
+	var maxPossibleScore float64
+	for _, c := range criteria {
+		maxPossibleScore += c.Weight
+	}
+
 	// Leaderboard calculation
 	query := `
 		WITH panel_judges_count AS (
@@ -887,7 +941,13 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 				s.status::text as slot_status,
 				COALESCE(pjc.total_judges, 0) as total_judges_on_panel,
 				COALESCE(MAX(ca.judges_evaluated), 0) as judges_evaluated_count,
-				COALESCE(SUM(ca.avg_score * c.weight), 0.00) as total_weighted_score
+				COALESCE(SUM(
+					CASE 
+						WHEN c.max_score > c.min_score 
+						THEN ((ca.avg_score - c.min_score)::numeric / (c.max_score - c.min_score)::numeric) * c.weight
+						ELSE c.weight
+					END
+				), 0.00) as total_weighted_score
 			FROM judging_slots s
 			JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
 			JOIN teams tm ON tm.id = s.team_id
@@ -911,6 +971,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 	var entries []AdminLeaderboardEntry
 	rank := 1
 	gradedCount := 0
+	var totalGradedWeightedScore float64
 
 	type rawEntry struct {
 		slotID               string
@@ -935,54 +996,85 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 	rows.Close()
 
 	for _, re := range rawList {
-		// Fetch criteria averages for this slot
+		// Fetch criteria averages and weighted scores for this slot
 		critAverages := make(map[string]float64)
+		critWeighted := make(map[string]float64)
+		var sumRawAvg float64
+		var critCount int
+
 		critRows, err := r.db.Query(ctx, `
-			SELECT c.name, AVG(sc.score)
+			SELECT c.name, c.min_score, c.max_score, c.weight, AVG(sc.score)
 			FROM judging_scores sc
 			JOIN judging_criteria c ON c.id = sc.criterion_id
 			WHERE sc.slot_id = $1 AND sc.is_locked = true
-			GROUP BY c.name;
+			GROUP BY c.id, c.name, c.min_score, c.max_score, c.weight;
 		`, re.slotID)
 		if err == nil {
 			for critRows.Next() {
 				var cName string
-				var avgSc float64
-				if err := critRows.Scan(&cName, &avgSc); err == nil {
+				var minScore, maxScore int
+				var weight, avgSc float64
+				if err := critRows.Scan(&cName, &minScore, &maxScore, &weight, &avgSc); err == nil {
 					critAverages[cName] = avgSc
+					sumRawAvg += avgSc
+					critCount++
+					var wScore float64
+					if maxScore > minScore {
+						wScore = ((avgSc - float64(minScore)) / float64(maxScore-minScore)) * weight
+					} else {
+						wScore = weight
+					}
+					critWeighted[cName] = wScore
 				}
 			}
 			critRows.Close()
 		}
 
+		var avgRawScore float64
+		if critCount > 0 {
+			avgRawScore = sumRawAvg / float64(critCount)
+		}
+
 		allLocked := re.totalJudgesOnPanel > 0 && re.judgesEvaluatedCount >= re.totalJudgesOnPanel
 		if allLocked {
 			gradedCount++
+			totalGradedWeightedScore += re.totalWeightedScore
 		}
 
 		entries = append(entries, AdminLeaderboardEntry{
-			Rank:                 rank,
-			TeamID:               re.teamID,
-			TeamName:             re.teamName,
-			PanelName:            re.panelName,
-			Room:                 re.room,
-			SlotStatus:           re.slotStatus,
-			CriteriaAverages:     critAverages,
-			TotalWeightedScore:   re.totalWeightedScore,
-			JudgesEvaluatedCount: re.judgesEvaluatedCount,
-			TotalJudgesOnPanel:   re.totalJudgesOnPanel,
-			AllPanelJudgesLocked: allLocked,
+			Rank:                   rank,
+			TeamID:                 re.teamID,
+			TeamName:               re.teamName,
+			PanelName:              re.panelName,
+			Room:                   re.room,
+			SlotStatus:             re.slotStatus,
+			CriteriaAverages:       critAverages,
+			CriteriaWeightedScores: critWeighted,
+			TotalWeightedScore:     re.totalWeightedScore,
+			MaxPossibleScore:       maxPossibleScore,
+			AverageRawScore:        avgRawScore,
+			AverageScore:           avgRawScore,
+			JudgesEvaluatedCount:   re.judgesEvaluatedCount,
+			TotalJudgesOnPanel:     re.totalJudgesOnPanel,
+			AllPanelJudgesLocked:   allLocked,
 		})
 		rank++
 	}
 
+	var roundAverageScore float64
+	if gradedCount > 0 {
+		roundAverageScore = totalGradedWeightedScore / float64(gradedCount)
+	}
+
 	return &AdminLeaderboardResponse{
-		RoundID:     roundID,
-		RoundName:   roundName,
-		Status:      roundStatus,
-		Criteria:    criteria,
-		Leaderboard: entries,
-		TotalTeams:  len(entries),
-		GradedTeams: gradedCount,
+		RoundID:          roundID,
+		RoundName:        roundName,
+		Status:           roundStatus,
+		Criteria:         criteria,
+		Leaderboard:      entries,
+		TotalTeams:       len(entries),
+		GradedTeams:      gradedCount,
+		MaxPossibleScore: maxPossibleScore,
+		AverageScore:     roundAverageScore,
 	}, nil
 }

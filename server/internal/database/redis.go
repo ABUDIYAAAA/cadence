@@ -23,7 +23,10 @@ func NewRedisClient(ctx context.Context, connString string) (*redis.Client, erro
 
 	client := redis.NewClient(opts)
 
-	if err := client.Ping(ctx).Err(); err != nil {
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := client.Ping(pingCtx).Err(); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("failed to ping redis: %w", err)
 	}

@@ -219,15 +219,17 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 			{
 				"name":        "Innovation",
 				"description": "Originality and technical novelty",
+				"min_score":   0,
 				"max_score":   10,
-				"weight":      2.0,
+				"weight":      20.0,
 				"order_index": 1,
 			},
 			{
 				"name":        "Execution",
 				"description": "Completeness and polish",
+				"min_score":   0,
 				"max_score":   10,
-				"weight":      1.0,
+				"weight":      10.0,
 				"order_index": 2,
 			},
 		},
@@ -323,6 +325,13 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 		t.Fatalf("expected Volunteer schedule to show Team Beta queued, got %+v", volSchedule[0].QueuedTeams)
 	}
 
+	// Submitting scores outside [min_score, max_score] must be rejected with 400 Bad Request
+	judge1.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/scores", slotAlphaID), map[string]any{
+		"scores": []map[string]any{
+			{"criterion_id": critInnovationID, "score": 15.0}, // max is 10
+		},
+	}, http.StatusBadRequest, nil)
+
 	// 4g. Judge 1 submits & locks scores for Team Alpha (Innovation=8, Execution=9)
 	judge1.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/scores", slotAlphaID), map[string]any{
 		"scores": []map[string]any{
@@ -373,20 +382,45 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	judge2.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/complete", slotBetaID), nil, http.StatusOK, nil)
 
 	// 4j. Admin verifies weighted Leaderboard rankings:
-	// Team Beta: AVG(Innovation)=9.0 * 2.0 + AVG(Execution)=9.0 * 1.0 = 27.0 (Rank 1)
-	// Team Alpha: AVG(Innovation)=7.0 * 2.0 + AVG(Execution)=8.0 * 1.0 = 22.0 (Rank 2)
+	// Full maximum possible score: weight(Innovation)=20 + weight(Execution)=10 = 30.0
+	// Team Beta:
+	//   AVG(Innovation)=9.0/10 * 20 = 18.0, AVG(Execution)=9.0/10 * 10 = 9.0
+	//   TotalWeightedScore = 27.0 out of 30.0, AverageRawScore = 9.0 (Rank 1)
+	// Team Alpha:
+	//   AVG(Innovation)=7.0/10 * 20 = 14.0, AVG(Execution)=8.0/10 * 10 = 8.0
+	//   TotalWeightedScore = 22.0 out of 30.0, AverageRawScore = 7.5 (Rank 2)
+	// Round Average Score across graded teams = (27.0 + 22.0) / 2 = 24.5
 	var leaderboard judging.AdminLeaderboardResponse
 	admin.DoJSON(t, http.MethodGet, fmt.Sprintf("/api/v1/judging/rounds/%s/leaderboard", roundID), nil, http.StatusOK, &leaderboard)
 	if leaderboard.TotalTeams != 2 || leaderboard.GradedTeams != 2 || len(leaderboard.Leaderboard) != 2 {
 		t.Fatalf("expected 2 graded teams on leaderboard, got %+v", leaderboard)
+	}
+	if math.Abs(leaderboard.MaxPossibleScore-30.0) > 0.01 {
+		t.Fatalf("expected round MaxPossibleScore 30.0, got %f", leaderboard.MaxPossibleScore)
+	}
+	if math.Abs(leaderboard.AverageScore-24.5) > 0.01 {
+		t.Fatalf("expected round AverageScore 24.5, got %f", leaderboard.AverageScore)
 	}
 	first := leaderboard.Leaderboard[0]
 	second := leaderboard.Leaderboard[1]
 	if first.TeamID != betaTeam.ID || first.Rank != 1 || math.Abs(first.TotalWeightedScore-27.0) > 0.01 {
 		t.Fatalf("expected Rank 1 Team Beta with weighted score 27.0, got %+v", first)
 	}
+	if math.Abs(first.MaxPossibleScore-30.0) > 0.01 || math.Abs(first.AverageRawScore-9.0) > 0.01 {
+		t.Fatalf("expected Team Beta MaxPossibleScore 30.0 and AverageRawScore 9.0, got %+v", first)
+	}
+	if math.Abs(first.CriteriaWeightedScores["Innovation"]-18.0) > 0.01 || math.Abs(first.CriteriaWeightedScores["Execution"]-9.0) > 0.01 {
+		t.Fatalf("expected Team Beta CriteriaWeightedScores Innovation=18.0, Execution=9.0, got %+v", first.CriteriaWeightedScores)
+	}
+
 	if second.TeamID != alphaTeam.ID || second.Rank != 2 || math.Abs(second.TotalWeightedScore-22.0) > 0.01 {
 		t.Fatalf("expected Rank 2 Team Alpha with weighted score 22.0, got %+v", second)
+	}
+	if math.Abs(second.MaxPossibleScore-30.0) > 0.01 || math.Abs(second.AverageRawScore-7.5) > 0.01 {
+		t.Fatalf("expected Team Alpha MaxPossibleScore 30.0 and AverageRawScore 7.5, got %+v", second)
+	}
+	if math.Abs(second.CriteriaWeightedScores["Innovation"]-14.0) > 0.01 || math.Abs(second.CriteriaWeightedScores["Execution"]-8.0) > 0.01 {
+		t.Fatalf("expected Team Alpha CriteriaWeightedScores Innovation=14.0, Execution=8.0, got %+v", second.CriteriaWeightedScores)
 	}
 
 	// =========================================================================

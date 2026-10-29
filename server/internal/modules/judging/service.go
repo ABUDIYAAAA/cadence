@@ -12,8 +12,8 @@ import (
 
 var (
 	ErrNotAllJudgesLocked = errors.New("cannot complete slot: not all judges on this panel have locked their scorecards")
-	ErrInvalidCriteria    = errors.New("each criterion must have a positive max score and weight")
-	ErrScoreOutOfRange    = errors.New("submitted score exceeds criterion maximum allowed score")
+	ErrInvalidCriteria    = errors.New("each criterion must have valid min/max scores (max > min >= 0) and non-negative weight")
+	ErrScoreOutOfRange    = errors.New("submitted score is outside criterion allowed score range")
 )
 
 type Service struct {
@@ -36,7 +36,7 @@ func (s *Service) CreateRound(
 	ip, userAgent string,
 ) (string, error) {
 	for _, c := range req.Criteria {
-		if c.MaxScore <= 0 || c.Weight < 0 {
+		if c.MinScore < 0 || c.MaxScore <= c.MinScore || c.Weight < 0 {
 			return "", ErrInvalidCriteria
 		}
 	}

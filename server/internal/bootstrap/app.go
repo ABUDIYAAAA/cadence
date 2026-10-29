@@ -135,20 +135,6 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		MaxAge:           300,
 	}))
 
-	// Health check endpoint
-	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		utils.JSON(w, http.StatusOK, map[string]string{
-			"status": "ok",
-			"env":    cfg.Env,
-		})
-	})
-
-	// Prometheus metrics endpoint (protected by constant-time scrape token verification)
-	router.With(metrics.AuthMiddleware(cfg.MetricsScrapeToken)).Handle("/metrics", promhttp.Handler())
-
-	// Register PostgreSQL connection pool stats
-	metrics.RegisterDBStats(dbPool)
-
 	// Auth module initialization with instant Redis blocklist verification and audit recording
 	authRepo := auth.NewRepository(dbPool)
 	authService := auth.NewService(authRepo, cfg, mailQueue, auditQueue)
@@ -200,6 +186,18 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		notifications.RegisterRoutes(r, notifHandler, authMiddleware)
 		audit.RegisterRoutes(r, auditHandler, authMiddleware)
 	})
+
+	// Health check endpoint - returns system and dependency health status.
+	// If any dependency (PostgreSQL, Redis, RabbitMQ) is unreachable,
+	// it marks the status as "degraded" without crashing or shutting down the server.
+	router.Get("/health", HealthHandler(cfg, dbPool, redisClient, auditQueue, mailQueue, notifQueue))
+
+	// Prometheus metrics endpoint (protected by constant-time scrape token verification)
+	router.With(metrics.AuthMiddleware(cfg.MetricsScrapeToken)).Handle("/metrics", promhttp.Handler())
+
+	// Register PostgreSQL and Redis connection pool stats
+	metrics.RegisterDBStats(dbPool)
+	metrics.RegisterRedisStats(redisClient)
 
 	return &Application{
 		Config:            cfg,

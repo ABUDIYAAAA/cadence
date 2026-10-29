@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -225,6 +226,9 @@ func computeApproximateRequestSize(r *http.Request) int64 {
 type DBStatsCollector struct {
 	pool            *pgxpool.Pool
 	connectionsDesc *prometheus.Desc
+	waitsDesc       *prometheus.Desc
+	cancelsDesc     *prometheus.Desc
+	acquiresDesc    *prometheus.Desc
 }
 
 func NewDBStatsCollector(pool *pgxpool.Pool) *DBStatsCollector {
@@ -236,11 +240,32 @@ func NewDBStatsCollector(pool *pgxpool.Pool) *DBStatsCollector {
 			[]string{"state"},
 			nil,
 		),
+		waitsDesc: prometheus.NewDesc(
+			"cadence_db_pool_acquire_waits_total",
+			"Total number of times a connection acquire had to wait because no idle connection was available",
+			nil,
+			nil,
+		),
+		cancelsDesc: prometheus.NewDesc(
+			"cadence_db_pool_canceled_acquires_total",
+			"Total number of times a connection acquire was canceled",
+			nil,
+			nil,
+		),
+		acquiresDesc: prometheus.NewDesc(
+			"cadence_db_pool_acquires_total",
+			"Total number of successful connection acquires",
+			nil,
+			nil,
+		),
 	}
 }
 
 func (c *DBStatsCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.connectionsDesc
+	ch <- c.waitsDesc
+	ch <- c.cancelsDesc
+	ch <- c.acquiresDesc
 }
 
 func (c *DBStatsCollector) Collect(ch chan<- prometheus.Metric) {
@@ -273,12 +298,134 @@ func (c *DBStatsCollector) Collect(ch chan<- prometheus.Metric) {
 		float64(stat.MaxConns()),
 		"max",
 	)
+	ch <- prometheus.MustNewConstMetric(
+		c.waitsDesc,
+		prometheus.CounterValue,
+		float64(stat.EmptyAcquireCount()),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.cancelsDesc,
+		prometheus.CounterValue,
+		float64(stat.CanceledAcquireCount()),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.acquiresDesc,
+		prometheus.CounterValue,
+		float64(stat.AcquireCount()),
+	)
 }
 
 // RegisterDBStats registers PostgreSQL connection pool metrics with Prometheus.
 func RegisterDBStats(pool *pgxpool.Pool) {
 	if pool != nil {
-		prometheus.MustRegister(NewDBStatsCollector(pool))
+		collector := NewDBStatsCollector(pool)
+		if err := prometheus.Register(collector); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+}
+
+// RedisStatsCollector periodically gathers Redis connection pool metrics.
+type RedisStatsCollector struct {
+	client       *redis.Client
+	connsDesc    *prometheus.Desc
+	hitsDesc     *prometheus.Desc
+	missesDesc   *prometheus.Desc
+	timeoutsDesc *prometheus.Desc
+}
+
+func NewRedisStatsCollector(client *redis.Client) *RedisStatsCollector {
+	return &RedisStatsCollector{
+		client: client,
+		connsDesc: prometheus.NewDesc(
+			"cadence_redis_pool_connections",
+			"Current count of Redis connections in the pool",
+			[]string{"state"},
+			nil,
+		),
+		hitsDesc: prometheus.NewDesc(
+			"cadence_redis_pool_hits_total",
+			"Total number of times a free connection was found in the Redis pool",
+			nil,
+			nil,
+		),
+		missesDesc: prometheus.NewDesc(
+			"cadence_redis_pool_misses_total",
+			"Total number of times a free connection was not found in the Redis pool",
+			nil,
+			nil,
+		),
+		timeoutsDesc: prometheus.NewDesc(
+			"cadence_redis_pool_timeouts_total",
+			"Total number of times a Redis connection wait timeout occurred",
+			nil,
+			nil,
+		),
+	}
+}
+
+func (c *RedisStatsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.connsDesc
+	ch <- c.hitsDesc
+	ch <- c.missesDesc
+	ch <- c.timeoutsDesc
+}
+
+func (c *RedisStatsCollector) Collect(ch chan<- prometheus.Metric) {
+	if c.client == nil {
+		return
+	}
+	stats := c.client.PoolStats()
+	if stats == nil {
+		return
+	}
+
+	ch <- prometheus.MustNewConstMetric(
+		c.connsDesc,
+		prometheus.GaugeValue,
+		float64(stats.TotalConns),
+		"total",
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.connsDesc,
+		prometheus.GaugeValue,
+		float64(stats.IdleConns),
+		"idle",
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.connsDesc,
+		prometheus.GaugeValue,
+		float64(stats.StaleConns),
+		"stale",
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.hitsDesc,
+		prometheus.CounterValue,
+		float64(stats.Hits),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.missesDesc,
+		prometheus.CounterValue,
+		float64(stats.Misses),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.timeoutsDesc,
+		prometheus.CounterValue,
+		float64(stats.Timeouts),
+	)
+}
+
+// RegisterRedisStats registers Redis connection pool metrics with Prometheus.
+func RegisterRedisStats(client *redis.Client) {
+	if client != nil {
+		collector := NewRedisStatsCollector(client)
+		if err := prometheus.Register(collector); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
 	}
 }
 

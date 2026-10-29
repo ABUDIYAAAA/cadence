@@ -1,6 +1,7 @@
 export interface CreateCriteriaRequest {
   name: string;
   description?: string;
+  min_score?: number;
   max_score: number;
   weight: number;
   order_index?: number;
@@ -48,6 +49,7 @@ export interface CriterionOutput {
   id: string;
   name: string;
   description: string;
+  min_score: number;
   max_score: number;
   weight: number;
   order_index: number;
@@ -56,9 +58,11 @@ export interface CriterionOutput {
 export interface CriterionScoreOutput {
   criterion_id: string;
   criterion_name: string;
+  min_score: number;
   max_score: number;
   weight: number;
   score?: number | null;
+  normalized_score?: number | null;
   notes?: string | null;
 }
 
@@ -157,7 +161,11 @@ export interface AdminLeaderboardEntry {
   room: string;
   slot_status: string;
   criteria_averages: Record<string, number>;
+  criteria_weighted_scores?: Record<string, number>;
   total_weighted_score: number;
+  max_possible_score: number;
+  average_raw_score: number;
+  average_score: number;
   judges_evaluated_count: number;
   total_judges_on_panel: number;
   all_panel_judges_locked: boolean;
@@ -171,6 +179,8 @@ export interface AdminLeaderboardResponse {
   leaderboard: AdminLeaderboardEntry[];
   total_teams: number;
   graded_teams: number;
+  max_possible_score: number;
+  average_score: number;
 }
 
 export interface RoundSummary {

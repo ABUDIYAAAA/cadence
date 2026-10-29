@@ -443,6 +443,15 @@ func TestStage1_HarnessAndHealth(t *testing.T) {
 	if healthResp["env"] != "test" {
 		t.Fatalf("expected env 'test', got %q", healthResp["env"])
 	}
+	if healthResp["postgres"] != "up" {
+		t.Fatalf("expected postgres 'up', got %q", healthResp["postgres"])
+	}
+	if healthResp["redis"] != "up" {
+		t.Fatalf("expected redis 'up', got %q", healthResp["redis"])
+	}
+	if healthResp["rabbitmq"] != "up" {
+		t.Fatalf("expected rabbitmq 'up', got %q", healthResp["rabbitmq"])
+	}
 
 	// 2. Verify /metrics rejects unauthenticated scrape requests
 	resp, body := anon.DoRaw(t, http.MethodGet, "/metrics", nil, nil)

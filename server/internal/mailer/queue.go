@@ -236,6 +236,11 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 	}()
 }
 
+// IsHealthy returns true if the RabbitMQ connection is active and not closed.
+func (q *Queue) IsHealthy() bool {
+	return q != nil && q.conn != nil && !q.conn.IsClosed()
+}
+
 // Close gracefully terminates open channels and connection.
 func (q *Queue) Close() error {
 	var errs []error

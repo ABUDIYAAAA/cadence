@@ -1,0 +1,1 @@
+ALTER TABLE judging_criteria ADD COLUMN IF NOT EXISTS min_score INT NOT NULL DEFAULT 0;

@@ -81,7 +81,6 @@ jobs:
           dc build backend
 
           dc run --rm -T --entrypoint /app/cadence-migrate backend </dev/null
-          dc run --rm -T --entrypoint /app/cadence-seed backend </dev/null
 
           # Start every service declared in Compose.
           dc up -d --remove-orphans

@@ -100,7 +100,7 @@ export default function JudgeDashboardPage() {
             className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] px-3 text-xs font-semibold text-[var(--ink-primary)] transition-transform duration-150 hover:bg-[var(--card-solid-subtle)] active:scale-[0.97]"
           >
             <Layers className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-            <span>Teams Directory</span>
+            <span>My Teams</span>
           </Link>
         </div>
       </header>

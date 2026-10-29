@@ -29,6 +29,28 @@ export interface SlotAssignment {
 
 export interface ConfigureSlotsRequest {
   slots: SlotAssignment[];
+  /** Add after the panel's existing slots instead of replacing the sequence. */
+  append?: boolean;
+}
+
+/** A panel in a round with the teams it already holds (in pitch order). */
+export interface RoundPanelOverview {
+  panel_id: string;
+  name: string;
+  room: string;
+  judge_count: number;
+  slot_count: number;
+  team_ids: string[];
+  /** The panel's teams in pitch order, with the slot ids needed to move them. */
+  slots: RoundPanelSlot[];
+}
+
+export interface RoundPanelSlot {
+  slot_id: string;
+  team_id: string;
+  team_name: string;
+  sequence_order: number;
+  status: string;
 }
 
 export interface UpdateSlotLinksRequest {
@@ -98,10 +120,30 @@ export interface JudgeSlotDetails {
   slot_duration_seconds: number;
   actual_start_time?: string | null;
   target_end_time?: string | null;
+  is_paused: boolean;
+  /** True once a judge has locked scores; the clock is stopped for good. */
+  pitch_ended: boolean;
+  pitch_ended_at?: string | null;
+  paused_at?: string | null;
+  extra_seconds: number;
+  /** Seconds left on the clock (negative = overtime). Present only while in progress. */
+  remaining_seconds?: number | null;
+  /** Server clock at response time, used to correct client clock skew. */
+  server_time: string;
   submission_links: Record<string, string>;
   criteria_scores: CriterionScoreOutput[];
   is_my_scorecard_locked: boolean;
   all_panel_judges_locked: boolean;
+  locked_judges_count: number;
+  total_judges_count: number;
+  panel_judges: PanelJudgeProgress[];
+}
+
+/** A panel judge's lock state for a slot (scores are never shared). */
+export interface PanelJudgeProgress {
+  judge_id: string;
+  name: string;
+  is_locked: boolean;
 }
 
 export interface JudgePanelSummary {
@@ -198,6 +240,13 @@ export interface RoundSummary {
   created_at: string;
   panel_count?: number;
   slot_count?: number;
+}
+
+/** A judge already seated on a panel within a round. */
+export interface AssignedJudge {
+  judge_id: string;
+  panel_id: string;
+  panel_name: string;
 }
 
 export interface RoundDetail {

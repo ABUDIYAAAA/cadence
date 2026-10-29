@@ -67,18 +67,11 @@ export interface TeamCompletenessSummary {
   status: "complete" | "partial" | "absent" | string;
 }
 
-export interface VolunteerLeaderboard {
-  volunteer_id: string;
-  volunteer_name: string;
-  volunteer_email: string;
-  count: number;
-}
-
 export interface AnalyticsResponse {
   total_issued: number;
   checked_in_count: number;
+  /** Percentage from 0 to 100 (not a 0-1 fraction). */
   attendance_rate: number;
   hourly_arrivals: HourlyArrival[];
   team_completeness: TeamCompletenessSummary[];
-  volunteer_leaderboard: VolunteerLeaderboard[];
 }

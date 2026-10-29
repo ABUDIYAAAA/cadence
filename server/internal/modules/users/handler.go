@@ -80,6 +80,15 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 		Search: query.Get("search"),
 	}
 
+	switch cs := query.Get("checkin_status"); cs {
+	case "checked_in", "not_checked_in", "no_pass":
+		filter.CheckinStatus = cs
+	case "":
+	default:
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid checkin_status")
+		return
+	}
+
 	if activeParam := query.Get("is_active"); activeParam != "" {
 		activeBool := activeParam == "true" || activeParam == "1"
 		filter.IsActive = &activeBool

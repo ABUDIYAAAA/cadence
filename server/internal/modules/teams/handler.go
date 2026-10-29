@@ -57,6 +57,11 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 		Search: query.Get("search"),
 	}
 
+	// Judges only see teams assigned to their panels.
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role == "judge" {
+		filter.JudgeID = &claims.UserID
+	}
+
 	resp, err := h.service.ListTeams(r.Context(), filter)
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to list teams")
@@ -69,7 +74,14 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 // HandleGet returns full team details with all member profiles.
 func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	team, err := h.service.GetTeamByID(r.Context(), id)
+
+	var team *TeamDetailResponse
+	var err error
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role == "judge" {
+		team, err = h.service.GetTeamForJudge(r.Context(), id, claims.UserID)
+	} else {
+		team, err = h.service.GetTeamByID(r.Context(), id)
+	}
 	if err != nil {
 		if errors.Is(err, ErrTeamNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "team not found")

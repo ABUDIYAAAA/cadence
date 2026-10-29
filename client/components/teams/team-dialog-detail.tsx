@@ -46,7 +46,11 @@ export function TeamDetailDialog({
   canManage = true,
 }: TeamDetailDialogProps) {
   const { data: team, isLoading } = useTeam(teamId || "");
-  const { data: usersData, isLoading: usersLoading } = useUsers({ limit: 100 });
+  // Only admins enroll members, so only fetch candidates for them while the roster is open.
+  const { data: usersData, isLoading: usersLoading } = useUsers(
+    { role: "participant", limit: 100 },
+    { enabled: canManage && open }
+  );
   const [newUserId, setNewUserId] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [actionInProgressUserId, setActionInProgressUserId] = useState<string | null>(null);
@@ -85,6 +89,8 @@ export function TeamDetailDialog({
     setActionInProgressUserId(userId);
     try {
       await onRemoveMember(teamId, userId);
+    } catch {
+      // The page handler already shows an error toast.
     } finally {
       setActionInProgressUserId(null);
     }
@@ -94,6 +100,8 @@ export function TeamDetailDialog({
     setActionInProgressUserId(userId);
     try {
       await onSetLeader(teamId, userId);
+    } catch {
+      // The page handler already shows an error toast.
     } finally {
       setActionInProgressUserId(null);
     }
@@ -104,7 +112,8 @@ export function TeamDetailDialog({
       open={open}
       onClose={onClose}
       title={team ? team.name : "Team Roster"}
-      description={team ? `Squad Roster & Member Management` : "Loading squad roster..."}
+      description={team ? (canManage ? "Squad roster & member management" : "Squad roster") : "Loading squad roster..."}
+      className="max-w-3xl"
       footer={
         <div className="flex justify-end w-full">
           <Button variant="primary" size="sm" onClick={onClose}>

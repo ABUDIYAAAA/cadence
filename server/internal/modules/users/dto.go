@@ -46,6 +46,8 @@ type UserFilter struct {
 	TeamID   string `json:"team_id"`
 	Search   string `json:"search"`
 	IsActive *bool  `json:"is_active"`
+	// CheckinStatus narrows to "checked_in", "not_checked_in" (has a pass, not yet arrived) or "no_pass".
+	CheckinStatus string `json:"checkin_status"`
 }
 
 // BulkInviteRequest defines target users for onboarding emails.
@@ -67,6 +69,9 @@ type UserDetailResponse struct {
 	IsPasswordConfigured bool      `json:"is_password_configured"`
 	IsActive             bool      `json:"is_active"`
 	CreatedAt            time.Time `json:"created_at"`
+	// Set only by the list endpoint: "checked_in", "not_checked_in" or "no_pass".
+	CheckinStatus string     `json:"checkin_status,omitempty"`
+	CheckedInAt   *time.Time `json:"checked_in_at,omitempty"`
 }
 
 // PaginatedUsersResponse wraps user lists with pagination metadata.

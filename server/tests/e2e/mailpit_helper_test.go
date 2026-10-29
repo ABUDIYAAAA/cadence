@@ -48,6 +48,7 @@ type MailpitMessageDetail struct {
 	HTML        string              `json:"HTML"`
 	Text        string              `json:"Text"`
 	Attachments []MailpitAttachment `json:"Attachments"`
+	Inline      []MailpitAttachment `json:"Inline"`
 }
 
 // WaitForEmail polls Mailpit until an email matching recipientEmail and subjectSubstring arrives,
@@ -144,34 +145,37 @@ func ExtractTokenFromEmailHTML(t *testing.T, htmlBody, routeSlug string) string 
 	return matches[1]
 }
 
-// VerifyAndDownloadTicketEmail waits for the entry ticket email in Mailpit, extracts the HMAC-signed
-// ticket code from the HTML body, downloads the attached ticket_qr.png, and verifies it is a valid 300x300 PNG image.
-func VerifyAndDownloadTicketEmail(t *testing.T, recipientEmail string) (ticketCode string, qrPNGBytes []byte) {
+// VerifyAndDownloadTicketEmail waits for the entry pass email in Mailpit, checks that the body shows the QR
+// image inline and never contains the ticket code string, then downloads the QR and verifies it is a valid
+// 300x300 PNG image.
+func VerifyAndDownloadTicketEmail(t *testing.T, recipientEmail string) (qrPNGBytes []byte) {
 	t.Helper()
 
-	msg := WaitForEmail(t, recipientEmail, "Your Entry Ticket for Cadence Hackathon")
+	msg := WaitForEmail(t, recipientEmail, "Your entry pass for Cadence Hackathon")
 
-	// 1. Extract ticket code from <div class="ticket-code">cadence:tkt:...</div>
-	re := regexp.MustCompile(`cadence:tkt:[a-fA-F0-9]+:[a-fA-F0-9]+`)
-	ticketCode = re.FindString(msg.HTML)
-	if ticketCode == "" {
-		t.Fatalf("failed to extract cadence:tkt:... code from ticket email HTML for %s:\n%s", recipientEmail, msg.HTML)
+	// 1. The ticket code must not appear in the email, only the QR
+	if strings.Contains(msg.HTML, "cadence:tkt:") || strings.Contains(msg.Text, "cadence:tkt:") {
+		t.Fatalf("ticket email for %s must not contain the ticket code string:\n%s", recipientEmail, msg.HTML)
+	}
+	if !strings.Contains(msg.HTML, "cid:ticket_qr.png") {
+		t.Fatalf("expected ticket email for %s to reference the inline QR image:\n%s", recipientEmail, msg.HTML)
 	}
 
-	// 2. Verify ticket_qr.png attachment exists
-	if len(msg.Attachments) == 0 {
-		t.Fatalf("expected ticket_qr.png attachment in ticket email for %s, got 0 attachments", recipientEmail)
-	}
-
+	// 2. Find the embedded ticket_qr.png (Mailpit lists embedded images under Inline)
 	var qrAtt *MailpitAttachment
-	for i := range msg.Attachments {
-		if msg.Attachments[i].FileName == "ticket_qr.png" {
-			qrAtt = &msg.Attachments[i]
+	for _, list := range [][]MailpitAttachment{msg.Inline, msg.Attachments} {
+		for i := range list {
+			if list[i].FileName == "ticket_qr.png" {
+				qrAtt = &list[i]
+				break
+			}
+		}
+		if qrAtt != nil {
 			break
 		}
 	}
 	if qrAtt == nil {
-		t.Fatalf("expected attachment named 'ticket_qr.png', found: %+v", msg.Attachments)
+		t.Fatalf("expected embedded image named 'ticket_qr.png', found inline=%+v attachments=%+v", msg.Inline, msg.Attachments)
 	}
 	if !strings.HasPrefix(strings.ToLower(qrAtt.ContentType), "image/png") {
 		t.Fatalf("expected ticket_qr.png content-type 'image/png', got %q", qrAtt.ContentType)
@@ -207,5 +211,5 @@ func VerifyAndDownloadTicketEmail(t *testing.T, recipientEmail string) (ticketCo
 		t.Fatalf("expected 300x300 QR code PNG dimensions, got %dx%d", bounds.Dx(), bounds.Dy())
 	}
 
-	return ticketCode, qrPNGBytes
+	return qrPNGBytes
 }

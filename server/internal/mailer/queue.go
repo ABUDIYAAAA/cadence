@@ -132,22 +132,22 @@ func (q *Queue) SendResetPasswordEmail(ctx context.Context, to, name, resetURL s
 	})
 }
 
-// SendTicketEmail enqueues an event entry ticket email job with the QR PNG attached.
-func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName, ticketCode string, qrPNG []byte) error {
+// SendTicketEmail enqueues an entry pass email whose body shows the QR code (the ticket code itself is never included).
+func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName string, qrPNG []byte) error {
 	return q.Enqueue(ctx, Job{
 		To:       to,
-		Subject:  fmt.Sprintf("Your Entry Ticket for %s", eventName),
+		Subject:  fmt.Sprintf("Your entry pass for %s", eventName),
 		Template: "ticket",
 		Data: map[string]any{
-			"Name":       name,
-			"EventName":  eventName,
-			"TicketCode": ticketCode,
+			"Name":      name,
+			"EventName": eventName,
 		},
 		Attachments: []Attachment{
 			{
 				Filename:    "ticket_qr.png",
 				ContentType: "image/png",
 				Data:        qrPNG,
+				Inline:      true,
 			},
 		},
 	})

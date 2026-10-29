@@ -28,6 +28,13 @@ type CreatePanelRequest struct {
 	JudgeIDs []string `json:"judge_ids" validate:"required,min=1,dive,uuid"`
 }
 
+// AssignedJudge records a judge already seated on a panel within a round.
+type AssignedJudge struct {
+	JudgeID   string `json:"judge_id"`
+	PanelID   string `json:"panel_id"`
+	PanelName string `json:"panel_name"`
+}
+
 // SlotAssignment assigns a team to a slot sequence in a panel.
 type SlotAssignment struct {
 	TeamID          string            `json:"team_id" validate:"required,uuid"`
@@ -38,6 +45,30 @@ type SlotAssignment struct {
 // ConfigureSlotsRequest configures sequential team slots for a panel.
 type ConfigureSlotsRequest struct {
 	Slots []SlotAssignment `json:"slots" validate:"required,min=1,dive"`
+	// Append adds the teams after the panel's existing slots instead of replacing the
+	// sequence, so teams can be distributed gradually as they are decided.
+	Append bool `json:"append"`
+}
+
+// RoundPanelOverview summarises a panel and which teams it already holds.
+type RoundPanelOverview struct {
+	PanelID    string   `json:"panel_id"`
+	Name       string   `json:"name"`
+	Room       string   `json:"room"`
+	JudgeCount int      `json:"judge_count"`
+	SlotCount  int      `json:"slot_count"`
+	TeamIDs    []string `json:"team_ids"`
+	// Slots lists the panel's teams in pitch order, with the slot ids needed to move them.
+	Slots []RoundPanelSlot `json:"slots"`
+}
+
+// RoundPanelSlot is a team's place in a panel's sequence.
+type RoundPanelSlot struct {
+	SlotID        string `json:"slot_id"`
+	TeamID        string `json:"team_id"`
+	TeamName      string `json:"team_name"`
+	SequenceOrder int    `json:"sequence_order"`
+	Status        string `json:"status"`
 }
 
 // UpdateSlotLinksRequest modifies project artifacts/links for a team's slot.
@@ -62,6 +93,18 @@ type CriterionScoreInput struct {
 // SubmitScoresRequest payload for a judge submitting/updating their scorecard.
 type SubmitScoresRequest struct {
 	Scores []CriterionScoreInput `json:"scores" validate:"required,min=1,dive"`
+}
+
+// PanelJudgeProgress is one panel judge's lock status for a slot. Scores are never exposed.
+type PanelJudgeProgress struct {
+	JudgeID  string `json:"judge_id"`
+	Name     string `json:"name"`
+	IsLocked bool   `json:"is_locked"`
+}
+
+// ExtendTimerRequest payload for adding time to a running pitch.
+type ExtendTimerRequest struct {
+	Seconds int `json:"seconds" validate:"required,min=30,max=900"`
 }
 
 // CriterionOutput representation of a criterion.
@@ -104,22 +147,34 @@ type JudgeSlotSummary struct {
 // JudgeSlotDetails full evaluation view for a judge evaluating a team.
 // Includes timing counter info for frontend countdown timers.
 type JudgeSlotDetails struct {
-	SlotID               string                 `json:"slot_id"`
-	PanelID              string                 `json:"panel_id"`
-	PanelName            string                 `json:"panel_name"`
-	Room                 string                 `json:"room"`
-	TeamID               string                 `json:"team_id"`
-	TeamName             string                 `json:"team_name"`
-	SequenceOrder        int                    `json:"sequence_order"`
-	Status               string                 `json:"status"`
-	SlotDurationMins     int                    `json:"slot_duration_mins"`
-	SlotDurationSeconds  int                    `json:"slot_duration_seconds"`
-	ActualStartTime      *time.Time             `json:"actual_start_time,omitempty"`
-	TargetEndTime        *time.Time             `json:"target_end_time,omitempty"`
+	SlotID              string     `json:"slot_id"`
+	PanelID             string     `json:"panel_id"`
+	PanelName           string     `json:"panel_name"`
+	Room                string     `json:"room"`
+	TeamID              string     `json:"team_id"`
+	TeamName            string     `json:"team_name"`
+	SequenceOrder       int        `json:"sequence_order"`
+	Status              string     `json:"status"`
+	SlotDurationMins    int        `json:"slot_duration_mins"`
+	SlotDurationSeconds int        `json:"slot_duration_seconds"`
+	ActualStartTime     *time.Time `json:"actual_start_time,omitempty"`
+	TargetEndTime       *time.Time `json:"target_end_time,omitempty"`
+	IsPaused            bool       `json:"is_paused"`
+	PausedAt            *time.Time `json:"paused_at,omitempty"`
+	PitchEnded          bool       `json:"pitch_ended"`
+	PitchEndedAt        *time.Time `json:"pitch_ended_at,omitempty"`
+	ExtraSeconds        int        `json:"extra_seconds"`
+	// RemainingSeconds is the time left on the clock; negative once overtime. Set only while in progress.
+	RemainingSeconds *int `json:"remaining_seconds,omitempty"`
+	// ServerTime lets clients correct for clock skew when counting down to TargetEndTime.
+	ServerTime           time.Time              `json:"server_time"`
 	SubmissionLinks      map[string]string      `json:"submission_links"`
 	CriteriaScores       []CriterionScoreOutput `json:"criteria_scores"`
 	IsMyScorecardLocked  bool                   `json:"is_my_scorecard_locked"`
 	AllPanelJudgesLocked bool                   `json:"all_panel_judges_locked"`
+	LockedJudgesCount    int                    `json:"locked_judges_count"`
+	TotalJudgesCount     int                    `json:"total_judges_count"`
+	PanelJudges          []PanelJudgeProgress   `json:"panel_judges"`
 }
 
 // JudgePanelSummary summary of a panel assigned to the current judge.

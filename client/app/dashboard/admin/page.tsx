@@ -15,10 +15,11 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
+import { attendancePercent } from "@/lib/utils";
 import { useTicketAnalytics } from "@/hooks/use-tickets";
 import { useUsers } from "@/hooks/use-users";
 import { useTeams } from "@/hooks/use-teams";
-import { useJudgingRounds } from "@/hooks/use-judging";
+import { useJudgingRounds, useAdminLeaderboard } from "@/hooks/use-judging";
 import { useAuditLogs } from "@/hooks/use-audit";
 import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -109,13 +110,16 @@ export default function AdminDashboardPage() {
   const teams = useTeams({ page: 1, limit: 1 });
   const rounds = useJudgingRounds({ enabled: isAdmin });
   const audit = useAuditLogs({ page: 1, limit: 6 });
+  // Live standings for the active round (polls, so each judge's lock shows up within seconds)
+  const liveRoundId = rounds.data?.find((r) => r.status === "active")?.id ?? "";
+  const standings = useAdminLeaderboard(liveRoundId);
 
   if (isLoading || !isAdmin) {
     return <SkeletonCard />;
   }
 
   const a = analytics.data;
-  const rate = a ? Math.round(a.attendance_rate > 1 ? a.attendance_rate : a.attendance_rate * 100) : 0;
+  const rate = a ? attendancePercent(a.attendance_rate) : 0;
   const remaining = a ? Math.max(a.total_issued - a.checked_in_count, 0) : 0;
 
   const roundList = rounds.data || [];
@@ -308,6 +312,50 @@ export default function AdminDashboardPage() {
                     <dd className="text-lg font-bold tabular-nums text-[var(--ink-primary)]">{activeRound.slot_duration_mins}m</dd>
                   </div>
                 </dl>
+
+                <div className="border-t border-[var(--card-line)] pt-3">
+                  <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)] mb-1.5">
+                    <span>Standings</span>
+                    {standings.data && (
+                      <span className="tabular-nums">
+                        {standings.data.graded_teams}/{standings.data.total_teams} fully scored
+                      </span>
+                    )}
+                  </div>
+                  {standings.isLoading ? (
+                    <Skeleton className="h-16 w-full" />
+                  ) : (
+                    (() => {
+                      const top = (standings.data?.leaderboard ?? [])
+                        .filter((e) => e.judges_evaluated_count > 0)
+                        .slice(0, 5);
+                      return top.length === 0 ? (
+                        <p className="text-xs text-[var(--ink-tertiary)]">No scorecards locked yet.</p>
+                      ) : (
+                        <ol className="space-y-1">
+                          {top.map((e) => (
+                            <li key={e.team_id} className="flex items-center gap-2 text-xs">
+                              <span className="w-4 font-mono font-bold tabular-nums text-[var(--ink-tertiary)]">{e.rank}</span>
+                              <span className="flex-1 truncate font-medium text-[var(--ink-primary)]">{e.team_name}</span>
+                              <span className="font-mono tabular-nums text-[var(--ink-primary)]">
+                                {Math.round(e.total_weighted_score * 100) / 100}
+                                <span className="text-[var(--ink-tertiary)]"> / {Math.round(e.max_possible_score * 100) / 100}</span>
+                              </span>
+                              {!e.all_panel_judges_locked && (
+                                <span
+                                  className="text-[10px] text-[var(--ink-tertiary)] tabular-nums"
+                                  title="Provisional: not every judge has locked yet"
+                                >
+                                  {e.judges_evaluated_count}/{e.total_judges_on_panel}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      );
+                    })()
+                  )}
+                </div>
               </div>
             ) : (
               <div className="space-y-3">

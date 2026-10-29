@@ -81,20 +81,11 @@ type TeamCompletenessSummary struct {
 	Status           string `json:"status"` // "complete", "partial", "absent"
 }
 
-// VolunteerLeaderboard summarizes check-ins performed per volunteer/admin.
-type VolunteerLeaderboard struct {
-	VolunteerID    string `json:"volunteer_id"`
-	VolunteerName  string `json:"volunteer_name"`
-	VolunteerEmail string `json:"volunteer_email"`
-	Count          int    `json:"count"`
-}
-
 // AnalyticsResponse aggregates live attendance metrics.
 type AnalyticsResponse struct {
-	TotalIssued          int                       `json:"total_issued"`
-	CheckedInCount       int                       `json:"checked_in_count"`
-	AttendanceRate       float64                   `json:"attendance_rate"`
-	HourlyArrivals       []HourlyArrival           `json:"hourly_arrivals"`
-	TeamCompleteness     []TeamCompletenessSummary `json:"team_completeness"`
-	VolunteerLeaderboard []VolunteerLeaderboard    `json:"volunteer_leaderboard"`
+	TotalIssued      int                       `json:"total_issued"`
+	CheckedInCount   int                       `json:"checked_in_count"`
+	AttendanceRate   float64                   `json:"attendance_rate"`
+	HourlyArrivals   []HourlyArrival           `json:"hourly_arrivals"`
+	TeamCompleteness []TeamCompletenessSummary `json:"team_completeness"`
 }

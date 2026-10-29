@@ -93,7 +93,7 @@ export function TicketUserTable({
             <TableHead>Attendee</TableHead>
             <TableHead>System Role</TableHead>
             <TableHead>Squad / Team</TableHead>
-            <TableHead>Account Status</TableHead>
+            <TableHead>Check-in</TableHead>
             {canSendTickets && <TableHead className="text-right">Actions</TableHead>}
           </TableRow>
         </TableHeader>
@@ -177,15 +177,31 @@ export function TicketUserTable({
                   )}
                 </TableCell>
 
-                {/* Account status */}
+                {/* Check-in state */}
                 <TableCell>
-                  <Badge
-                    variant={user.is_active ? "emerald" : "subtle"}
-                    dot
-                    size="sm"
-                  >
-                    {user.is_active ? "Active" : "Inactive"}
-                  </Badge>
+                  {user.checkin_status === "checked_in" ? (
+                    <div className="flex flex-col items-start gap-0.5">
+                      <Badge variant="emerald" dot size="sm">
+                        Checked in
+                      </Badge>
+                      {user.checked_in_at && (
+                        <span className="text-[10px] text-[var(--ink-tertiary)] font-mono tabular-nums">
+                          {new Date(user.checked_in_at).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  ) : user.checkin_status === "not_checked_in" ? (
+                    <Badge variant="subtle" size="sm">
+                      Not checked in
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-[var(--ink-tertiary)]">No pass yet</span>
+                  )}
                 </TableCell>
 
                 {/* Single Send Action */}

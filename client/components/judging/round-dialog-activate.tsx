@@ -57,7 +57,7 @@ export function RoundActivateDialog({
           <div className="space-y-1">
             <p className="font-bold text-[var(--color-coral)] tracking-tight">System Activation Impact</p>
             <p className="text-[var(--color-coral)] leading-relaxed">
-              Activating this round will immediately open queues, compute live estimated slot start times, notify scheduled judges, and stage the first {round.buffer_size} team(s) into volunteer call-up queue.
+              Activating this round lets judges start pitches and score. The first {round.buffer_size} team(s) in each room are marked on-deck so volunteers and participants know who to call up. Teams and rooms can no longer be reassigned from the draft view.
             </p>
           </div>
         </div>

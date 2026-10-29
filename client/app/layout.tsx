@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cadence — Campus Hackathon Operations",
+  title: "Cadence by DevClub — Campus Hackathon Operations",
   description: "High-performance event operations, ticketing, and judging",
 };
 

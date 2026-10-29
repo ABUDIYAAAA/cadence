@@ -128,6 +128,28 @@ func (r *Repository) GetTeamByUserID(ctx context.Context, userID string) (*TeamD
 	return r.GetTeamByID(ctx, *teamID)
 }
 
+// judgeTeamsCondition matches teams holding a slot in a panel the given judge ($n) is assigned to.
+const judgeTeamsCondition = `t.id IN (
+	SELECT s.team_id FROM judging_slots s
+	JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
+	WHERE pj.judge_id = $%d
+)`
+
+// IsTeamAssignedToJudge reports whether teamID is scheduled in any panel judgeID is assigned to.
+func (r *Repository) IsTeamAssignedToJudge(ctx context.Context, teamID, judgeID string) (bool, error) {
+	var ok bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM judging_slots s
+			JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
+			WHERE s.team_id = $1 AND pj.judge_id = $2
+		)`, teamID, judgeID).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("check judge team assignment: %w", err)
+	}
+	return ok, nil
+}
+
 func (r *Repository) ListTeams(ctx context.Context, filter TeamFilter) ([]TeamResponse, int64, error) {
 	var conditions []string
 	var args []any
@@ -141,6 +163,17 @@ func (r *Repository) ListTeams(ctx context.Context, filter TeamFilter) ([]TeamRe
 	}
 
 	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	if filter.JudgeID != nil {
+		conditions = append(conditions, fmt.Sprintf(judgeTeamsCondition, argIndex))
+		args = append(args, *filter.JudgeID)
+		argIndex++
+	}
+
+	whereClause = ""
 	if len(conditions) > 0 {
 		whereClause = "WHERE " + strings.Join(conditions, " AND ")
 	}

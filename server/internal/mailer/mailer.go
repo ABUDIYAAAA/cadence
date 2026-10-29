@@ -15,6 +15,8 @@ type Attachment struct {
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type"`
 	Data        []byte `json:"data"`
+	// Inline embeds the file in the message body (referenced as cid:<Filename>) instead of listing it as an attachment.
+	Inline bool `json:"inline,omitempty"`
 }
 
 type Mailer struct {
@@ -95,6 +97,12 @@ func (m *Mailer) SendWithAttachments(ctx context.Context, to, subject, templateN
 		var opts []mail.FileOption
 		if att.ContentType != "" {
 			opts = append(opts, mail.WithFileContentType(mail.ContentType(att.ContentType)))
+		}
+		if att.Inline {
+			if err := msg.EmbedReader(att.Filename, bytes.NewReader(att.Data), opts...); err != nil {
+				return fmt.Errorf("embed file %s: %w", att.Filename, err)
+			}
+			continue
 		}
 		if err := msg.AttachReader(att.Filename, bytes.NewReader(att.Data), opts...); err != nil {
 			return fmt.Errorf("attach file %s: %w", att.Filename, err)

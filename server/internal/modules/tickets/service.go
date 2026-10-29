@@ -203,7 +203,7 @@ func (s *Service) SendSingleTicket(
 
 	if s.mailQueue != nil {
 		eventName := "Cadence Hackathon"
-		if err := s.mailQueue.SendTicketEmail(ctx, email, name, eventName, ticket.TicketCode, qrPNG); err != nil {
+		if err := s.mailQueue.SendTicketEmail(ctx, email, name, eventName, qrPNG); err != nil {
 			return nil, fmt.Errorf("enqueue ticket email: %w", err)
 		}
 		_ = s.repo.MarkEmailSent(ctx, ticket.ID)
@@ -277,7 +277,7 @@ func (s *Service) BulkSendTickets(
 		}
 
 		if s.mailQueue != nil {
-			if err := s.mailQueue.SendTicketEmail(ctx, u.Email, u.Name, eventName, ticketCode, qrPNG); err != nil {
+			if err := s.mailQueue.SendTicketEmail(ctx, u.Email, u.Name, eventName, qrPNG); err != nil {
 				skipped++
 				continue
 			}
@@ -311,22 +311,13 @@ func (s *Service) BulkSendTickets(
 	}, nil
 }
 
-// GetMyTicket retrieves or creates the authenticated user's ticket and renders a base64 QR data URI.
+// GetMyTicket returns the authenticated user's issued ticket with a base64 QR data URI.
+// Tickets are only created when an admin dispatches them, so a user with none gets ErrTicketNotFound
+// rather than a freshly minted, scannable pass.
 func (s *Service) GetMyTicket(ctx context.Context, userID string) (*MyTicketResponse, error) {
 	ticket, err := s.repo.GetTicketByUserID(ctx, userID)
-	if err != nil && !errors.Is(err, ErrTicketNotFound) {
+	if err != nil {
 		return nil, err
-	}
-
-	if ticket == nil {
-		ticketCode, err := s.generateTicketCode()
-		if err != nil {
-			return nil, fmt.Errorf("generate ticket code: %w", err)
-		}
-		ticket, err = s.repo.GetOrCreateTicket(ctx, userID, ticketCode)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	qrPNG, err := qrcode.Encode(ticket.TicketCode, qrcode.Medium, 300)

@@ -210,7 +210,7 @@ export default function TeamsPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
-              Teams
+              {isJudge && !isAdmin ? "My Teams" : "Teams"}
             </h1>
             {teamsResponse?.total_count !== undefined && (
               <Badge variant="subtle" size="sm">
@@ -219,7 +219,9 @@ export default function TeamsPage() {
             )}
           </div>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
-            Manage event squads, participant rosters, and squad leaders.
+            {isJudge && !isAdmin
+              ? "Teams assigned to the panels you evaluate."
+              : "Manage event squads, participant rosters, and squad leaders."}
           </p>
         </div>
 
@@ -373,6 +375,7 @@ export default function TeamsPage() {
       />
 
       <TeamDetailDialog
+        key={selectedTeamId ?? "none"}
         teamId={selectedTeamId}
         open={Boolean(selectedTeamId)}
         onClose={() => setSelectedTeamId(null)}

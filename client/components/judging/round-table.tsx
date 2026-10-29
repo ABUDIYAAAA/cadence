@@ -9,6 +9,7 @@ import {
   Eye,
   Plus,
   DoorOpen,
+  ArrowRightLeft,
 } from "lucide-react";
 import { RoundSummary } from "@/types/judging";
 import {
@@ -31,6 +32,7 @@ interface RoundTableProps {
   onView: (round: RoundSummary) => void;
   onAddPanel: (round: RoundSummary) => void;
   onConfigureSlots: (round: RoundSummary) => void;
+  onReassignTeams: (round: RoundSummary) => void;
   isActivatingId?: string | null;
   isAdmin?: boolean;
 }
@@ -42,6 +44,7 @@ export function RoundTable({
   onView,
   onAddPanel,
   onConfigureSlots,
+  onReassignTeams,
   isActivatingId,
   isAdmin = true,
 }: RoundTableProps) {
@@ -189,6 +192,20 @@ export function RoundTable({
                           <Layers className="h-3 w-3" />
                           <span>Slots</span>
                         </Button>
+
+                        {/* Reassign teams between rooms (only before the round starts) */}
+                        {isDraft && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onReassignTeams(round)}
+                            title="Move teams between rooms"
+                            className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                          >
+                            <ArrowRightLeft className="h-3 w-3" />
+                            <span>Reassign</span>
+                          </Button>
+                        )}
 
                         {/* Activate Round (if draft) */}
                         {isDraft && (

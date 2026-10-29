@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { CreatePanelRequest, RoundSummary } from "@/types/judging";
 import { useUsers } from "@/hooks/use-users";
+import { useAssignedJudges } from "@/hooks/use-judging";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,9 @@ export function RoundPanelCreateDialog({
     role: "judge",
     limit: 100,
   });
+  const { data: assignedJudges, isLoading: assignedLoading } = useAssignedJudges(
+    open ? round?.id : undefined
+  );
   const [panelName, setPanelName] = useState("");
   const [room, setRoom] = useState("");
   const [selectedJudgeIds, setSelectedJudgeIds] = useState<string[]>([]);
@@ -34,9 +38,11 @@ export function RoundPanelCreateDialog({
 
   if (!round || !open) return null;
 
-  const availableJudges = (usersData?.data || []).filter(
-    (u) => u.role === "judge"
-  );
+  // A judge can only sit on one panel per round, so hide those already seated elsewhere.
+  const assignedIds = new Set((assignedJudges ?? []).map((a) => a.judge_id));
+  const allJudges = (usersData?.data || []).filter((u) => u.role === "judge");
+  const availableJudges = allJudges.filter((u) => !assignedIds.has(u.id));
+  const hiddenCount = allJudges.length - availableJudges.length;
 
   const resetForm = () => {
     setPanelName("");
@@ -151,11 +157,13 @@ export function RoundPanelCreateDialog({
             Select Evaluators ({selectedJudgeIds.length} Selected) *
           </label>
 
-          {usersLoading ? (
+          {usersLoading || assignedLoading ? (
             <div className="text-[var(--ink-tertiary)]">Loading evaluators...</div>
           ) : availableJudges.length === 0 ? (
             <div className="text-[var(--ink-tertiary)] italic p-3 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
-              No users with judge role found.
+              {allJudges.length === 0
+                ? "No users with judge role found."
+                : "All judges are already assigned to panels in this round."}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded-[14px] border border-[var(--card-line)] p-2 bg-[var(--card-solid-subtle)]">
@@ -186,6 +194,12 @@ export function RoundPanelCreateDialog({
                 );
               })}
             </div>
+          )}
+          {hiddenCount > 0 && (
+            <p className="text-[11px] text-[var(--ink-tertiary)]">
+              {hiddenCount} {hiddenCount === 1 ? "judge is" : "judges are"} hidden because{" "}
+              {hiddenCount === 1 ? "they are" : "they're"} already assigned to another panel in this round.
+            </p>
           )}
         </div>
       </form>

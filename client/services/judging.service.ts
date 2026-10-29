@@ -1,5 +1,7 @@
 import { apiClient } from "@/lib/api-client";
 import {
+  AssignedJudge,
+  RoundPanelOverview,
   AdminLeaderboardResponse,
   ConfigureSlotsRequest,
   CreatePanelRequest,
@@ -64,6 +66,28 @@ export const judgingService = {
     return data;
   },
 
+  async pauseTimer(slotId: string): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/slots/${slotId}/pause`
+    );
+    return data;
+  },
+
+  async resumeTimer(slotId: string): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/slots/${slotId}/resume`
+    );
+    return data;
+  },
+
+  async extendTimer(slotId: string, seconds: number): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/slots/${slotId}/extend`,
+      { seconds }
+    );
+    return data;
+  },
+
   async submitScores(
     slotId: string,
     payload: SubmitScoresRequest
@@ -102,6 +126,20 @@ export const judgingService = {
 
   async getRound(id: string): Promise<RoundDetail> {
     const { data } = await apiClient.get<RoundDetail>(`/judging/rounds/${id}`);
+    return data;
+  },
+
+  async getRoundPanels(roundId: string): Promise<RoundPanelOverview[]> {
+    const { data } = await apiClient.get<RoundPanelOverview[]>(
+      `/judging/rounds/${roundId}/panels`
+    );
+    return data;
+  },
+
+  async getAssignedJudges(roundId: string): Promise<AssignedJudge[]> {
+    const { data } = await apiClient.get<AssignedJudge[]>(
+      `/judging/rounds/${roundId}/assigned-judges`
+    );
     return data;
   },
 

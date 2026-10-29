@@ -3,9 +3,9 @@
 import React, { useState } from "react";
 import { ConfigureSlotsRequest, RoundSummary } from "@/types/judging";
 import { useTeams } from "@/hooks/use-teams";
+import { useRoundPanels } from "@/hooks/use-judging";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Layers, Trash2, ArrowUpDown } from "lucide-react";
 
@@ -25,6 +25,9 @@ export function RoundSlotsConfigDialog({
   isLoading,
 }: RoundSlotsConfigDialogProps) {
   const { data: teamsData, isLoading: teamsLoading } = useTeams({ limit: 100 });
+  const { data: roundPanels, isLoading: panelsLoading } = useRoundPanels(
+    open ? round?.id : undefined
+  );
   const [panelId, setPanelId] = useState("");
   const [slottedTeamIds, setSlottedTeamIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,10 @@ export function RoundSlotsConfigDialog({
   if (!round || !open) return null;
 
   const availableTeams = teamsData?.data || [];
+  const panels = roundPanels ?? [];
+  // A team plays once per round, so hide teams already scheduled in any of its panels.
+  const scheduledIds = new Set(panels.flatMap((p) => p.team_ids));
+  const selectedPanel = panels.find((p) => p.panel_id === panelId);
 
   const handleAddTeamToSlots = (teamId: string) => {
     if (!teamId || slottedTeamIds.includes(teamId)) return;
@@ -56,11 +63,11 @@ export function RoundSlotsConfigDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!panelId.trim()) {
-      setError("Panel ID is required.");
+      setError("Choose a room to add teams to.");
       return;
     }
     if (slottedTeamIds.length === 0) {
-      setError("Please add at least one team to the evaluation sequence.");
+      setError("Add at least one team. You can add the rest later.");
       return;
     }
 
@@ -71,7 +78,7 @@ export function RoundSlotsConfigDialog({
         submission_links: {},
       }));
 
-      await onSubmit(panelId.trim(), { slots });
+      await onSubmit(panelId.trim(), { slots, append: true });
       onClose();
     } catch (err: unknown) {
       setError(
@@ -86,8 +93,8 @@ export function RoundSlotsConfigDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Configure Room Team Slots"
-      description={`Scheduling presentation sequence for: ${round.name}`}
+      title="Add Teams to a Room"
+      description={`Round: ${round.name}. Teams are added after the ones already scheduled, so you can distribute them in stages.`}
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -106,7 +113,7 @@ export function RoundSlotsConfigDialog({
             className="gap-1.5"
           >
             <Layers className="h-3.5 w-3.5" />
-            <span>Save Slot Sequence ({slottedTeamIds.length})</span>
+            <span>Add {slottedTeamIds.length} {slottedTeamIds.length === 1 ? "Team" : "Teams"}</span>
           </Button>
         </div>
       }
@@ -118,17 +125,29 @@ export function RoundSlotsConfigDialog({
           </div>
         )}
 
-        <Input
-          label="Target Panel / Room UUID *"
-          placeholder="Enter Panel ID"
+        <Select
+          label="Room *"
           value={panelId}
           onChange={(e) => {
             setPanelId(e.target.value);
             if (error) setError(null);
           }}
-          disabled={isLoading}
-          required
-        />
+          disabled={panelsLoading || isLoading}
+          helperText={
+            panels.length === 0 && !panelsLoading
+              ? "This round has no rooms yet. Add a room first."
+              : selectedPanel
+              ? `${selectedPanel.slot_count} ${selectedPanel.slot_count === 1 ? "team" : "teams"} already scheduled here.`
+              : undefined
+          }
+        >
+          <option value="">{panelsLoading ? "Loading rooms..." : "Select a room..."}</option>
+          {panels.map((p) => (
+            <option key={p.panel_id} value={p.panel_id}>
+              {p.name} · {p.room} ({p.slot_count} scheduled)
+            </option>
+          ))}
+        </Select>
 
         {/* Add Team Dropdown */}
         <div className="space-y-1.5 pt-1 border-t border-[var(--card-line)]">
@@ -147,7 +166,7 @@ export function RoundSlotsConfigDialog({
           >
             <option value="">Select a registered team to append...</option>
             {availableTeams
-              .filter((t) => !slottedTeamIds.includes(t.id))
+              .filter((t) => !slottedTeamIds.includes(t.id) && !scheduledIds.has(t.id))
               .map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name} ({t.member_count} members)
@@ -159,13 +178,13 @@ export function RoundSlotsConfigDialog({
         {/* Slotted Teams List */}
         <div className="space-y-1.5 rounded-[16px] border border-[var(--card-line)] p-3 bg-[var(--card-solid-subtle)]">
           <div className="flex justify-between items-center text-[10px] uppercase font-bold text-[var(--ink-secondary)] border-b border-[var(--card-line)] pb-1.5">
-            <span>Slot Presentation Order</span>
+            <span>New teams, in pitch order</span>
             <span>{slottedTeamIds.length} Teams</span>
           </div>
 
           {slottedTeamIds.length === 0 ? (
             <div className="p-4 text-center text-[var(--ink-tertiary)] italic">
-              No teams slotted yet. Select a team above to append to the presentation order.
+              No teams selected yet. Pick the teams decided so far; others can be added later.
             </div>
           ) : (
             <div className="space-y-1.5 max-h-48 overflow-y-auto">

@@ -2,6 +2,8 @@ export { RoundTable } from "./round-table";
 export { RoundCreateDialog } from "./round-dialog-create";
 export { RoundPanelCreateDialog } from "./round-dialog-panel-create";
 export { RoundSlotsConfigDialog } from "./round-dialog-slots-config";
+export { RoundTeamReassignDialog } from "./round-dialog-reassign";
+export { RoundLeaderboardView } from "./round-leaderboard-view";
 export { RoundDetailDialog } from "./round-dialog-detail";
 export { RoundActivateDialog } from "./round-dialog-activate";
 export { VolunteerScheduleView } from "./volunteer-schedule-view";

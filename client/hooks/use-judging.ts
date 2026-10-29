@@ -51,10 +51,11 @@ export function useVolunteerSchedule() {
 }
 
 // Judge
-export function useJudgePanels() {
+export function useJudgePanels(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "judge-panels"],
     queryFn: async () => (await judgingService.getJudgePanels()) ?? [],
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -63,6 +64,8 @@ export function useJudgeSlotDetails(slotId: string) {
     queryKey: [...JUDGING_QUERY_KEY, "slot-details", slotId],
     queryFn: () => judgingService.getJudgeSlotDetails(slotId),
     enabled: Boolean(slotId),
+    // The clock is shared by every judge on the panel, so pick up their pause/extend actions.
+    refetchInterval: 1000 * 10,
   });
 }
 
@@ -80,6 +83,44 @@ export function useStartSlot() {
       });
     },
   });
+}
+
+function useTimerMutation<TVars>(
+  fn: (vars: TVars) => Promise<unknown>,
+  getSlotId: (vars: TVars) => string
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: [...JUDGING_QUERY_KEY, "slot-details", getSlotId(vars)],
+      });
+    },
+  });
+}
+
+export function usePauseTimer() {
+  return useTimerMutation(
+    (slotId: string) => judgingService.pauseTimer(slotId),
+    (slotId) => slotId
+  );
+}
+
+export function useResumeTimer() {
+  return useTimerMutation(
+    (slotId: string) => judgingService.resumeTimer(slotId),
+    (slotId) => slotId
+  );
+}
+
+export function useExtendTimer() {
+  return useTimerMutation(
+    ({ slotId, seconds }: { slotId: string; seconds: number }) =>
+      judgingService.extendTimer(slotId, seconds),
+    ({ slotId }) => slotId
+  );
 }
 
 export function useSubmitScores() {
@@ -155,6 +196,8 @@ export function useAdminLeaderboard(roundId: string) {
     queryKey: [...JUDGING_QUERY_KEY, "leaderboard", roundId],
     queryFn: () => judgingService.getAdminLeaderboard(roundId),
     enabled: Boolean(roundId),
+    // Standings change whenever any judge locks a scorecard, and that happens in other browsers.
+    refetchInterval: 1000 * 5,
   });
 }
 
@@ -181,6 +224,22 @@ export function useActivateRound() {
         queryKey: [...JUDGING_QUERY_KEY, "rounds"],
       });
     },
+  });
+}
+
+export function useRoundPanels(roundId?: string) {
+  return useQuery({
+    queryKey: [...JUDGING_QUERY_KEY, "round-panels", roundId],
+    queryFn: () => judgingService.getRoundPanels(roundId as string),
+    enabled: Boolean(roundId),
+  });
+}
+
+export function useAssignedJudges(roundId?: string) {
+  return useQuery({
+    queryKey: [...JUDGING_QUERY_KEY, "assigned-judges", roundId],
+    queryFn: () => judgingService.getAssignedJudges(roundId as string),
+    enabled: Boolean(roundId),
   });
 }
 

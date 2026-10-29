@@ -165,9 +165,18 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 		argIndex++
 	}
 
+	switch filter.CheckinStatus {
+	case "checked_in":
+		conditions = append(conditions, "tk.is_checked_in = true")
+	case "not_checked_in":
+		conditions = append(conditions, "tk.id IS NOT NULL AND tk.is_checked_in = false")
+	case "no_pass":
+		conditions = append(conditions, "tk.id IS NULL")
+	}
+
 	whereClause := strings.Join(conditions, " AND ")
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users u WHERE %s", whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users u LEFT JOIN tickets tk ON tk.user_id = u.id WHERE %s", whereClause)
 	var totalCount int64
 	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
@@ -186,15 +195,24 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	}
 	offset := (page - 1) * limit
 
+	// Newest arrivals first when looking at who has checked in
+	orderBy := "u.created_at DESC"
+	if filter.CheckinStatus == "checked_in" {
+		orderBy = "tk.checked_in_at DESC NULLS LAST, u.created_at DESC"
+	}
+
 	query := fmt.Sprintf(`
 		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at
+		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at,
+		       CASE WHEN tk.id IS NULL THEN 'no_pass' WHEN tk.is_checked_in THEN 'checked_in' ELSE 'not_checked_in' END,
+		       tk.checked_in_at
 		FROM users u
 		LEFT JOIN teams t ON u.team_id = t.id
+		LEFT JOIN tickets tk ON tk.user_id = u.id
 		WHERE %s
-		ORDER BY u.created_at DESC
+		ORDER BY %s
 		LIMIT $%d OFFSET $%d
-	`, whereClause, argIndex, argIndex+1)
+	`, whereClause, orderBy, argIndex, argIndex+1)
 
 	args = append(args, limit, offset)
 
@@ -212,6 +230,7 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
 			&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.CreatedAt,
+			&u.CheckinStatus, &u.CheckedInAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan user row: %w", err)
 		}

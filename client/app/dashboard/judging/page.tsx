@@ -40,18 +40,16 @@ import {
 	RoundCreateDialog,
 	RoundPanelCreateDialog,
 	RoundSlotsConfigDialog,
+	RoundTeamReassignDialog,
 	RoundDetailDialog,
+	RoundLeaderboardView,
 	RoundActivateDialog,
 	VolunteerScheduleView,
 	ParticipantJudgingStatusView,
 	JudgeEvaluationView,
 } from '@/components/judging';
 
-type JudgingTab =
-	| 'evaluation'
-	| 'rounds'
-	| 'volunteer_monitor'
-	| 'participant_preview';
+type JudgingTab = 'rounds' | 'volunteer_monitor' | 'leaderboard';
 
 export default function JudgingPage() {
 	const router = useRouter();
@@ -65,11 +63,8 @@ export default function JudgingPage() {
 		isLoading: authLoading,
 	} = useAuth();
 
-	// Active view tab: judges default to evaluation scorecard, admins default to rounds
-	const [selectedTab, setSelectedTab] = useState<JudgingTab>('rounds');
-	const activeTab: JudgingTab =
-		isJudge && !isAdmin ? 'evaluation' : selectedTab;
-	const setActiveTab = setSelectedTab;
+	// Admins manage rounds and monitor; judges only see their scoring screen (handled below).
+	const [activeTab, setActiveTab] = useState<JudgingTab>('rounds');
 
 	// Queries & Mutations
 	const {
@@ -92,6 +87,8 @@ export default function JudgingPage() {
 	const [selectedRoundForPanel, setSelectedRoundForPanel] =
 		useState<RoundSummary | null>(null);
 	const [selectedRoundForSlots, setSelectedRoundForSlots] =
+		useState<RoundSummary | null>(null);
+	const [selectedRoundForReassign, setSelectedRoundForReassign] =
 		useState<RoundSummary | null>(null);
 	const [selectedRoundForActivation, setSelectedRoundForActivation] =
 		useState<RoundSummary | null>(null);
@@ -223,30 +220,34 @@ export default function JudgingPage() {
 				);
 			}
 
-			// 2. Create Panels and configure Slots
-			for (const p of params.panels) {
-				const panelRes = await createPanelMutation.mutateAsync({
-					round_id: roundId,
-					name: p.name,
-					room: p.room,
-					judge_ids: p.judge_ids,
-				});
-
-				const panelId = panelRes.panel_id || panelRes.id;
-
-				if (panelId && p.slots && p.slots.length > 0) {
-					await configureSlotsMutation.mutateAsync({
-						panelId,
-						payload: {
-							slots: p.slots,
-						},
+			// 2. Create Panels and configure Slots if any
+			if (params.panels && params.panels.length > 0) {
+				for (const p of params.panels) {
+					const panelRes = await createPanelMutation.mutateAsync({
+						round_id: roundId,
+						name: p.name,
+						room: p.room,
+						judge_ids: p.judge_ids,
 					});
+
+					const panelId = panelRes.panel_id || panelRes.id;
+
+					if (panelId && p.slots && p.slots.length > 0) {
+						await configureSlotsMutation.mutateAsync({
+							panelId,
+							payload: {
+								slots: p.slots,
+							},
+						});
+					}
 				}
 			}
 
-			toast.success(
-				`Judging round "${params.round.name}" created with panels and team slots!`,
-			);
+			const successMessage =
+				params.panels && params.panels.length > 0
+					? `Judging round "${params.round.name}" created with ${params.panels.length} room(s) and team slots!`
+					: `Judging round "${params.round.name}" created successfully!`;
+			toast.success(successMessage);
 			setIsCreateOpen(false);
 			refetch();
 		} catch (err: unknown) {
@@ -255,6 +256,7 @@ export default function JudgingPage() {
 					? String((err as { message: string }).message)
 					: 'Failed to create round workflow';
 			toast.error(message);
+			throw err;
 		} finally {
 			setIsCreatingWorkflow(false);
 		}
@@ -295,9 +297,18 @@ export default function JudgingPage() {
 		}
 	};
 
+	// 3. Judges only score: no admin tooling here
+	if (isJudge && !isAdmin) {
+		return (
+			<div className='font-sans'>
+				<JudgeEvaluationView />
+			</div>
+		);
+	}
+
 	return (
 		<div className='space-y-6 font-sans'>
-			{/* View Switcher Tabs (For Admin and Judge) */}
+			{/* View Switcher Tabs (admin) */}
 			<div className='flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4'>
 				<div>
 					<h1 className='text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]'>
@@ -310,17 +321,6 @@ export default function JudgingPage() {
 
 				<div className='flex items-center gap-2 flex-wrap'>
 					<div className='inline-flex rounded-lg border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)] gap-1 flex-wrap'>
-						{/* Judge Evaluation View */}
-						<button
-							onClick={() => setActiveTab('evaluation')}
-							className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
-								activeTab === 'evaluation'
-									? 'bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold'
-									: 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium'
-							}`}>
-							{isJudge && !isAdmin ? 'Scorecard' : 'Scorecards'}
-						</button>
-
 						{/* Rounds Registry / Configuration */}
 						<button
 							onClick={() => setActiveTab('rounds')}
@@ -329,7 +329,7 @@ export default function JudgingPage() {
 									? 'bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold'
 									: 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium'
 							}`}>
-							{isAdmin ? 'Rounds config' : 'Rounds'}
+							Rounds config
 						</button>
 
 						{/* Room Staging Monitor */}
@@ -343,33 +343,25 @@ export default function JudgingPage() {
 							Room staging
 						</button>
 
-						{isAdmin && (
-							<button
-								onClick={() =>
-									setActiveTab('participant_preview')
-								}
-								className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
-									activeTab === 'participant_preview'
-										? 'bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold'
-										: 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium'
-								}`}>
-								Queue preview
-							</button>
-						)}
+						<button
+							onClick={() => setActiveTab('leaderboard')}
+							className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
+								activeTab === 'leaderboard'
+									? 'bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold'
+									: 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium'
+							}`}>
+							Leaderboard
+						</button>
+
 					</div>
 				</div>
 			</div>
 
-			{/* TAB 1: JUDGE EVALUATION SCORECARDS */}
-			{activeTab === 'evaluation' && <JudgeEvaluationView />}
-
 			{/* TAB 2: VOLUNTEER STAGING SCHEDULE MONITOR */}
 			{activeTab === 'volunteer_monitor' && <VolunteerScheduleView />}
 
-			{/* TAB 3: PARTICIPANT PREVIEW */}
-			{activeTab === 'participant_preview' && (
-				<ParticipantJudgingStatusView />
-			)}
+			{/* LEADERBOARD (admin) */}
+			{activeTab === 'leaderboard' && <RoundLeaderboardView />}
 
 			{/* TAB 4: ROUNDS MANAGEMENT & CONFIGURATION */}
 			{activeTab === 'rounds' && (
@@ -509,6 +501,9 @@ export default function JudgingPage() {
 							onConfigureSlots={(round: RoundSummary) =>
 								setSelectedRoundForSlots(round)
 							}
+							onReassignTeams={(round: RoundSummary) =>
+								setSelectedRoundForReassign(round)
+							}
 							onActivate={(roundId: string) =>
 								handleOpenActivate(roundId)
 							}
@@ -548,6 +543,13 @@ export default function JudgingPage() {
 				round={selectedRoundForSlots}
 				onSubmit={handleSlotsConfigure}
 				isLoading={configureSlotsMutation.isPending}
+			/>
+
+			{/* Reassign teams between rooms (draft rounds) */}
+			<RoundTeamReassignDialog
+				open={Boolean(selectedRoundForReassign)}
+				onClose={() => setSelectedRoundForReassign(null)}
+				round={selectedRoundForReassign}
 			/>
 
 			{/* 4. Round Criteria & Details Modal */}

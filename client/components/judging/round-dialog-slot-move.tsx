@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -39,15 +39,16 @@ export function RoundSlotMoveDialog({
   const [targetPosition, setTargetPosition] = useState("1");
   const [forceQueued, setForceQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [prevKey, setPrevKey] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (currentPanel && slot) {
-      setTargetPanelId(currentPanel.panel_id);
-      setTargetPosition(String(slot.sequence_order || 1));
-      setForceQueued(slot.status === "queued");
-      setError(null);
-    }
-  }, [currentPanel, slot, open]);
+  const currentKey = open && currentPanel && slot ? `${currentPanel.panel_id}-${slot.slot_id}` : null;
+  if (currentKey && currentKey !== prevKey) {
+    setPrevKey(currentKey);
+    setTargetPanelId(currentPanel?.panel_id || "");
+    setTargetPosition(String(slot?.sequence_order || 1));
+    setForceQueued(slot?.status === "queued");
+    setError(null);
+  }
 
   if (!open || !slot || !currentPanel) return null;
 
@@ -189,7 +190,7 @@ export function RoundSlotMoveDialog({
             className="text-xs font-mono"
           />
           <p className="text-[11px] text-[var(--ink-secondary)]">
-            Position 1 places this team at the front of the room's evaluation
+            Position 1 places this team at the front of the room&apos;s evaluation
             order. Existing slots will adjust automatically.
           </p>
         </div>

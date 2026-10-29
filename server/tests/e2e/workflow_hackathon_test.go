@@ -136,10 +136,7 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	}
 
 	// Verify AlphaLeader's ticket email & 300x300 QR PNG attachment in Mailpit
-	emailedCodeAlpha, qrBytesAlpha := VerifyAndDownloadTicketEmail(t, alphaLeader.Email)
-	if emailedCodeAlpha != singleTktResp.TicketCode {
-		t.Fatalf("expected emailed ticket code %q to match API response %q", emailedCodeAlpha, singleTktResp.TicketCode)
-	}
+	qrBytesAlpha := VerifyAndDownloadTicketEmail(t, alphaLeader.Email)
 	if len(qrBytesAlpha) == 0 {
 		t.Fatal("expected non-empty QR PNG bytes from Mailpit attachment")
 	}
@@ -164,8 +161,13 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 		t.Fatalf("expected at least 2 participant tickets enqueued in bulk-send, got %+v", bulkTktResp)
 	}
 
-	emailedCodeBeta, _ := VerifyAndDownloadTicketEmail(t, betaLeader.Email)
-	_ = VerifyAndDownloadTicketEmail
+	_ = VerifyAndDownloadTicketEmail(t, betaLeader.Email)
+
+	// The email carries only the QR, so the gate scans use each leader's own ticket code from /tickets/me
+	var betaTicket tickets.MyTicketResponse
+	betaLeader.DoJSON(t, http.MethodGet, "/api/v1/tickets/me", nil, http.StatusOK, &betaTicket)
+	emailedCodeAlpha := myTicket.TicketCode
+	emailedCodeBeta := betaTicket.TicketCode
 
 	// 3d. Volunteer scans AlphaLeader and BetaLeader tickets at registration gate
 	var checkInAlpha tickets.CheckInResponse

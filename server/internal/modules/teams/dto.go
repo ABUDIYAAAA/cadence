@@ -58,6 +58,8 @@ type TeamFilter struct {
 	Page   int    `json:"page"`
 	Limit  int    `json:"limit"`
 	Search string `json:"search"`
+	// JudgeID restricts results to teams scheduled in panels this judge is assigned to.
+	JudgeID *string `json:"-"`
 }
 
 // PaginatedTeamsResponse wraps team lists with metadata.

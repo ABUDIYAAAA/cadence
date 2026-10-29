@@ -119,6 +119,10 @@ func (h *Handler) HandleGetMyTicket(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.GetMyTicket(r.Context(), claims.UserID)
 	if err != nil {
+		if errors.Is(err, ErrTicketNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "your entry pass has not been issued yet")
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to retrieve ticket: "+err.Error())
 		return
 	}

@@ -70,7 +70,14 @@ func (h *Handler) HandleActivateRound(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 
 	if err := h.service.ActivateRound(r.Context(), roundID, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
-		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to activate round: "+err.Error())
+		switch {
+		case errors.Is(err, ErrRoundNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, "judging round not found")
+		case errors.Is(err, ErrRoundFinished):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to activate round: "+err.Error())
+		}
 		return
 	}
 
@@ -120,6 +127,27 @@ func (h *Handler) HandleGetRound(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCreatePanel creates a judging panel in a room and assigns judges.
+// HandleGetRoundPanels lists a round's panels and the teams each already holds.
+func (h *Handler) HandleGetRoundPanels(w http.ResponseWriter, r *http.Request) {
+	panels, err := h.service.GetRoundPanels(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to fetch round panels")
+		return
+	}
+	utils.JSON(w, http.StatusOK, panels)
+}
+
+// HandleGetAssignedJudges lists judges already seated on a panel in the round.
+func (h *Handler) HandleGetAssignedJudges(w http.ResponseWriter, r *http.Request) {
+	roundID := chi.URLParam(r, "id")
+	judges, err := h.service.GetAssignedJudges(r.Context(), roundID)
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to fetch assigned judges")
+		return
+	}
+	utils.JSON(w, http.StatusOK, judges)
+}
+
 func (h *Handler) HandleCreatePanel(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.GetUserClaims(r.Context())
 	if !ok {
@@ -143,6 +171,10 @@ func (h *Handler) HandleCreatePanel(w http.ResponseWriter, r *http.Request) {
 
 	panelID, err := h.service.CreatePanel(r.Context(), req, claims.UserID, claims.Email, claims.Role, ip, ua)
 	if err != nil {
+		if errors.Is(err, ErrJudgeAssigned) {
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusBadRequest, "failed to create panel: "+err.Error())
 		return
 	}
@@ -182,7 +214,14 @@ func (h *Handler) HandleConfigureSlots(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 
 	if err := h.service.ConfigureSlots(r.Context(), panelID, req, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
-		utils.ErrorJSON(w, http.StatusBadRequest, "failed to configure slots: "+err.Error())
+		switch {
+		case errors.Is(err, ErrPanelNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, "judging panel not found")
+		case errors.Is(err, ErrTeamSlotted), errors.Is(err, ErrPanelStarted):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusBadRequest, "failed to configure slots: "+err.Error())
+		}
 		return
 	}
 
@@ -268,7 +307,7 @@ func (h *Handler) HandleGetJudgeSlotDetails(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	details, err := h.service.GetJudgeSlotDetails(r.Context(), slotID, claims.UserID, claims.Role)
+	details, err := h.service.GetJudgeSlotDetails(r.Context(), slotID, claims.UserID)
 	if err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
@@ -311,6 +350,10 @@ func (h *Handler) HandleStartSlot(w http.ResponseWriter, r *http.Request) {
 			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
 			return
 		}
+		if errors.Is(err, ErrSlotNotPending) || errors.Is(err, ErrRoundNotActive) || errors.Is(err, ErrPanelBusy) {
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to start slot: "+err.Error())
 		return
 	}
@@ -319,6 +362,76 @@ func (h *Handler) HandleStartSlot(w http.ResponseWriter, r *http.Request) {
 		"message": "Judging slot pitch started successfully",
 		"slot_id": slotID,
 	})
+}
+
+// timerActionError maps timer lifecycle errors onto HTTP responses.
+func timerActionError(w http.ResponseWriter, err error, verb string) {
+	switch {
+	case errors.Is(err, ErrSlotNotFound):
+		utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+	case errors.Is(err, ErrJudgeNotAssigned):
+		utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
+	case errors.Is(err, ErrSlotNotStarted), errors.Is(err, ErrTimerPaused), errors.Is(err, ErrTimerNotPaused), errors.Is(err, ErrPitchEnded):
+		utils.ErrorJSON(w, http.StatusConflict, err.Error())
+	default:
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to "+verb+" timer: "+err.Error())
+	}
+}
+
+// HandlePauseTimer pauses the countdown for a running pitch.
+func (h *Handler) HandlePauseTimer(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	slotID := chi.URLParam(r, "slotId")
+	if err := h.service.PauseTimer(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		timerActionError(w, err, "pause")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Timer paused", "slot_id": slotID})
+}
+
+// HandleResumeTimer resumes a paused countdown.
+func (h *Handler) HandleResumeTimer(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	slotID := chi.URLParam(r, "slotId")
+	if err := h.service.ResumeTimer(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		timerActionError(w, err, "resume")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Timer resumed", "slot_id": slotID})
+}
+
+// HandleExtendTimer adds extra time to a running pitch.
+func (h *Handler) HandleExtendTimer(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	slotID := chi.URLParam(r, "slotId")
+
+	var req ExtendTimerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	if err := h.service.ExtendTimer(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, req.Seconds, r.RemoteAddr, r.UserAgent()); err != nil {
+		timerActionError(w, err, "extend")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Timer extended", "slot_id": slotID})
 }
 
 // HandleSubmitScores records criteria scores for a judge without locking yet.
@@ -346,13 +459,17 @@ func (h *Handler) HandleSubmitScores(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.SubmitScores(r.Context(), slotID, claims.UserID, claims.Role, req); err != nil {
+	if err := h.service.SubmitScores(r.Context(), slotID, claims.UserID, req); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
 		}
 		if errors.Is(err, ErrJudgeNotAssigned) {
 			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
+			return
+		}
+		if errors.Is(err, ErrSlotNotStarted) {
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
 			return
 		}
 		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
@@ -391,6 +508,14 @@ func (h *Handler) HandleLockScores(w http.ResponseWriter, r *http.Request) {
 			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
 			return
 		}
+		if errors.Is(err, ErrSlotNotStarted) {
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, ErrIncompleteScore) {
+			utils.ErrorJSON(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -427,6 +552,10 @@ func (h *Handler) HandleCompleteSlot(w http.ResponseWriter, r *http.Request) {
 			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
 			return
 		}
+		if errors.Is(err, ErrSlotNotStarted) {
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+			return
+		}
 		if errors.Is(err, ErrNotAllJudgesLocked) {
 			utils.ErrorJSON(w, http.StatusConflict, err.Error())
 			return
@@ -460,7 +589,12 @@ func (h *Handler) HandleGetTeamStatus(w http.ResponseWriter, r *http.Request) {
 
 // HandleGetVolunteerSchedule room schedule view for event coordinators.
 func (h *Handler) HandleGetVolunteerSchedule(w http.ResponseWriter, r *http.Request) {
-	schedule, err := h.service.GetVolunteerSchedule(r.Context())
+	var judgeID *string
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role == "judge" {
+		judgeID = &claims.UserID
+	}
+
+	schedule, err := h.service.GetVolunteerSchedule(r.Context(), judgeID)
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to fetch volunteer schedule: "+err.Error())
 		return
@@ -516,6 +650,10 @@ func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.MoveSlot(r.Context(), slotID, req, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		if errors.Is(err, ErrSlotLive) {
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
 			return
 		}
 		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())

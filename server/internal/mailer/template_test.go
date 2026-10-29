@@ -40,7 +40,7 @@ func TestTemplateEngineRenderAllTemplates(t *testing.T) {
 		}
 	})
 
-	t.Run("ticket template renders ticket code and event name", func(t *testing.T) {
+	t.Run("ticket template shows the QR and never the ticket code", func(t *testing.T) {
 		html, err := engine.Render("ticket", map[string]any{
 			"Name":       "Grace Hopper",
 			"EventName":  "Cadence Hackathon",
@@ -49,8 +49,11 @@ func TestTemplateEngineRenderAllTemplates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected render error: %v", err)
 		}
-		if !strings.Contains(html, "cadence:tkt:deadbeef:12345678") || !strings.Contains(html, "ticket_qr.png") {
+		if !strings.Contains(html, "Grace Hopper") || !strings.Contains(html, `src="cid:ticket_qr.png"`) {
 			t.Fatalf("rendered ticket HTML missing expected fields:\n%s", html)
+		}
+		if strings.Contains(html, "cadence:tkt:") {
+			t.Fatalf("ticket email must not contain the ticket code string:\n%s", html)
 		}
 	})
 

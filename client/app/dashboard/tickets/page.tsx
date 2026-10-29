@@ -8,7 +8,6 @@ import {
   Scan,
   RefreshCw,
   Users,
-  BarChart3,
   CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
@@ -19,13 +18,14 @@ import {
   useTicketAnalytics,
 } from "@/hooks/use-tickets";
 import { useUsers } from "@/hooks/use-users";
-import { UserDetailResponse, UserFilter } from "@/types/users";
+import { CheckinStatus, UserDetailResponse, UserFilter } from "@/types/users";
 import { BulkSendTicketsRequest } from "@/types/tickets";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { attendancePercent } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import {
   TicketScanner,
@@ -40,7 +40,7 @@ export default function TicketsPage() {
   const { user, isAdmin, isVolunteer, isParticipant, isLoading: authLoading } = useAuth();
 
   // Active view tab for Admin
-  const [adminTab, setAdminTab] = useState<"users" | "scanner" | "analytics">("users");
+  const [adminTab, setAdminTab] = useState<"users" | "scanner">("users");
 
   // Filters for User Directory
   const [userFilters, setUserFilters] = useState<UserFilter>({
@@ -157,6 +157,34 @@ export default function TicketsPage() {
     }
   };
 
+  // Check-in filter; counts come from the same analytics as the header badge.
+  const notCheckedIn = analyticsData
+    ? analyticsData.total_issued - analyticsData.checked_in_count
+    : null;
+  const checkinFilter = (
+    <Select
+      aria-label="Filter by check-in status"
+      value={userFilters.checkin_status || ""}
+      onChange={(e) =>
+        setUserFilters((prev) => ({
+          ...prev,
+          checkin_status: (e.target.value || undefined) as CheckinStatus | undefined,
+          page: 1,
+        }))
+      }
+      className="text-xs h-9"
+    >
+      <option value="">All check-in states</option>
+      <option value="checked_in">
+        Checked in{analyticsData ? ` (${analyticsData.checked_in_count})` : ""}
+      </option>
+      <option value="not_checked_in">
+        Not checked in{notCheckedIn !== null ? ` (${notCheckedIn})` : ""}
+      </option>
+      <option value="no_pass">No pass yet</option>
+    </Select>
+  );
+
   const selectedUsers = (usersResponse?.data || []).filter((u) =>
     selectedUserIds.includes(u.id)
   );
@@ -172,8 +200,9 @@ export default function TicketsPage() {
             </h1>
             {analyticsData && (
               <Badge variant="subtle" size="sm">
-                {analyticsData.checked_in_count} / {analyticsData.total_issued} checked in (
-                {Math.round(analyticsData.attendance_rate * 100)}%)
+                {analyticsData.checked_in_count} of {analyticsData.total_issued} checked in (
+                {attendancePercent(analyticsData.attendance_rate)}%) ·{" "}
+                {analyticsData.total_issued - analyticsData.checked_in_count} not yet
               </Badge>
             )}
           </div>
@@ -208,17 +237,6 @@ export default function TicketsPage() {
                 }`}
               >
                 Scanner
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdminTab("analytics")}
-                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
-                  adminTab === "analytics"
-                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
-                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
-                }`}
-              >
-                Analytics
               </button>
             </div>
           )}
@@ -265,15 +283,18 @@ export default function TicketsPage() {
             </div>
 
             {/* Quick search */}
-            <div className="max-w-md">
-              <Input
-                placeholder="Search attendee by name or email..."
-                value={userFilters.search || ""}
-                onChange={(e) =>
-                  setUserFilters((prev) => ({ ...prev, search: e.target.value, page: 1 }))
-                }
-                className="text-xs h-9 bg-[var(--card-solid)] border-[var(--card-line)]"
-              />
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="flex-1 max-w-md">
+                <Input
+                  placeholder="Search attendee by name or email..."
+                  value={userFilters.search || ""}
+                  onChange={(e) =>
+                    setUserFilters((prev) => ({ ...prev, search: e.target.value, page: 1 }))
+                  }
+                  className="text-xs h-9 bg-[var(--card-solid)] border-[var(--card-line)]"
+                />
+              </div>
+              <div className="w-full sm:w-52">{checkinFilter}</div>
             </div>
 
             <TicketUserTable
@@ -312,60 +333,6 @@ export default function TicketsPage() {
             </div>
           )}
 
-          {adminTab === "analytics" && analyticsData && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="rounded-[12px] border border-[var(--card-line)] p-4 bg-[var(--card-solid)]">
-                  <div className="text-xs text-[var(--ink-secondary)]">
-                    Total passes issued
-                  </div>
-                  <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
-                    {analyticsData.total_issued}
-                  </div>
-                </div>
-                <div className="rounded-[12px] border border-[var(--card-line)] p-4 bg-[var(--card-solid)]">
-                  <div className="text-xs text-[var(--ink-secondary)]">
-                    Gate check-ins
-                  </div>
-                  <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
-                    {analyticsData.checked_in_count}
-                  </div>
-                </div>
-                <div className="rounded-[12px] border border-[var(--card-line)] p-4 bg-[var(--card-solid)]">
-                  <div className="text-xs text-[var(--ink-secondary)]">
-                    Attendance rate
-                  </div>
-                  <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
-                    {Math.round(analyticsData.attendance_rate * 100)}%
-                  </div>
-                </div>
-              </div>
-
-              {/* Volunteer Leaderboard */}
-              {analyticsData.volunteer_leaderboard.length > 0 && (
-                <div className="rounded-[16px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] space-y-3">
-                  <h4 className="font-semibold text-sm text-[var(--ink-primary)]">
-                    Volunteer gate scan leaderboard
-                  </h4>
-                  <div className="divide-y divide-[var(--card-line)] border border-[var(--card-line)] rounded-[8px] overflow-hidden">
-                    {analyticsData.volunteer_leaderboard.map((v, i) => (
-                      <div key={v.volunteer_id} className="flex justify-between items-center p-3 text-xs bg-[var(--card-solid)]">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-[var(--ink-tertiary)]">#{i + 1}</span>
-                          <span className="font-semibold text-[var(--ink-primary)]">{v.volunteer_name}</span>
-                          <span className="text-[10px] text-[var(--ink-secondary)] font-mono">({v.volunteer_email})</span>
-                        </div>
-                        <Badge variant="subtle" size="sm">
-                          {v.count} scans
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {adminTab === "users" && (
             <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
               {/* Filter bar */}
@@ -381,7 +348,9 @@ export default function TicketsPage() {
                   />
                 </div>
 
-                <div className="w-48">
+                <div className="flex flex-col sm:flex-row gap-3">
+                <div className="w-full sm:w-52">{checkinFilter}</div>
+                <div className="w-full sm:w-48">
                   <Select
                     value={userFilters.role || ""}
                     onChange={(e) =>
@@ -395,6 +364,7 @@ export default function TicketsPage() {
                     <option value="volunteer">Volunteers</option>
                     <option value="admin">Admins</option>
                   </Select>
+                </div>
                 </div>
               </div>
 

@@ -72,7 +72,7 @@ func (s *Service) ActivateRound(
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
-	if err := s.repo.UpdateRoundStatus(ctx, roundID, "active"); err != nil {
+	if err := s.repo.ActivateRound(ctx, roundID); err != nil {
 		return err
 	}
 
@@ -98,6 +98,16 @@ func (s *Service) ListRounds(ctx context.Context) ([]map[string]any, error) {
 // GetRound fetches a single round with criteria.
 func (s *Service) GetRound(ctx context.Context, roundID string) (*CreateRoundRequest, string, int, int, []CriterionOutput, error) {
 	return s.repo.GetRound(ctx, roundID)
+}
+
+// GetRoundPanels lists a round's panels and the teams each holds.
+func (s *Service) GetRoundPanels(ctx context.Context, roundID string) ([]RoundPanelOverview, error) {
+	return s.repo.GetRoundPanels(ctx, roundID)
+}
+
+// GetAssignedJudges lists judges already assigned to a panel in the round.
+func (s *Service) GetAssignedJudges(ctx context.Context, roundID string) ([]AssignedJudge, error) {
+	return s.repo.GetAssignedJudges(ctx, roundID)
 }
 
 // CreatePanel creates a panel in a room and assigns judges.
@@ -139,7 +149,7 @@ func (s *Service) ConfigureSlots(
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
-	if err := s.repo.ConfigureSlots(ctx, panelID, req.Slots); err != nil {
+	if err := s.repo.ConfigureSlots(ctx, panelID, req.Slots, req.Append); err != nil {
 		return err
 	}
 
@@ -193,23 +203,10 @@ func (s *Service) GetJudgePanels(ctx context.Context, judgeID string) ([]JudgePa
 }
 
 // GetJudgeSlotDetails retrieves full evaluation view for a single slot, with counter info.
-// Verifies that the judge is assigned to this slot's panel unless an admin.
-func (s *Service) GetJudgeSlotDetails(ctx context.Context, slotID string, judgeID, judgeRole string) (*JudgeSlotDetails, error) {
-	if judgeRole != "admin" {
-		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, judgeID)
-		if err != nil {
-			return nil, fmt.Errorf("verify judge assignment: %w", err)
-		}
-		if !assigned {
-			exists, err := s.repo.SlotExists(ctx, slotID)
-			if err != nil {
-				return nil, fmt.Errorf("verify slot exists: %w", err)
-			}
-			if !exists {
-				return nil, ErrSlotNotFound
-			}
-			return nil, ErrJudgeNotAssigned
-		}
+// Verifies that the judge is assigned to this slot's panel.
+func (s *Service) GetJudgeSlotDetails(ctx context.Context, slotID, judgeID string) (*JudgeSlotDetails, error) {
+	if err := s.authorizeSlotActor(ctx, slotID, judgeID); err != nil {
+		return nil, err
 	}
 	return s.repo.GetJudgeSlotDetails(ctx, slotID, judgeID)
 }
@@ -221,21 +218,8 @@ func (s *Service) StartSlot(
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
-	if actorRole != "admin" {
-		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, actorID)
-		if err != nil {
-			return fmt.Errorf("verify judge assignment: %w", err)
-		}
-		if !assigned {
-			exists, err := s.repo.SlotExists(ctx, slotID)
-			if err != nil {
-				return fmt.Errorf("verify slot exists: %w", err)
-			}
-			if !exists {
-				return ErrSlotNotFound
-			}
-			return ErrJudgeNotAssigned
-		}
+	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
+		return err
 	}
 
 	if err := s.repo.StartSlot(ctx, slotID); err != nil {
@@ -256,28 +240,91 @@ func (s *Service) StartSlot(
 	return nil
 }
 
+// authorizeSlotActor allows only judges assigned to the slot's panel.
+func (s *Service) authorizeSlotActor(ctx context.Context, slotID, actorID string) error {
+	assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, actorID)
+	if err != nil {
+		return fmt.Errorf("verify judge assignment: %w", err)
+	}
+	if assigned {
+		return nil
+	}
+	exists, err := s.repo.SlotExists(ctx, slotID)
+	if err != nil {
+		return fmt.Errorf("verify slot exists: %w", err)
+	}
+	if !exists {
+		return ErrSlotNotFound
+	}
+	return ErrJudgeNotAssigned
+}
+
+// PauseTimer pauses the pitch clock.
+func (s *Service) PauseTimer(
+	ctx context.Context,
+	slotID string,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
+		return err
+	}
+	if err := s.repo.PauseTimer(ctx, slotID); err != nil {
+		return err
+	}
+	s.recordAudit(ctx, audit.ActionJudgingTimerPause, audit.TargetJudgingSlot, &slotID,
+		fmt.Sprintf("Pitch timer paused by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole, map[string]any{"slot_id": slotID}, &ip, &userAgent)
+	return nil
+}
+
+// ResumeTimer resumes a paused pitch clock.
+func (s *Service) ResumeTimer(
+	ctx context.Context,
+	slotID string,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
+		return err
+	}
+	if err := s.repo.ResumeTimer(ctx, slotID); err != nil {
+		return err
+	}
+	s.recordAudit(ctx, audit.ActionJudgingTimerResume, audit.TargetJudgingSlot, &slotID,
+		fmt.Sprintf("Pitch timer resumed by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole, map[string]any{"slot_id": slotID}, &ip, &userAgent)
+	return nil
+}
+
+// ExtendTimer adds extra time to a pitch.
+func (s *Service) ExtendTimer(
+	ctx context.Context,
+	slotID string,
+	actorID, actorEmail, actorRole string,
+	seconds int,
+	ip, userAgent string,
+) error {
+	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
+		return err
+	}
+	if err := s.repo.ExtendTimer(ctx, slotID, seconds); err != nil {
+		return err
+	}
+	s.recordAudit(ctx, audit.ActionJudgingTimerExtend, audit.TargetJudgingSlot, &slotID,
+		fmt.Sprintf("Pitch timer extended by %ds by %s", seconds, actorEmail),
+		&actorID, &actorEmail, &actorRole, map[string]any{"slot_id": slotID, "seconds": seconds}, &ip, &userAgent)
+	return nil
+}
+
 // SubmitScores records or updates criteria scores for a judge.
 func (s *Service) SubmitScores(
 	ctx context.Context,
-	slotID string,
-	judgeID, judgeRole string,
+	slotID, judgeID string,
 	req SubmitScoresRequest,
 ) error {
-	if judgeRole != "admin" {
-		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, judgeID)
-		if err != nil {
-			return fmt.Errorf("verify judge assignment: %w", err)
-		}
-		if !assigned {
-			exists, err := s.repo.SlotExists(ctx, slotID)
-			if err != nil {
-				return fmt.Errorf("verify slot exists: %w", err)
-			}
-			if !exists {
-				return ErrSlotNotFound
-			}
-			return ErrJudgeNotAssigned
-		}
+	if err := s.authorizeSlotActor(ctx, slotID, judgeID); err != nil {
+		return err
 	}
 	err := s.repo.UpsertScores(ctx, slotID, judgeID, req.Scores)
 	if err == nil {
@@ -293,21 +340,8 @@ func (s *Service) LockScores(
 	judgeID, judgeEmail, judgeRole string,
 	ip, userAgent string,
 ) error {
-	if judgeRole != "admin" {
-		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, judgeID)
-		if err != nil {
-			return fmt.Errorf("verify judge assignment: %w", err)
-		}
-		if !assigned {
-			exists, err := s.repo.SlotExists(ctx, slotID)
-			if err != nil {
-				return fmt.Errorf("verify slot exists: %w", err)
-			}
-			if !exists {
-				return ErrSlotNotFound
-			}
-			return ErrJudgeNotAssigned
-		}
+	if err := s.authorizeSlotActor(ctx, slotID, judgeID); err != nil {
+		return err
 	}
 
 	if err := s.repo.LockJudgeScorecard(ctx, slotID, judgeID); err != nil {
@@ -337,21 +371,8 @@ func (s *Service) CompleteSlot(
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) error {
-	if actorRole != "admin" {
-		assigned, err := s.repo.IsJudgeAssignedToSlot(ctx, slotID, actorID)
-		if err != nil {
-			return fmt.Errorf("verify judge assignment: %w", err)
-		}
-		if !assigned {
-			exists, err := s.repo.SlotExists(ctx, slotID)
-			if err != nil {
-				return fmt.Errorf("verify slot exists: %w", err)
-			}
-			if !exists {
-				return ErrSlotNotFound
-			}
-			return ErrJudgeNotAssigned
-		}
+	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
+		return err
 	}
 
 	allLocked, err := s.repo.CheckAllPanelJudgesLocked(ctx, slotID)
@@ -401,8 +422,9 @@ func (s *Service) GetTeamStatus(ctx context.Context, teamID string) (*TeamStatus
 }
 
 // GetVolunteerSchedule returns room coordinates, on-deck teams, and upcoming teams for coordinators.
-func (s *Service) GetVolunteerSchedule(ctx context.Context) ([]VolunteerPanelSchedule, error) {
-	return s.repo.GetVolunteerSchedule(ctx)
+// A non-nil judgeID restricts the schedule to that judge's assigned panels.
+func (s *Service) GetVolunteerSchedule(ctx context.Context, judgeID *string) ([]VolunteerPanelSchedule, error) {
+	return s.repo.GetVolunteerSchedule(ctx, judgeID)
 }
 
 // GetAdminLeaderboard calculates full round rankings with weighted criteria breakdown.

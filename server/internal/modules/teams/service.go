@@ -53,6 +53,19 @@ func (s *Service) GetTeamByID(ctx context.Context, id string) (*TeamDetailRespon
 	return s.repo.GetTeamByID(ctx, id)
 }
 
+// GetTeamForJudge returns a team only if the judge is assigned to a panel evaluating it.
+// Unassigned teams are reported as not found so their existence isn't disclosed.
+func (s *Service) GetTeamForJudge(ctx context.Context, id, judgeID string) (*TeamDetailResponse, error) {
+	ok, err := s.repo.IsTeamAssignedToJudge(ctx, id, judgeID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrTeamNotFound
+	}
+	return s.repo.GetTeamByID(ctx, id)
+}
+
 func (s *Service) GetMyTeam(ctx context.Context, userID string) (*TeamDetailResponse, error) {
 	return s.repo.GetTeamByUserID(ctx, userID)
 }

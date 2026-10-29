@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import jsQR from "jsqr";
 import {
   Camera,
-  CameraOff,
+  Keyboard,
   CheckCircle2,
   AlertTriangle,
   XCircle,
@@ -16,6 +16,8 @@ import { CheckInResponse, DuplicateCheckInResponse } from "@/types/tickets";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+type ScanMode = "camera" | "manual";
+
 interface TicketScannerProps {
   onScanSuccess?: (resp: CheckInResponse) => void;
 }
@@ -23,7 +25,11 @@ interface TicketScannerProps {
 export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
   const checkInMutation = useCheckIn();
   const [ticketInput, setTicketInput] = useState("");
+  // The camera is the default way in; typing or a USB wedge scanner is the alternative.
+  const [mode, setMode] = useState<ScanMode>("camera");
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isStarting, setIsStarting] = useState(true);
+  const [cameraAttempt, setCameraAttempt] = useState(0);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   const [lastSuccess, setLastSuccess] = useState<CheckInResponse | null>(null);
@@ -80,45 +86,6 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
     }
   }, [checkInMutation, onScanSuccess]);
 
-  // Start camera stream with multi-device fallback
-  const startCamera = async () => {
-    setCameraError(null);
-    let stream: MediaStream | null = null;
-
-    try {
-      // 1. Try environment/back camera if available
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-        },
-      });
-    } catch {
-      try {
-        // 2. Fallback to any available video camera (FaceTime, webcam, etc.)
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      } catch (fallbackErr) {
-        setCameraError(
-          fallbackErr instanceof Error
-            ? fallbackErr.message
-            : "Camera permission denied or no camera device found."
-        );
-        setIsCameraActive(false);
-        return;
-      }
-    }
-
-    streamRef.current = stream;
-    setIsCameraActive(true);
-
-    // If video element is already rendered, attach stream immediately
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {});
-    }
-  };
-
   // Stop camera stream cleanly
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -130,6 +97,76 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
     }
     setIsCameraActive(false);
   }, []);
+
+  // Open the camera whenever camera mode is on (including on first load); release it otherwise.
+  useEffect(() => {
+    if (mode !== "camera") return;
+    let cancelled = false;
+
+    const open = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("Camera access needs a secure (HTTPS) connection and a supported browser.");
+        setIsStarting(false);
+        return;
+      }
+
+      let stream: MediaStream | null = null;
+      try {
+        // Prefer the back camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+        });
+      } catch {
+        try {
+          // Fall back to any available camera (FaceTime, webcam, etc.)
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch (fallbackErr) {
+          if (!cancelled) {
+            setCameraError(
+              fallbackErr instanceof Error
+                ? fallbackErr.message
+                : "Camera permission denied or no camera device found."
+            );
+            setIsStarting(false);
+          }
+          return;
+        }
+      }
+
+      // Switched to manual entry (or unmounted) while the permission prompt was open
+      if (cancelled) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      streamRef.current = stream;
+      setIsCameraActive(true);
+      setIsStarting(false);
+    };
+
+    open();
+    return () => {
+      cancelled = true;
+      stopCamera();
+    };
+  }, [mode, cameraAttempt, stopCamera]);
+
+  const selectMode = (next: ScanMode) => {
+    if (next === mode) return;
+    setCameraError(null);
+    setIsStarting(next === "camera");
+    setMode(next);
+  };
+
+  const retryCamera = () => {
+    setCameraError(null);
+    setIsStarting(true);
+    setCameraAttempt((n) => n + 1);
+  };
 
   // Sync stream to video element whenever camera becomes active
   useEffect(() => {
@@ -203,13 +240,6 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
     };
   }, [isCameraActive, processTicketCode]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, [stopCamera]);
-
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     processTicketCode(ticketInput);
@@ -228,38 +258,49 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
               Gate Entry QR Scanner
             </h3>
             <p className="text-xs text-[var(--ink-secondary)]">
-              Real-time camera feed and optical ticket verification
+              Scan an attendee&apos;s QR pass, or type the ticket code
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {isCameraActive ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={stopCamera}
-              className="text-xs gap-1.5 h-9"
+        <div
+          role="radiogroup"
+          aria-label="Scan method"
+          className="inline-flex rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-0.5"
+        >
+          {(
+            [
+              { id: "camera", label: "Camera", Icon: Camera },
+              { id: "manual", label: "Enter code", Icon: Keyboard },
+            ] as const
+          ).map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={mode === id}
+              onClick={() => selectMode(id)}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-xs font-semibold transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] cursor-pointer ${
+                mode === id
+                  ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs"
+                  : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+              }`}
             >
-              <CameraOff className="h-3.5 w-3.5" />
-              <span>Turn Camera Off</span>
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={startCamera}
-              className="text-xs gap-1.5 h-9"
-            >
-              <Camera className="h-3.5 w-3.5" />
-              <span>Start Camera Scanner</span>
-            </Button>
-          )}
+              <Icon className="h-3.5 w-3.5" />
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Camera Viewport */}
-      {isCameraActive && (
+      {mode === "camera" && isStarting && (
+        <div className="aspect-video max-w-lg mx-auto rounded-[24px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] flex items-center justify-center text-xs text-[var(--ink-secondary)]">
+          Starting camera... allow access if your browser asks.
+        </div>
+      )}
+
+      {mode === "camera" && isCameraActive && (
         <div
           className={`relative rounded-[24px] bg-[#10141A] aspect-video max-w-lg mx-auto flex items-center justify-center overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(16,20,26,0.25)] ${
             lastSuccess
@@ -304,33 +345,56 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
         </div>
       )}
 
-      {cameraError && (
-        <div className="p-3.5 rounded-[14px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs text-[var(--color-coral)]">
-          Notice: {cameraError} (Use manual input or USB handheld scanner below)
+      {mode === "camera" && cameraError && (
+        <div className="p-3.5 rounded-[14px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs text-[var(--color-coral)] space-y-2.5">
+          <p>Camera unavailable: {cameraError}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" type="button" onClick={retryCamera} className="h-8 text-xs">
+              Try again
+            </Button>
+            <Button variant="primary" size="sm" type="button" onClick={() => selectMode("manual")} className="h-8 text-xs">
+              Enter code instead
+            </Button>
+          </div>
         </div>
       )}
 
-      {/* Manual & Barcode Scanner Wedge Form */}
-      <form onSubmit={handleManualSubmit} className="flex gap-2 max-w-xl">
-        <Input
-          placeholder="Paste or scan ticket code (e.g. cadence:tkt:...)"
-          value={ticketInput}
-          onChange={(e) => setTicketInput(e.target.value)}
-          disabled={checkInMutation.isPending}
-          className="text-xs h-10 font-mono"
-          autoFocus
-        />
-        <Button
-          variant="primary"
-          size="sm"
-          type="submit"
-          disabled={!ticketInput.trim() || checkInMutation.isPending}
-          isLoading={checkInMutation.isPending}
-          className="text-xs h-10 px-5 shrink-0 font-semibold"
-        >
-          Verify & Check-In
-        </Button>
-      </form>
+      {mode === "camera" && !cameraError && (
+        <p className="text-center text-xs text-[var(--ink-secondary)]">
+          Can&apos;t scan?{" "}
+          <button
+            type="button"
+            onClick={() => selectMode("manual")}
+            className="font-semibold text-[var(--color-blue)] hover:underline cursor-pointer"
+          >
+            Enter the ticket code instead
+          </button>
+        </p>
+      )}
+
+      {/* Manual entry (also receives USB handheld scanners, which type the code and press Enter) */}
+      {mode === "manual" && (
+        <form onSubmit={handleManualSubmit} className="flex gap-2 max-w-xl">
+          <Input
+            placeholder="Paste or scan ticket code (e.g. cadence:tkt:...)"
+            value={ticketInput}
+            onChange={(e) => setTicketInput(e.target.value)}
+            disabled={checkInMutation.isPending}
+            className="text-xs h-10 font-mono"
+            autoFocus
+          />
+          <Button
+            variant="primary"
+            size="sm"
+            type="submit"
+            disabled={!ticketInput.trim() || checkInMutation.isPending}
+            isLoading={checkInMutation.isPending}
+            className="text-xs h-10 px-5 shrink-0 font-semibold"
+          >
+            Verify & Check-In
+          </Button>
+        </form>
+      )}
 
       {/* Verification Feedback Banner */}
       {lastSuccess && (

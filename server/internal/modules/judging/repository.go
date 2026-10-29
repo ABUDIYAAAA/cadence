@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,20 @@ var (
 	ErrSlotNotFound     = errors.New("judging slot not found")
 	ErrUnauthorizedSlot = errors.New("unauthorized: you do not have permission to update links for this slot")
 	ErrJudgeNotAssigned = errors.New("forbidden: judge is not assigned to evaluate this panel")
+	ErrSlotNotStarted   = errors.New("pitch has not started; start the pitch before scoring")
+	ErrNotJudges        = errors.New("only users with the judge role can be assigned to a panel")
+	ErrJudgeAssigned    = errors.New("one or more judges are already assigned to another panel in this round")
+	ErrTeamSlotted      = errors.New("one or more teams are already scheduled in this round")
+	ErrRoundNotActive   = errors.New("this round is not active; pitches can only start once the round has been activated")
+	ErrRoundFinished    = errors.New("this round has already finished and cannot be activated")
+	ErrPanelBusy        = errors.New("another team is already presenting in this room; complete that pitch first")
+	ErrSlotLive         = errors.New("this team is presenting right now and cannot be moved")
+	ErrPanelStarted     = errors.New("panel has started or finished pitches; add teams instead of replacing the sequence")
+	ErrPitchEnded       = errors.New("pitch has ended; the timer can no longer be changed")
+	ErrIncompleteScore  = errors.New("scorecard is incomplete: every criterion must be scored before locking")
+	ErrTimerPaused      = errors.New("timer is already paused")
+	ErrTimerNotPaused   = errors.New("timer is not paused")
+	ErrSlotNotPending   = errors.New("pitch has already started or finished")
 )
 
 type Repository struct {
@@ -169,6 +184,50 @@ func (r *Repository) ListRounds(ctx context.Context) ([]map[string]any, error) {
 	return result, nil
 }
 
+// ActivateRound opens a draft round and stages the first buffer_size teams of each room
+// as on-deck, so volunteers and participants see who to call up immediately.
+func (r *Repository) ActivateRound(ctx context.Context, roundID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	var bufferSize int
+	if err := tx.QueryRow(ctx,
+		`SELECT status::text, buffer_size FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID,
+	).Scan(&status, &bufferSize); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoundNotFound
+		}
+		return fmt.Errorf("fetch round: %w", err)
+	}
+	switch status {
+	case "active":
+		return nil
+	case "draft":
+	default:
+		return ErrRoundFinished
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE judging_rounds SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, roundID,
+	); err != nil {
+		return fmt.Errorf("activate round: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_slots s
+		SET status = 'queued', updated_at = CURRENT_TIMESTAMP
+		FROM judging_panels p
+		WHERE s.panel_id = p.id AND p.round_id = $1
+		  AND s.status = 'scheduled' AND s.sequence_order <= $2`, roundID, bufferSize,
+	); err != nil {
+		return fmt.Errorf("stage first teams: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 // UpdateRoundStatus updates the status of a judging round.
 func (r *Repository) UpdateRoundStatus(ctx context.Context, roundID, status string) error {
 	query := `UPDATE judging_rounds SET status = $2::judging_round_status, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`
@@ -200,6 +259,35 @@ func (r *Repository) CreatePanel(ctx context.Context, req CreatePanelRequest) (s
 		return "", fmt.Errorf("insert panel: %w", err)
 	}
 
+	// Panels are staffed by judges only.
+	var judges int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT id) FROM users
+		WHERE id = ANY($1::uuid[]) AND role = 'judge' AND deleted_at IS NULL`,
+		req.JudgeIDs).Scan(&judges); err != nil {
+		return "", fmt.Errorf("verify judges: %w", err)
+	}
+	distinct := make(map[string]struct{}, len(req.JudgeIDs))
+	for _, id := range req.JudgeIDs {
+		distinct[id] = struct{}{}
+	}
+	if judges != len(distinct) {
+		return "", ErrNotJudges
+	}
+
+	// A judge can only sit on one panel per round.
+	var conflicts int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM judging_panel_judges pj
+		JOIN judging_panels p ON p.id = pj.panel_id
+		WHERE p.round_id = $1 AND p.id <> $2 AND pj.judge_id = ANY($3::uuid[])`,
+		req.RoundID, panelID, req.JudgeIDs).Scan(&conflicts); err != nil {
+		return "", fmt.Errorf("check judge assignments: %w", err)
+	}
+	if conflicts > 0 {
+		return "", ErrJudgeAssigned
+	}
+
 	judgeQuery := `INSERT INTO judging_panel_judges (panel_id, judge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;`
 	for _, jID := range req.JudgeIDs {
 		if _, err := tx.Exec(ctx, judgeQuery, panelID, jID); err != nil {
@@ -213,8 +301,92 @@ func (r *Repository) CreatePanel(ctx context.Context, req CreatePanelRequest) (s
 	return panelID, nil
 }
 
+// GetRoundPanels lists a round's panels with judge counts and the teams each already holds.
+func (r *Repository) GetRoundPanels(ctx context.Context, roundID string) ([]RoundPanelOverview, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT p.id, p.name, p.room,
+			(SELECT COUNT(*) FROM judging_panel_judges pj WHERE pj.panel_id = p.id),
+			COALESCE((SELECT array_agg(s.team_id::text ORDER BY s.sequence_order)
+			          FROM judging_slots s WHERE s.panel_id = p.id), '{}')
+		FROM judging_panels p
+		WHERE p.round_id = $1
+		ORDER BY p.room ASC, p.name ASC`, roundID)
+	if err != nil {
+		return nil, fmt.Errorf("query round panels: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]RoundPanelOverview, 0)
+	for rows.Next() {
+		var o RoundPanelOverview
+		if err := rows.Scan(&o.PanelID, &o.Name, &o.Room, &o.JudgeCount, &o.TeamIDs); err != nil {
+			return nil, fmt.Errorf("scan round panel: %w", err)
+		}
+		o.SlotCount = len(o.TeamIDs)
+		o.Slots = []RoundPanelSlot{}
+		out = append(out, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	slotRows, err := r.db.Query(ctx, `
+		SELECT s.panel_id, s.id, s.team_id, t.name, s.sequence_order, s.status::text
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN teams t ON t.id = s.team_id
+		WHERE p.round_id = $1
+		ORDER BY s.sequence_order ASC`, roundID)
+	if err != nil {
+		return nil, fmt.Errorf("query round panel slots: %w", err)
+	}
+	defer slotRows.Close()
+
+	byPanel := make(map[string]int, len(out))
+	for i, o := range out {
+		byPanel[o.PanelID] = i
+	}
+	for slotRows.Next() {
+		var panelID string
+		var sl RoundPanelSlot
+		if err := slotRows.Scan(&panelID, &sl.SlotID, &sl.TeamID, &sl.TeamName, &sl.SequenceOrder, &sl.Status); err != nil {
+			return nil, fmt.Errorf("scan round panel slot: %w", err)
+		}
+		if i, ok := byPanel[panelID]; ok {
+			out[i].Slots = append(out[i].Slots, sl)
+		}
+	}
+	return out, slotRows.Err()
+}
+
+// GetAssignedJudges lists judges already seated on a panel in the round, with that panel.
+func (r *Repository) GetAssignedJudges(ctx context.Context, roundID string) ([]AssignedJudge, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT pj.judge_id, p.id, p.name
+		FROM judging_panel_judges pj
+		JOIN judging_panels p ON p.id = pj.panel_id
+		WHERE p.round_id = $1
+		ORDER BY p.name ASC`, roundID)
+	if err != nil {
+		return nil, fmt.Errorf("query assigned judges: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]AssignedJudge, 0)
+	for rows.Next() {
+		var a AssignedJudge
+		if err := rows.Scan(&a.JudgeID, &a.PanelID, &a.PanelName); err != nil {
+			return nil, fmt.Errorf("scan assigned judge: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // ConfigureSlots assigns sequential slots for teams in a panel.
-func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots []SlotAssignment) error {
+// With appendMode the slots are added after the existing ones; otherwise the sequence is replaced.
+func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots []SlotAssignment, appendMode bool) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -223,19 +395,59 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 
 	// Fetch panel round duration
 	var durationMins int
+	var roundID string
 	err = tx.QueryRow(ctx, `
-		SELECT r.slot_duration_mins 
+		SELECT r.slot_duration_mins, r.id
 		FROM judging_panels p 
 		JOIN judging_rounds r ON r.id = p.round_id 
-		WHERE p.id = $1;
-	`, panelID).Scan(&durationMins)
+		WHERE p.id = $1
+		FOR UPDATE OF p;
+	`, panelID).Scan(&durationMins, &roundID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPanelNotFound
+		}
 		return fmt.Errorf("fetch panel round: %w", err)
 	}
 
-	// Clear existing slots for re-slotting
-	if _, err := tx.Exec(ctx, `DELETE FROM judging_slots WHERE panel_id = $1;`, panelID); err != nil {
-		return fmt.Errorf("clear slots: %w", err)
+	teamIDs := make([]string, len(slots))
+	for i, s := range slots {
+		teamIDs[i] = s.TeamID
+	}
+
+	offset := 0
+	if appendMode {
+		// A team plays once per round: reject any already scheduled in any panel of it.
+		var taken int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM judging_slots s
+			JOIN judging_panels p ON p.id = s.panel_id
+			WHERE p.round_id = $1 AND s.team_id = ANY($2::uuid[])`, roundID, teamIDs).Scan(&taken); err != nil {
+			return fmt.Errorf("check scheduled teams: %w", err)
+		}
+		if taken > 0 {
+			return ErrTeamSlotted
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(MAX(sequence_order), 0) FROM judging_slots WHERE panel_id = $1`, panelID,
+		).Scan(&offset); err != nil {
+			return fmt.Errorf("next sequence: %w", err)
+		}
+	} else {
+		// Replacing would wipe live or finished pitches (and their scores).
+		var started int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM judging_slots
+			WHERE panel_id = $1 AND status IN ('in_progress', 'completed')`, panelID).Scan(&started); err != nil {
+			return fmt.Errorf("check started slots: %w", err)
+		}
+		if started > 0 {
+			return ErrPanelStarted
+		}
+		// Clear existing slots for re-slotting
+		if _, err := tx.Exec(ctx, `DELETE FROM judging_slots WHERE panel_id = $1;`, panelID); err != nil {
+			return fmt.Errorf("clear slots: %w", err)
+		}
 	}
 
 	slotQuery := `
@@ -243,7 +455,10 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 		VALUES ($1, $2, $3, 'scheduled', $4, $5);
 	`
 	now := time.Now()
-	for _, s := range slots {
+	for i, s := range slots {
+		if appendMode {
+			s.SequenceOrder = offset + i + 1
+		}
 		estTime := now.Add(time.Duration((s.SequenceOrder-1)*durationMins) * time.Minute)
 		linksJSON, _ := json.Marshal(s.SubmissionLinks)
 		if len(s.SubmissionLinks) == 0 {
@@ -321,7 +536,7 @@ func (r *Repository) GetJudgePanels(ctx context.Context, judgeID string) ([]Judg
 		FROM judging_panels p
 		JOIN judging_rounds r ON r.id = p.round_id
 		JOIN judging_panel_judges pj ON pj.panel_id = p.id
-		WHERE pj.judge_id = $1
+		WHERE pj.judge_id = $1 AND r.status IN ('active', 'completed')
 		ORDER BY r.created_at DESC, p.name ASC;
 	`
 	rows, err := r.db.Query(ctx, query, judgeID)
@@ -432,7 +647,8 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	query := `
 		SELECT 
 			s.id, s.panel_id, p.name, p.room, s.team_id, tm.name, s.sequence_order, s.status::text,
-			r.slot_duration_mins, s.actual_start_time, s.submission_links
+			r.slot_duration_mins, s.actual_start_time, s.submission_links,
+			s.paused_at, s.paused_total_ms, s.extra_secs, s.pitch_ended_at, CURRENT_TIMESTAMP
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
@@ -441,9 +657,11 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	`
 	var d JudgeSlotDetails
 	var linksJSON []byte
+	var pausedTotalMs int64
 	err := r.db.QueryRow(ctx, query, slotID).Scan(
 		&d.SlotID, &d.PanelID, &d.PanelName, &d.Room, &d.TeamID, &d.TeamName, &d.SequenceOrder, &d.Status,
 		&d.SlotDurationMins, &d.ActualStartTime, &linksJSON,
+		&d.PausedAt, &pausedTotalMs, &d.ExtraSeconds, &d.PitchEndedAt, &d.ServerTime,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -453,9 +671,25 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	}
 
 	d.SlotDurationSeconds = d.SlotDurationMins * 60
-	if d.ActualStartTime != nil {
-		targetEnd := d.ActualStartTime.Add(time.Duration(d.SlotDurationMins) * time.Minute)
-		d.TargetEndTime = &targetEnd
+	d.PitchEnded = d.PitchEndedAt != nil
+	d.IsPaused = d.PausedAt != nil && !d.PitchEnded
+	if d.ActualStartTime != nil && d.Status == "in_progress" {
+		allowed := time.Duration(d.SlotDurationSeconds+d.ExtraSeconds) * time.Second
+		// Time spent paused so far doesn't count against the pitch.
+		paused := time.Duration(pausedTotalMs) * time.Millisecond
+		// The clock stops at whichever came first: the pitch ending or the current pause.
+		clockNow := d.ServerTime
+		if d.PitchEndedAt != nil {
+			clockNow = *d.PitchEndedAt
+		} else if d.PausedAt != nil {
+			clockNow = *d.PausedAt
+		}
+		remaining := int((allowed - (clockNow.Sub(*d.ActualStartTime) - paused)).Seconds())
+		d.RemainingSeconds = &remaining
+		if !d.IsPaused && !d.PitchEnded {
+			targetEnd := d.ServerTime.Add(time.Duration(remaining) * time.Second)
+			d.TargetEndTime = &targetEnd
+		}
 	}
 
 	d.SubmissionLinks = make(map[string]string)
@@ -505,11 +739,19 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	}
 	d.IsMyScorecardLocked = hasAnyScore && allMyLocked
 
-	// Check if all assigned panel judges have locked scores
-	allLocked, err := r.CheckAllPanelJudgesLocked(ctx, slotID)
-	if err == nil {
-		d.AllPanelJudgesLocked = allLocked
+	// Per-judge lock progress for the panel
+	judges, err := r.GetPanelLockProgress(ctx, slotID)
+	if err != nil {
+		return nil, err
 	}
+	d.PanelJudges = judges
+	d.TotalJudgesCount = len(judges)
+	for _, j := range judges {
+		if j.IsLocked {
+			d.LockedJudgesCount++
+		}
+	}
+	d.AllPanelJudgesLocked = d.TotalJudgesCount > 0 && d.LockedJudgesCount == d.TotalJudgesCount
 
 	return &d, nil
 }
@@ -523,17 +765,41 @@ func (r *Repository) StartSlot(ctx context.Context, slotID string) error {
 	defer tx.Rollback(ctx)
 
 	// Fetch slot panel and sequence order
-	var panelID string
+	var panelID, status string
 	var seqOrder, bufferSize int
 	query := `
-		SELECT s.panel_id, s.sequence_order, r.buffer_size
+		SELECT s.panel_id, s.sequence_order, r.buffer_size, s.status::text, r.status::text
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1;
+		WHERE s.id = $1
+		FOR UPDATE OF s;
 	`
-	if err := tx.QueryRow(ctx, query, slotID).Scan(&panelID, &seqOrder, &bufferSize); err != nil {
+	var roundStatus string
+	if err := tx.QueryRow(ctx, query, slotID).Scan(&panelID, &seqOrder, &bufferSize, &status, &roundStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSlotNotFound
+		}
 		return fmt.Errorf("fetch slot: %w", err)
+	}
+
+	// Only a pending slot can start; restarting would reset the running timer.
+	if status != "scheduled" && status != "queued" {
+		return ErrSlotNotPending
+	}
+	if roundStatus != "active" {
+		return ErrRoundNotActive
+	}
+
+	// A room runs one pitch at a time.
+	var presenting int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM judging_slots WHERE panel_id = $1 AND status = 'in_progress'`, panelID,
+	).Scan(&presenting); err != nil {
+		return fmt.Errorf("check room is free: %w", err)
+	}
+	if presenting > 0 {
+		return ErrPanelBusy
 	}
 
 	// Set slot to in_progress
@@ -559,6 +825,124 @@ func (r *Repository) StartSlot(ctx context.Context, slotID string) error {
 	return tx.Commit(ctx)
 }
 
+// lockInProgressSlot row-locks the slot and returns its pause timestamp, or ErrSlotNotStarted
+// unless the pitch is running.
+// Timer changes are also rejected once the pitch has ended (a judge locked their scores).
+func lockInProgressSlot(ctx context.Context, tx pgx.Tx, slotID string) (pausedAt *time.Time, err error) {
+	pausedAt, endedAt, err := lockRunningSlot(ctx, tx, slotID)
+	if err != nil {
+		return nil, err
+	}
+	if endedAt != nil {
+		return nil, ErrPitchEnded
+	}
+	return pausedAt, nil
+}
+
+// lockRunningSlot row-locks the slot and returns its pause and pitch-end timestamps,
+// or ErrSlotNotStarted unless the slot is in progress.
+func lockRunningSlot(ctx context.Context, tx pgx.Tx, slotID string) (pausedAt, endedAt *time.Time, err error) {
+	var status string
+	err = tx.QueryRow(ctx,
+		`SELECT status::text, paused_at, pitch_ended_at FROM judging_slots WHERE id = $1 FOR UPDATE`, slotID,
+	).Scan(&status, &pausedAt, &endedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrSlotNotFound
+		}
+		return nil, nil, fmt.Errorf("lock slot: %w", err)
+	}
+	if status != "in_progress" {
+		return nil, nil, ErrSlotNotStarted
+	}
+	return pausedAt, endedAt, nil
+}
+
+// PauseTimer freezes the pitch clock. Fails if the pitch isn't running or is already paused.
+func (r *Repository) PauseTimer(ctx context.Context, slotID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	pausedAt, err := lockInProgressSlot(ctx, tx, slotID)
+	if err != nil {
+		return err
+	}
+	if pausedAt != nil {
+		return ErrTimerPaused
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE judging_slots SET paused_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, slotID,
+	); err != nil {
+		return fmt.Errorf("pause timer: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// ResumeTimer restarts a paused clock, banking the paused interval so it isn't counted as pitch time.
+func (r *Repository) ResumeTimer(ctx context.Context, slotID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	pausedAt, err := lockInProgressSlot(ctx, tx, slotID)
+	if err != nil {
+		return err
+	}
+	if pausedAt == nil {
+		return ErrTimerNotPaused
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_slots
+		SET paused_total_ms = paused_total_ms + (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - paused_at)) * 1000)::bigint,
+		    paused_at = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`, slotID,
+	); err != nil {
+		return fmt.Errorf("resume timer: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// ExtendTimer adds seconds to a running (or paused) pitch.
+func (r *Repository) ExtendTimer(ctx context.Context, slotID string, seconds int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := lockInProgressSlot(ctx, tx, slotID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE judging_slots SET extra_secs = extra_secs + $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, slotID, seconds,
+	); err != nil {
+		return fmt.Errorf("extend timer: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// requireSlotInProgress returns ErrSlotNotStarted unless the slot's pitch is currently running.
+func requireSlotInProgress(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, slotID string) error {
+	var status string
+	if err := q.QueryRow(ctx, `SELECT status::text FROM judging_slots WHERE id = $1`, slotID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSlotNotFound
+		}
+		return fmt.Errorf("check slot status: %w", err)
+	}
+	if status != "in_progress" {
+		return ErrSlotNotStarted
+	}
+	return nil
+}
+
 // UpsertScores records criteria scores for a judge on a slot. Fails if already locked.
 func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID string, scores []CriterionScoreInput) error {
 	tx, err := r.db.Begin(ctx)
@@ -566,6 +950,10 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	if err := requireSlotInProgress(ctx, tx, slotID); err != nil {
+		return err
+	}
 
 	// Check if already locked
 	var lockedCount int
@@ -632,19 +1020,84 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 
 // LockJudgeScorecard locks the judge's score for a slot.
 func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judgeID string) error {
-	query := `
-		UPDATE judging_scores
-		SET is_locked = true, locked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-		WHERE slot_id = $1 AND judge_id = $2;
-	`
-	res, err := r.db.Exec(ctx, query, slotID, judgeID)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("lock scorecard: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
-	if res.RowsAffected() == 0 {
+	defer tx.Rollback(ctx)
+
+	if _, _, err := lockRunningSlot(ctx, tx, slotID); err != nil {
+		return err
+	}
+
+	// Every criterion in the round must have a score before the card can be locked.
+	var required, scored int
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM judging_criteria c
+			 JOIN judging_panels p ON p.round_id = c.round_id
+			 JOIN judging_slots s ON s.panel_id = p.id
+			 WHERE s.id = $1),
+			(SELECT COUNT(*) FROM judging_scores sc
+			 WHERE sc.slot_id = $1 AND sc.judge_id = $2 AND sc.score IS NOT NULL)`,
+		slotID, judgeID).Scan(&required, &scored); err != nil {
+		return fmt.Errorf("count scored criteria: %w", err)
+	}
+	if scored == 0 {
 		return errors.New("no scores found to lock; please submit criteria scores before locking")
 	}
-	return nil
+	if scored < required {
+		return fmt.Errorf("%w (%d of %d scored)", ErrIncompleteScore, scored, required)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_scores
+		SET is_locked = true, locked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		WHERE slot_id = $1 AND judge_id = $2`, slotID, judgeID); err != nil {
+		return fmt.Errorf("lock scorecard: %w", err)
+	}
+
+	// The first lock ends the pitch for the whole panel: the clock stops where it was
+	// (frozen at the pause point if currently paused).
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_slots
+		SET pitch_ended_at = COALESCE(paused_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND pitch_ended_at IS NULL`, slotID); err != nil {
+		return fmt.Errorf("end pitch: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// GetPanelLockProgress lists each judge on the slot's panel and whether they have locked
+// every criterion. Only lock state is returned, never scores.
+func (r *Repository) GetPanelLockProgress(ctx context.Context, slotID string) ([]PanelJudgeProgress, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT u.id, u.name,
+			(SELECT COUNT(*) FROM judging_scores sc
+			 WHERE sc.slot_id = s.id AND sc.judge_id = u.id AND sc.is_locked = true)
+			>= (SELECT COUNT(*) FROM judging_criteria c
+			    JOIN judging_panels p ON p.round_id = c.round_id
+			    WHERE p.id = s.panel_id)
+		FROM judging_slots s
+		JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
+		JOIN users u ON u.id = pj.judge_id
+		WHERE s.id = $1
+		ORDER BY u.name ASC`, slotID)
+	if err != nil {
+		return nil, fmt.Errorf("query panel lock progress: %w", err)
+	}
+	defer rows.Close()
+
+	judges := make([]PanelJudgeProgress, 0)
+	for rows.Next() {
+		var j PanelJudgeProgress
+		if err := rows.Scan(&j.JudgeID, &j.Name, &j.IsLocked); err != nil {
+			return nil, fmt.Errorf("scan panel judge: %w", err)
+		}
+		judges = append(judges, j)
+	}
+	return judges, rows.Err()
 }
 
 // CheckAllPanelJudgesLocked checks if every judge assigned to the panel has locked scores for the slot.
@@ -656,10 +1109,19 @@ func (r *Repository) CheckAllPanelJudgesLocked(ctx context.Context, slotID strin
 			JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
 			WHERE s.id = $1
 		),
+		criteria_count AS (
+			SELECT COUNT(*) AS n
+			FROM judging_criteria c
+			JOIN judging_panels p ON p.round_id = c.round_id
+			JOIN judging_slots s ON s.panel_id = p.id
+			WHERE s.id = $1
+		),
 		locked_judges AS (
-			SELECT DISTINCT sc.judge_id
+			SELECT sc.judge_id
 			FROM judging_scores sc
 			WHERE sc.slot_id = $1 AND sc.is_locked = true
+			GROUP BY sc.judge_id
+			HAVING COUNT(*) >= (SELECT n FROM criteria_count)
 		)
 		SELECT 
 			(SELECT COUNT(*) FROM panel_judges) AS total_judges,
@@ -683,17 +1145,25 @@ func (r *Repository) CompleteSlot(ctx context.Context, slotID string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	var panelID string
+	var panelID, status string
 	var seqOrder, bufferSize, durationMins int
 	query := `
-		SELECT s.panel_id, s.sequence_order, r.buffer_size, r.slot_duration_mins
+		SELECT s.panel_id, s.sequence_order, r.buffer_size, r.slot_duration_mins, s.status::text
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1;
+		WHERE s.id = $1
+		FOR UPDATE OF s;
 	`
-	if err := tx.QueryRow(ctx, query, slotID).Scan(&panelID, &seqOrder, &bufferSize, &durationMins); err != nil {
+	if err := tx.QueryRow(ctx, query, slotID).Scan(&panelID, &seqOrder, &bufferSize, &durationMins, &status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSlotNotFound
+		}
 		return fmt.Errorf("fetch slot details: %w", err)
+	}
+	// Only a running pitch can be completed; this also makes a double-complete a no-op error.
+	if status != "in_progress" {
+		return ErrSlotNotStarted
 	}
 
 	// Complete this slot
@@ -822,7 +1292,8 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 }
 
 // GetVolunteerSchedule returns room coordinates, on-deck teams, and upcoming teams for coordinators.
-func (r *Repository) GetVolunteerSchedule(ctx context.Context) ([]VolunteerPanelSchedule, error) {
+// When judgeID is non-nil, only panels that judge is assigned to are returned.
+func (r *Repository) GetVolunteerSchedule(ctx context.Context, judgeID *string) ([]VolunteerPanelSchedule, error) {
 	query := `
 		SELECT 
 			p.id, p.name, p.room,
@@ -830,9 +1301,13 @@ func (r *Repository) GetVolunteerSchedule(ctx context.Context) ([]VolunteerPanel
 		FROM judging_panels p
 		JOIN judging_rounds r ON r.id = p.round_id
 		WHERE r.status = 'active'
+		  AND ($1::uuid IS NULL OR EXISTS (
+			SELECT 1 FROM judging_panel_judges pj
+			WHERE pj.panel_id = p.id AND pj.judge_id = $1::uuid
+		  ))
 		ORDER BY p.room ASC, p.name ASC;
 	`
-	rows, err := r.db.Query(ctx, query)
+	rows, err := r.db.Query(ctx, query, judgeID)
 	if err != nil {
 		return nil, fmt.Errorf("query volunteer schedule panels: %w", err)
 	}
@@ -960,7 +1435,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			slot_id, team_id, team_name, panel_name, room, slot_status,
 			total_judges_on_panel, judges_evaluated_count, total_weighted_score
 		FROM slot_totals
-		ORDER BY total_weighted_score DESC, team_name ASC;
+		ORDER BY (judges_evaluated_count > 0) DESC, total_weighted_score DESC, team_name ASC;
 	`
 	rows, err := r.db.Query(ctx, query, roundID)
 	if err != nil {
@@ -968,9 +1443,12 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 	}
 	defer rows.Close()
 
-	var entries []AdminLeaderboardEntry
-	rank := 1
+	entries := make([]AdminLeaderboardEntry, 0)
 	gradedCount := 0
+	// Ranks count only teams with at least one locked scorecard; equal scores share a rank.
+	scoredSoFar := 0
+	rank := 0
+	var prevScore float64
 	var totalGradedWeightedScore float64
 
 	type rawEntry struct {
@@ -1035,6 +1513,16 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			avgRawScore = sumRawAvg / float64(critCount)
 		}
 
+		entryRank := 0
+		if re.judgesEvaluatedCount > 0 {
+			scoredSoFar++
+			if scoredSoFar == 1 || math.Abs(re.totalWeightedScore-prevScore) > 1e-9 {
+				rank = scoredSoFar
+			}
+			prevScore = re.totalWeightedScore
+			entryRank = rank
+		}
+
 		allLocked := re.totalJudgesOnPanel > 0 && re.judgesEvaluatedCount >= re.totalJudgesOnPanel
 		if allLocked {
 			gradedCount++
@@ -1042,7 +1530,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		}
 
 		entries = append(entries, AdminLeaderboardEntry{
-			Rank:                   rank,
+			Rank:                   entryRank,
 			TeamID:                 re.teamID,
 			TeamName:               re.teamName,
 			PanelName:              re.panelName,
@@ -1058,7 +1546,6 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			TotalJudgesOnPanel:     re.totalJudgesOnPanel,
 			AllPanelJudgesLocked:   allLocked,
 		})
-		rank++
 	}
 
 	var roundAverageScore float64
@@ -1129,13 +1616,15 @@ func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRe
 	var currentSeqOrder, durationMins int
 	var sourceRoundID string
 	query := `
-		SELECT s.panel_id, s.team_id, s.sequence_order, s.status::text, p.round_id, r.slot_duration_mins
+		SELECT s.panel_id, s.team_id, s.sequence_order, s.status::text, p.round_id, r.slot_duration_mins, r.status::text
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1;
+		WHERE s.id = $1
+		FOR UPDATE OF s;
 	`
-	if err := tx.QueryRow(ctx, query, slotID).Scan(&sourcePanelID, &teamID, &currentSeqOrder, &currentStatus, &sourceRoundID, &durationMins); err != nil {
+	var roundStatus string
+	if err := tx.QueryRow(ctx, query, slotID).Scan(&sourcePanelID, &teamID, &currentSeqOrder, &currentStatus, &sourceRoundID, &durationMins, &roundStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSlotNotFound
 		}
@@ -1144,6 +1633,9 @@ func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRe
 
 	if currentStatus == "completed" {
 		return errors.New("cannot move an already completed slot")
+	}
+	if currentStatus == "in_progress" {
+		return ErrSlotLive
 	}
 
 	targetPanelID := sourcePanelID
@@ -1225,6 +1717,10 @@ func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRe
 	var newStatus = currentStatus
 	if req.Status != nil && *req.Status != "" {
 		newStatus = *req.Status
+	}
+	// Before the round starts nothing is staged: every team stays scheduled wherever it lands.
+	if roundStatus == "draft" {
+		newStatus = "scheduled"
 	}
 
 	// Use temporary high sequence order to avoid UNIQUE (panel_id, sequence_order) violations

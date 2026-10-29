@@ -13,7 +13,12 @@ export interface UserDetailResponse {
   is_password_configured: boolean;
   is_active: boolean;
   created_at: string;
+  /** Present on the list endpoint only. */
+  checkin_status?: CheckinStatus;
+  checked_in_at?: string | null;
 }
+
+export type CheckinStatus = "checked_in" | "not_checked_in" | "no_pass";
 
 export interface CreateUserRequest {
   email: string;
@@ -54,6 +59,7 @@ export interface UserFilter {
   team_id?: string;
   search?: string;
   is_active?: boolean;
+  checkin_status?: CheckinStatus;
 }
 
 export interface BulkInviteRequest {

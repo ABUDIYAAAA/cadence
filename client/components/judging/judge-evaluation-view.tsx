@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Clock,
   CheckCircle2,
@@ -16,11 +16,17 @@ import {
   AlertTriangle,
   RefreshCw,
   Save,
+  Pause,
+  Plus,
+  Users,
 } from "lucide-react";
 import {
   useJudgePanels,
   useJudgeSlotDetails,
   useStartSlot,
+  usePauseTimer,
+  useResumeTimer,
+  useExtendTimer,
   useSubmitScores,
   useLockScores,
   useCompleteSlot,
@@ -142,7 +148,7 @@ export function JudgeEvaluationView() {
             valueClassName="text-[var(--color-blue)]"
           />
           <Metric label="Slot duration" value={`${activePanel.slot_duration_mins}m`} />
-          <Metric label="Buffer depth" value={activePanel.buffer_size} suffix="teams" />
+          <Metric label="Round" value={activePanel.round_name} note={activePanel.round_status === "completed" ? "Finished" : "In progress"} />
         </MetricGrid>
       )}
 
@@ -209,7 +215,12 @@ export function JudgeEvaluationView() {
                       ) : isDone ? (
                         <span className="text-[var(--color-emerald)] font-medium">Completed</span>
                       ) : isQueued ? (
-                        <strong className="text-[var(--color-blue)] font-semibold">On deck</strong>
+                        <strong
+                          className="text-[var(--color-blue)] font-semibold"
+                          title="Volunteers have been asked to bring this team to the room"
+                        >
+                          On deck
+                        </strong>
                       ) : (
                         <span className="text-[var(--ink-tertiary)]">Scheduled</span>
                       )}
@@ -260,7 +271,7 @@ function JudgeSlotScorecardContainer({
   panel?: JudgePanelSummary;
   onSlotAdvanced: (nextSlotId?: string) => void;
 }) {
-  const { data: slot, isLoading, refetch } = useJudgeSlotDetails(slotId);
+  const { data: slot, isLoading, refetch, dataUpdatedAt } = useJudgeSlotDetails(slotId);
 
   if (isLoading) {
     return (
@@ -284,6 +295,7 @@ function JudgeSlotScorecardContainer({
     <JudgeSlotScorecardForm
       key={slot.slot_id}
       slot={slot}
+      receivedAt={dataUpdatedAt}
       panel={panel}
       onRefetch={refetch}
       onSlotAdvanced={onSlotAdvanced}
@@ -294,17 +306,22 @@ function JudgeSlotScorecardContainer({
 // Subcomponent: Form state initialized directly from slot props
 function JudgeSlotScorecardForm({
   slot,
+  receivedAt,
   panel,
   onRefetch,
   onSlotAdvanced,
 }: {
   slot: JudgeSlotDetails;
+  receivedAt: number;
   panel?: JudgePanelSummary;
   onRefetch: () => void;
   onSlotAdvanced: (nextSlotId?: string) => void;
 }) {
   const toast = useToast();
   const startSlotMutation = useStartSlot();
+  const pauseTimerMutation = usePauseTimer();
+  const resumeTimerMutation = useResumeTimer();
+  const extendTimerMutation = useExtendTimer();
   const submitScoresMutation = useSubmitScores();
   const lockScoresMutation = useLockScores();
   const completeSlotMutation = useCompleteSlot();
@@ -321,11 +338,21 @@ function JudgeSlotScorecardForm({
     return initial;
   });
 
+  // Criteria the judge has deliberately scored (saved earlier, or set this session).
+  // Locking requires every criterion, so an untouched default of 0 doesn't count.
+  const [scoredIds, setScoredIds] = useState<Set<string>>(
+    () => new Set(slot.criteria_scores.filter((c) => c.score != null).map((c) => c.criterion_id))
+  );
+  const scoredCount = slot.criteria_scores.filter((c) => scoredIds.has(c.criterion_id)).length;
+  const criteriaCount = slot.criteria_scores.length;
+  const allCriteriaScored = scoredCount === criteriaCount;
+
   const [isLockConfirmOpen, setIsLockConfirmOpen] = useState(false);
   const [copiedLinkKey, setCopiedLinkKey] = useState<string | null>(null);
 
   // Handle score value change
   const handleScoreChange = (criterionId: string, val: number) => {
+    setScoredIds((prev) => (prev.has(criterionId) ? prev : new Set(prev).add(criterionId)));
     setFormScores((prev) => ({
       ...prev,
       [criterionId]: {
@@ -378,6 +405,31 @@ function JudgeSlotScorecardForm({
     }
   };
 
+  // Timer controls: pause / resume / add time
+  const runTimerAction = async (action: () => Promise<unknown>, success: string) => {
+    try {
+      await action();
+      toast.success(success);
+      onRefetch();
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: string }).message)
+          : "Timer action failed";
+      toast.error(message);
+    }
+  };
+
+  const handlePauseTimer = () =>
+    runTimerAction(() => pauseTimerMutation.mutateAsync(slot.slot_id), "Timer paused.");
+  const handleResumeTimer = () =>
+    runTimerAction(() => resumeTimerMutation.mutateAsync(slot.slot_id), "Timer resumed.");
+  const handleExtendTimer = (seconds: number) =>
+    runTimerAction(
+      () => extendTimerMutation.mutateAsync({ slotId: slot.slot_id, seconds }),
+      `Added ${seconds / 60} min to the pitch.`
+    );
+
   // 2. Action: Save Draft Scores
   const handleSaveDraft = async () => {
     const scoresPayload: CriterionScoreInput[] = Object.entries(formScores).map(
@@ -422,7 +474,7 @@ function JudgeSlotScorecardForm({
 
       // Then lock
       await lockScoresMutation.mutateAsync(slot.slot_id);
-      toast.success(`Scorecard locked for team "${slot.team_name}".`);
+      toast.success(`Scorecard locked for "${slot.team_name}". The pitch has ended.`);
       setIsLockConfirmOpen(false);
       onRefetch();
     } catch (err: unknown) {
@@ -468,6 +520,8 @@ function JudgeSlotScorecardForm({
   const isPresenting = slot.status === "in_progress";
   const isCompleted = slot.status === "completed";
   const canStart = slot.status === "scheduled" || slot.status === "queued";
+  // Scores can only be entered while the pitch is running (the server enforces this too).
+  const canScore = isPresenting && !isLocked;
 
   return (
     <div className="space-y-5 font-sans">
@@ -516,10 +570,16 @@ function JudgeSlotScorecardForm({
 
         {/* Live Pitch Countdown Timer Component */}
         <JudgeCountdownTimer
-          actualStartTime={slot.actual_start_time}
-          durationMins={slot.slot_duration_mins}
-          durationSeconds={slot.slot_duration_seconds}
-          status={slot.status}
+          slot={slot}
+          receivedAt={receivedAt}
+          onPause={handlePauseTimer}
+          onResume={handleResumeTimer}
+          onExtend={handleExtendTimer}
+          isBusy={
+            pauseTimerMutation.isPending ||
+            resumeTimerMutation.isPending ||
+            extendTimerMutation.isPending
+          }
         />
       </div>
 
@@ -622,6 +682,16 @@ function JudgeSlotScorecardForm({
           </div>
         </div>
 
+        {canStart && (
+          <div
+            role="status"
+            className="flex items-start gap-2.5 p-3 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] text-xs text-[var(--ink-secondary)]"
+          >
+            <Lock className="h-4 w-4 shrink-0 mt-0.5" />
+            <p>Scoring opens when you start the pitch. Starting it also starts the timer.</p>
+          </div>
+        )}
+
         {/* Criteria Rating Rows */}
         <div className="space-y-3">
           {slot.criteria_scores.map((c, idx) => {
@@ -681,7 +751,8 @@ function JudgeSlotScorecardForm({
                           step={1}
                           value={currentScore}
                           onChange={(e) => handleScoreChange(c.criterion_id, Number(e.target.value))}
-                          className="w-full accent-[var(--color-blue)] cursor-pointer"
+                          disabled={!canScore}
+                          className="w-full accent-[var(--color-blue)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                         />
 
                         {/* Quick Stepper Chips */}
@@ -692,7 +763,8 @@ function JudgeSlotScorecardForm({
                                 key={presetVal}
                                 type="button"
                                 onClick={() => handleScoreChange(c.criterion_id, presetVal)}
-                                className={`px-2 py-0.5 rounded-[8px] text-xs font-mono font-semibold border transition-all cursor-pointer active:scale-95 ${
+                                disabled={!canScore}
+                                className={`disabled:cursor-not-allowed disabled:opacity-50 px-2 py-0.5 rounded-[8px] text-xs font-mono font-semibold border transition-all cursor-pointer active:scale-95 ${
                                   currentScore === presetVal
                                     ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] border-[var(--color-dark)] shadow-xs"
                                     : "bg-[var(--card-solid)] text-[var(--ink-secondary)] border-[var(--card-line)] hover:text-[var(--ink-primary)]"
@@ -717,7 +789,7 @@ function JudgeSlotScorecardForm({
                     </label>
                     <textarea
                       rows={2}
-                      disabled={isLocked}
+                      disabled={!canScore}
                       placeholder="Add observations or feedback..."
                       value={currentNotes}
                       onChange={(e) => handleNoteChange(c.criterion_id, e.target.value)}
@@ -730,6 +802,8 @@ function JudgeSlotScorecardForm({
           })}
         </div>
 
+        <PanelScoringProgress slot={slot} />
+
         {/* Action Controls Footer: Save Draft / Lock / Call Next */}
         <div className="border-t border-[var(--card-line)] pt-3.5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div>
@@ -740,12 +814,14 @@ function JudgeSlotScorecardForm({
                 <span className="text-[var(--ink-tertiary)] font-normal">
                   {slot.all_panel_judges_locked
                     ? "(all panel judges locked)"
-                    : "(waiting for panel judges)"}
+                    : `(${slot.locked_judges_count} of ${slot.total_judges_count} judges locked)`}
                 </span>
               </div>
             ) : (
-              <div className="text-xs text-[var(--ink-tertiary)]">
-                Draft ratings are saved and private to you until locked.
+              <div className="text-xs text-[var(--ink-tertiary)]" aria-live="polite">
+                {canScore && !allCriteriaScored
+                  ? `Score every criterion to lock in (${scoredCount} of ${criteriaCount} scored).`
+                  : "Draft ratings are saved and private to you until locked."}
               </div>
             )}
           </div>
@@ -757,7 +833,7 @@ function JudgeSlotScorecardForm({
                   variant="outline"
                   size="sm"
                   onClick={handleSaveDraft}
-                  disabled={submitScoresMutation.isPending}
+                  disabled={!canScore || submitScoresMutation.isPending}
                   className="text-xs flex items-center gap-1.5 h-9 active:scale-[0.97] transition-transform"
                 >
                   <Save className="h-3.5 w-3.5" />
@@ -768,7 +844,7 @@ function JudgeSlotScorecardForm({
                   variant="primary"
                   size="sm"
                   onClick={() => setIsLockConfirmOpen(true)}
-                  disabled={lockScoresMutation.isPending}
+                  disabled={!canScore || !allCriteriaScored || lockScoresMutation.isPending}
                   className="text-xs flex items-center gap-1.5 h-9 font-semibold active:scale-[0.97] transition-transform"
                 >
                   <Lock className="h-3.5 w-3.5" />
@@ -783,7 +859,8 @@ function JudgeSlotScorecardForm({
                 variant="primary"
                 size="sm"
                 onClick={handleCompleteAndNext}
-                disabled={completeSlotMutation.isPending}
+                disabled={!slot.all_panel_judges_locked || completeSlotMutation.isPending}
+                title={slot.all_panel_judges_locked ? undefined : "Waiting for all panel judges to lock their scores"}
                 className="text-xs flex items-center gap-1.5 h-9 font-semibold active:scale-[0.97] transition-transform"
               >
                 <span>Call next team</span>
@@ -812,7 +889,7 @@ function JudgeSlotScorecardForm({
           <div className="flex items-start gap-2.5 p-3 rounded-[12px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs">
             <AlertTriangle className="h-4 w-4 text-[var(--color-coral)] shrink-0 mt-0.5" />
             <p className="text-[var(--color-coral)] leading-relaxed">
-              Once locked, your scores cannot be modified. They will immediately contribute to the final leaderboard rankings.
+              Once locked, your scores cannot be modified and the pitch timer stops for the whole panel. They will immediately contribute to the final leaderboard rankings.
             </p>
           </div>
 
@@ -840,46 +917,123 @@ function JudgeSlotScorecardForm({
   );
 }
 
+// Panel scoring progress: who has locked, and what's blocking the next pitch
+function PanelScoringProgress({ slot }: { slot: JudgeSlotDetails }) {
+  const total = slot.total_judges_count;
+  const locked = slot.locked_judges_count;
+  const remaining = total - locked;
+  const allLocked = slot.all_panel_judges_locked;
+  const progress = total > 0 ? locked / total : 0;
+
+  if (slot.status === "completed" || total === 0) return null;
+
+  return (
+    <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3.5 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-[var(--ink-primary)]">
+          <Users className="h-4 w-4 text-[var(--ink-secondary)]" />
+          <span>Panel scoring progress</span>
+        </div>
+        <span className="font-mono tabular-nums text-xs text-[var(--ink-secondary)]">
+          <strong className="text-[var(--ink-primary)]">{locked}</strong> of {total} locked
+        </span>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-label="Judges who have locked their scores"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={locked}
+        className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--card-line)]"
+      >
+        <div
+          className={`h-full w-full origin-left rounded-full transition-transform duration-300 ease-[var(--ease-out)] ${
+            allLocked ? "bg-[var(--color-emerald)]" : "bg-[var(--color-blue)]"
+          }`}
+          style={{ transform: `scaleX(${progress})` }}
+        />
+      </div>
+
+      <ul className="flex flex-wrap gap-1.5">
+        {slot.panel_judges.map((j) => (
+          <li
+            key={j.judge_id}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+              j.is_locked
+                ? "border-[var(--color-emerald)]/30 text-[var(--color-emerald)]"
+                : "border-[var(--card-line)] text-[var(--ink-secondary)]"
+            }`}
+          >
+            {j.is_locked ? <Lock className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+            <span>{j.name}</span>
+            <span className="sr-only">{j.is_locked ? "locked" : "still scoring"}</span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="text-xs text-[var(--ink-secondary)]" aria-live="polite">
+        {allLocked
+          ? "All judges have locked. You can move on to the next pitch."
+          : `Next pitch unlocks when all judges lock — waiting on ${remaining} more ${remaining === 1 ? "judge" : "judges"}.`}
+      </p>
+    </div>
+  );
+}
+
 // Live Countdown Timer Subcomponent
+const EXTEND_OPTIONS = [60, 120, 300];
+
+function formatClock(totalSecs: number) {
+  const abs = Math.abs(totalSecs);
+  return `${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+}
+
 function JudgeCountdownTimer({
-  actualStartTime,
-  durationMins,
-  durationSeconds,
-  status,
+  slot,
+  receivedAt,
+  onPause,
+  onResume,
+  onExtend,
+  isBusy,
 }: {
-  actualStartTime?: string | null;
-  durationMins: number;
-  durationSeconds?: number;
-  status: string;
+  slot: JudgeSlotDetails;
+  /** When `slot` was fetched (ms epoch); the countdown runs from here. */
+  receivedAt: number;
+  onPause: () => void;
+  onResume: () => void;
+  onExtend: (seconds: number) => void;
+  isBusy: boolean;
 }) {
-  const totalSeconds = durationSeconds || durationMins * 60;
+  const status = slot.status;
+  const isRunning = status === "in_progress";
+  const isPaused = isRunning && slot.is_paused;
+  const baseSeconds = slot.slot_duration_seconds || slot.slot_duration_mins * 60;
+  const totalSeconds = baseSeconds + (slot.extra_seconds || 0);
 
-  const getSecondsRemaining = useCallback(() => {
-    if (!actualStartTime || status !== "in_progress") {
-      return null;
-    }
-    const startMs = new Date(actualStartTime).getTime();
-    const nowMs = Date.now();
-    const elapsedSecs = Math.floor((nowMs - startMs) / 1000);
-    return totalSeconds - elapsedSecs;
-  }, [actualStartTime, status, totalSeconds]);
-
-  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(getSecondsRemaining);
+  // The server computes remaining_seconds at response time, so counting down from when the
+  // response arrived needs no client/server clock comparison.
+  const [now, setNow] = useState(() => Date.now());
+  const isFrozen = slot.is_paused || slot.pitch_ended;
 
   useEffect(() => {
-    if (status !== "in_progress" || !actualStartTime) return;
-    const interval = setInterval(() => {
-      setSecondsRemaining(getSecondsRemaining());
-    }, 1000);
+    if (!isRunning || isFrozen) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [status, actualStartTime, getSecondsRemaining]);
+  }, [isRunning, isFrozen]);
 
-  if (status !== "in_progress" || secondsRemaining === null) {
+  let secondsRemaining: number | null = null;
+  if (isRunning && slot.remaining_seconds != null) {
+    const sinceReceived = isFrozen ? 0 : Math.max(0, Math.floor((now - receivedAt) / 1000));
+    secondsRemaining = slot.remaining_seconds - sinceReceived;
+  }
+
+  if (!isRunning || secondsRemaining === null) {
     return (
       <div className="rounded-[12px] border border-[var(--card-line)] p-3 px-4 bg-[var(--card-solid-subtle)] flex items-center justify-between text-xs text-[var(--ink-secondary)]">
         <span className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-[var(--ink-tertiary)]" />
-          Allocated pitch duration: <strong className="text-[var(--ink-primary)] font-mono">{durationMins} minutes</strong>
+          Allocated pitch duration: <strong className="text-[var(--ink-primary)] font-mono">{slot.slot_duration_mins} minutes</strong>
         </span>
         <span className="text-[var(--ink-tertiary)]">
           {status === "completed" ? "Timer stopped" : "Timer ready (click start to begin)"}
@@ -889,51 +1043,88 @@ function JudgeCountdownTimer({
   }
 
   const isOvertime = secondsRemaining < 0;
-  const absRemaining = Math.abs(secondsRemaining);
-  const minutes = Math.floor(absRemaining / 60);
-  const seconds = absRemaining % 60;
-  const formattedTime = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-
   const elapsed = Math.max(0, totalSeconds - secondsRemaining);
-  const elapsedMinutes = Math.floor(elapsed / 60);
-  const elapsedSeconds = elapsed % 60;
-  const formattedElapsed = `${String(elapsedMinutes).padStart(2, "0")}:${String(elapsedSeconds).padStart(2, "0")}`;
+  const progress = Math.max(0, Math.min(1, elapsed / totalSeconds));
+  const extraMins = Math.round((slot.extra_seconds || 0) / 60);
 
-  const percentLeft = Math.max(0, Math.min(100, (secondsRemaining / totalSeconds) * 100));
+  const isEnded = slot.pitch_ended;
+  const tone = isPaused || isEnded
+    ? "border border-[var(--card-line)] bg-[var(--card-solid-subtle)]"
+    : isOvertime
+    ? "border border-[#CE6969]/40 bg-[var(--color-coral-dim)]"
+    : secondsRemaining <= 120
+    ? "border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)]/60"
+    : "border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)]";
+
+  const controlBtn =
+    "inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] px-3 text-xs font-semibold text-[var(--ink-primary)] transition-[transform,background-color] duration-150 ease-[var(--ease-out)] hover:bg-[var(--card-solid-subtle)] active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none cursor-pointer";
 
   return (
-    <div
-      className={`rounded-[14px] p-4 transition-all ${
-        isOvertime
-          ? "border border-[#CE6969]/40 bg-[var(--color-coral-dim)]"
-          : secondsRemaining <= 120
-          ? "border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)]/60"
-          : "border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)]"
-      }`}
-    >
+    <div className={`rounded-[14px] p-4 space-y-3.5 transition-colors duration-200 ${tone}`}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Clock className={`h-5 w-5 ${isOvertime ? "text-[var(--color-coral)] animate-pulse" : "text-[var(--color-blue)]"}`} />
+          {isEnded ? (
+            <CheckCircle2 className="h-5 w-5 text-[var(--color-emerald)]" />
+          ) : isPaused ? (
+            <Pause className="h-5 w-5 text-[var(--ink-secondary)]" />
+          ) : (
+            <Clock className={`h-5 w-5 ${isOvertime ? "text-[var(--color-coral)] animate-pulse" : "text-[var(--color-blue)]"}`} />
+          )}
           <div>
             <div className="text-[11px] font-medium text-[var(--ink-secondary)]">
-              {isOvertime ? "Overtime warning" : "Pitch countdown"}
+              {isEnded ? "Pitch ended" : isPaused ? "Timer paused" : isOvertime ? "Overtime warning" : "Pitch countdown"}
             </div>
-            <div className="text-2xl font-bold tracking-tight font-mono text-[var(--ink-primary)]">
-              {isOvertime ? `+${formattedTime} overtime` : `${formattedTime} remaining`}
+            <div className="text-2xl font-bold tracking-tight font-mono tabular-nums text-[var(--ink-primary)]">
+              {isOvertime
+                ? `+${formatClock(secondsRemaining)} overtime`
+                : `${formatClock(secondsRemaining)} ${isEnded ? "left" : "remaining"}`}
             </div>
           </div>
         </div>
 
-        <div className="text-right text-xs text-[var(--ink-secondary)]">
-          <div className="font-mono">Elapsed: <strong className="text-[var(--ink-primary)]">{formattedElapsed}</strong> / {durationMins}:00</div>
-          <div className="w-36 bg-[var(--card-line)] h-2 rounded-full mt-1.5 ml-auto overflow-hidden">
+        <div className="text-right text-xs text-[var(--ink-secondary)] w-full sm:w-auto">
+          <div className="font-mono tabular-nums">
+            Elapsed: <strong className="text-[var(--ink-primary)]">{formatClock(elapsed)}</strong> / {formatClock(totalSeconds)}
+            {extraMins > 0 && <span className="text-[var(--ink-tertiary)]"> (+{extraMins}m added)</span>}
+          </div>
+          <div className="w-full sm:w-36 bg-[var(--card-line)] h-2 rounded-full mt-1.5 sm:ml-auto overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${isOvertime ? "bg-[var(--color-coral)]" : "bg-[var(--color-blue)]"}`}
-              style={{ width: `${100 - percentLeft}%` }}
+              className={`h-full w-full origin-left rounded-full transition-transform duration-1000 ease-linear ${isOvertime ? "bg-[var(--color-coral)]" : "bg-[var(--color-blue)]"}`}
+              style={{ transform: `scaleX(${progress})` }}
             />
           </div>
         </div>
       </div>
+
+      {!isEnded && (
+      <div className="flex items-center gap-2 flex-wrap border-t border-[var(--card-line)] pt-3">
+        {isPaused ? (
+          <button type="button" onClick={onResume} disabled={isBusy} className={controlBtn}>
+            <Play className="h-3.5 w-3.5 fill-current" />
+            <span>Resume</span>
+          </button>
+        ) : (
+          <button type="button" onClick={onPause} disabled={isBusy} className={controlBtn}>
+            <Pause className="h-3.5 w-3.5 fill-current" />
+            <span>Pause</span>
+          </button>
+        )}
+        <span className="mx-1 h-5 w-px bg-[var(--card-line)]" aria-hidden />
+        {EXTEND_OPTIONS.map((secs) => (
+          <button
+            key={secs}
+            type="button"
+            onClick={() => onExtend(secs)}
+            disabled={isBusy}
+            aria-label={`Add ${secs / 60} ${secs === 60 ? "minute" : "minutes"}`}
+            className={`${controlBtn} font-mono`}
+          >
+            <Plus className="h-3 w-3" />
+            <span>{secs / 60} min</span>
+          </button>
+        ))}
+      </div>
+      )}
     </div>
   );
 }

@@ -12,10 +12,11 @@ import {
 
 export const USERS_QUERY_KEY = ["users"] as const;
 
-export function useUsers(filters?: UserFilter) {
+export function useUsers(filters?: UserFilter, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [...USERS_QUERY_KEY, "list", filters],
     queryFn: () => usersService.list(filters),
+    enabled: options?.enabled ?? true,
   });
 }
 

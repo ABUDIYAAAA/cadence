@@ -307,32 +307,6 @@ func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResp
 		hourlyArrivals = append(hourlyArrivals, ha)
 	}
 
-	// Volunteer leaderboard
-	volQuery := `
-		SELECT 
-			v.id, v.name, v.email, COUNT(t.id) as cnt
-		FROM tickets t
-		JOIN users v ON v.id = t.checked_in_by
-		WHERE t.is_checked_in = true
-		GROUP BY v.id, v.name, v.email
-		ORDER BY cnt DESC
-		LIMIT 20;
-	`
-	volRows, err := r.db.Query(ctx, volQuery)
-	if err != nil {
-		return nil, fmt.Errorf("query volunteer leaderboard: %w", err)
-	}
-	defer volRows.Close()
-
-	var leaderboard []VolunteerLeaderboard
-	for volRows.Next() {
-		var vl VolunteerLeaderboard
-		if err := volRows.Scan(&vl.VolunteerID, &vl.VolunteerName, &vl.VolunteerEmail, &vl.Count); err != nil {
-			return nil, fmt.Errorf("scan volunteer row: %w", err)
-		}
-		leaderboard = append(leaderboard, vl)
-	}
-
 	// Team completeness
 	teamQuery := `
 		SELECT 
@@ -373,19 +347,15 @@ func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResp
 	if hourlyArrivals == nil {
 		hourlyArrivals = []HourlyArrival{}
 	}
-	if leaderboard == nil {
-		leaderboard = []VolunteerLeaderboard{}
-	}
 	if teamSummaries == nil {
 		teamSummaries = []TeamCompletenessSummary{}
 	}
 
 	return &AnalyticsResponse{
-		TotalIssued:          totalIssued,
-		CheckedInCount:       checkedInCount,
-		AttendanceRate:       rate,
-		HourlyArrivals:       hourlyArrivals,
-		TeamCompleteness:     teamSummaries,
-		VolunteerLeaderboard: leaderboard,
+		TotalIssued:      totalIssued,
+		CheckedInCount:   checkedInCount,
+		AttendanceRate:   rate,
+		HourlyArrivals:   hourlyArrivals,
+		TeamCompleteness: teamSummaries,
 	}, nil
 }

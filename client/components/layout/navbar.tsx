@@ -125,11 +125,11 @@ export function Navbar() {
             href={homeHref}
             className="flex items-center gap-2.5 text-decoration-none group select-none"
           >
-            <span className="w-6 h-6 rounded-[6px] bg-[var(--color-dark)] text-[var(--ink-inverse)] font-bold text-xs flex items-center justify-center shadow-xs">
-              C
-            </span>
             <span className="text-base font-bold tracking-tight text-[var(--ink-primary)]">
               Cadence
+              <span className="ml-1.5 text-xs font-medium tracking-normal text-[var(--ink-tertiary)]">
+                by DevClub
+              </span>
             </span>
           </Link>
         </div>

@@ -439,11 +439,9 @@ export default function AdminNotificationsPage() {
                   <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-4 text-[var(--ink-primary)] space-y-2.5">
                     <div className="flex items-center justify-between pb-2 border-b border-[var(--card-line)]">
                       <div className="flex items-center gap-2">
-                        <span className="h-5 w-5 rounded-[4px] bg-[var(--color-dark)] text-[var(--ink-inverse)] text-[10px] flex items-center justify-center font-bold">
-                          C
-                        </span>
                         <span className="text-xs font-semibold tracking-tight text-[var(--ink-primary)]">
                           Cadence
+                          <span className="ml-1 font-medium text-[var(--ink-tertiary)]">by DevClub</span>
                         </span>
                         <span className="text-[10px] text-[var(--ink-tertiary)]">now</span>
                       </div>

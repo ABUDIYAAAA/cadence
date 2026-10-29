@@ -41,13 +41,15 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
 export function JudgeEvaluationView() {
-  const { data: panels = [], isLoading: panelsLoading, refetch: refetchPanels, isFetching } = useJudgePanels();
+  const { data: rawPanels, isLoading: panelsLoading, refetch: refetchPanels, isFetching } = useJudgePanels();
+  const panels = useMemo(() => (Array.isArray(rawPanels) ? rawPanels : []), [rawPanels]);
 
   // Active panel selection (user override or first panel)
   const [userSelectedPanelId, setUserSelectedPanelId] = useState<string | null>(null);
-  const activePanelId = userSelectedPanelId || panels[0]?.panel_id || null;
+  const activePanelId = userSelectedPanelId || (panels.length > 0 ? panels[0].panel_id : null);
 
   const activePanel: JudgePanelSummary | undefined = useMemo(() => {
+    if (panels.length === 0) return undefined;
     return panels.find((p) => p.panel_id === activePanelId) || panels[0];
   }, [panels, activePanelId]);
 
@@ -55,7 +57,7 @@ export function JudgeEvaluationView() {
   const [userSelectedSlotId, setUserSelectedSlotId] = useState<string | null>(null);
 
   const activeSlotId = useMemo(() => {
-    if (!activePanel) return null;
+    if (!activePanel || !Array.isArray(activePanel.slots)) return null;
     if (userSelectedSlotId && activePanel.slots.some((s) => s.slot_id === userSelectedSlotId)) {
       return userSelectedSlotId;
     }
@@ -79,7 +81,7 @@ export function JudgeEvaluationView() {
     return (
       <div className="font-sans space-y-4 max-w-4xl mx-auto py-6">
         <EmptyState
-          title="NO JUDGING PANELS ASSIGNED"
+          title="No judging panels assigned"
           description="You are currently not assigned to evaluate any rooms or panels. Event administrators allocate evaluators to rooms during round setup."
           action={
             <Button
@@ -157,27 +159,26 @@ export function JudgeEvaluationView() {
 
       {/* Panel Context Banner */}
       {activePanel && (
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <DoorOpen className="h-4 w-4 text-[var(--color-blue)]" />
-              <span className="font-bold text-base text-[var(--ink-primary)]">
+              <span className="font-semibold text-base text-[var(--ink-primary)]">
                 {activePanel.room} — {activePanel.panel_name}
               </span>
-              <Badge variant="blue" className="text-[10px] uppercase font-semibold">
+              <Badge variant="blue" size="sm">
                 {activePanel.round_name}
               </Badge>
             </div>
             <div className="text-xs text-[var(--ink-secondary)] flex items-center gap-3">
               <span>Duration: <strong className="text-[var(--ink-primary)] font-mono">{activePanel.slot_duration_mins}m</strong> per pitch</span>
               <span>•</span>
-              <span>Buffer Depth: <strong className="text-[var(--ink-primary)] font-mono">{activePanel.buffer_size}</strong> teams</span>
+              <span>Buffer depth: <strong className="text-[var(--ink-primary)] font-mono">{activePanel.buffer_size}</strong> teams</span>
             </div>
           </div>
 
           <div className="text-left md:text-right shrink-0">
-            <div className="text-xs font-bold font-mono text-[var(--ink-primary)]">
-              Progress: {activePanel.completed_slots} / {activePanel.total_slots} Teams Graded
+            <div className="text-xs font-semibold text-[var(--ink-primary)]">
+              {activePanel.completed_slots} / {activePanel.total_slots} teams evaluated
             </div>
             <div className="w-40 bg-[var(--card-line)] h-2 rounded-full mt-1.5 overflow-hidden">
               <div
@@ -200,9 +201,8 @@ export function JudgeEvaluationView() {
         {/* Left Column (4 cols): Queue / Slot Schedule */}
         <div className="lg:col-span-4 space-y-3">
           <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-2">
-            <span className="text-xs uppercase font-bold text-[var(--ink-secondary)] flex items-center gap-1.5 tracking-wider">
-              <Layers className="h-4 w-4 text-[var(--color-blue)]" />
-              Room Pitch Schedule ({activePanel?.slots.length || 0})
+            <span className="text-xs font-semibold text-[var(--ink-secondary)]">
+              Room pitch schedule ({activePanel?.slots.length || 0})
             </span>
           </div>
 
@@ -217,22 +217,22 @@ export function JudgeEvaluationView() {
                 <div
                   key={s.slot_id}
                   onClick={() => setUserSelectedSlotId(s.slot_id)}
-                  className={`rounded-[16px] p-3.5 cursor-pointer transition-all border ${
+                  className={`rounded-[10px] p-3 cursor-pointer transition-all border ${
                     isSelected
-                      ? "border-[#83A2DB] bg-[var(--color-blue-dim)] shadow-[0_4px_14px_-2px_rgba(131,162,219,0.25)]"
-                      : "border-[var(--card-line)] bg-[var(--card-solid)] hover:border-[#83A2DB]/40 hover:bg-[var(--card-solid-subtle)]"
+                      ? "border-[var(--color-blue)] bg-[var(--color-blue-dim)] shadow-xs"
+                      : "border-[var(--card-line)] bg-[var(--card-solid)] hover:border-[var(--card-line-hover)] hover:bg-[var(--card-solid-subtle)]"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5">
-                      <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${
+                      <span className={`w-5 h-5 rounded-[4px] text-[10px] font-bold flex items-center justify-center shrink-0 ${
                         isSelected
-                          ? "bg-[#83A2DB] text-white"
-                          : "bg-[var(--card-line)] text-[var(--ink-secondary)]"
+                          ? "bg-[var(--color-blue)] text-white"
+                          : "bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] border border-[var(--card-line)]"
                       }`}>
                         {idx + 1}
                       </span>
-                      <div className="font-bold text-xs truncate max-w-[170px] text-[var(--ink-primary)]">
+                      <div className="font-semibold text-xs truncate max-w-[170px] text-[var(--ink-primary)]">
                         {s.team_name}
                       </div>
                     </div>
@@ -240,11 +240,11 @@ export function JudgeEvaluationView() {
                     <div className="flex items-center gap-1">
                       {s.is_my_scorecard_locked && (
                         <span title="Your scorecard is locked">
-                          <Lock className="h-3 w-3 text-[var(--color-blue)]" />
+                          <Lock className="h-3 w-3 text-[var(--ink-secondary)]" />
                         </span>
                       )}
                       {isCurrent && (
-                        <span className="inline-block w-2 h-2 rounded-full bg-[#CE6969] animate-ping" />
+                        <span className="inline-block w-2 h-2 rounded-full bg-[var(--color-coral)] animate-ping" />
                       )}
                     </div>
                   </div>
@@ -252,20 +252,20 @@ export function JudgeEvaluationView() {
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--card-line)]/60 text-[10px] font-mono">
                     <span>
                       {isCurrent ? (
-                        <strong className="text-[var(--color-coral)] uppercase font-bold">PRESENTING NOW</strong>
+                        <strong className="text-[var(--color-coral)] font-semibold">Presenting now</strong>
                       ) : isDone ? (
-                        <span className="text-[#2EB88A] font-semibold">COMPLETED</span>
+                        <span className="text-[var(--color-emerald)] font-medium">Completed</span>
                       ) : isQueued ? (
-                        <strong className="text-[var(--color-blue)]">ON DECK</strong>
+                        <strong className="text-[var(--color-blue)] font-semibold">On deck</strong>
                       ) : (
-                        <span className="text-[var(--ink-tertiary)]">SCHEDULED</span>
+                        <span className="text-[var(--ink-tertiary)]">Scheduled</span>
                       )}
                     </span>
 
                     {s.is_my_scorecard_locked ? (
-                      <span className="text-[var(--color-blue)] font-semibold">LOCKED</span>
+                      <span className="text-[var(--ink-secondary)] font-medium">Locked</span>
                     ) : (
-                      <span className="text-[var(--ink-tertiary)]">UNGRADED</span>
+                      <span className="text-[var(--ink-tertiary)]">Ungraded</span>
                     )}
                   </div>
                 </div>
@@ -287,7 +287,7 @@ export function JudgeEvaluationView() {
             />
           ) : (
             <EmptyState
-              title="NO SLOT SELECTED"
+              title="No slot selected"
               description="Select a team slot from the pitch schedule on the left to evaluate their submission."
             />
           )}
@@ -321,7 +321,7 @@ function JudgeSlotScorecardContainer({
   if (!slot) {
     return (
       <EmptyState
-        title="SLOT DATA NOT FOUND"
+        title="Slot data not found"
         description="Could not load the evaluation details for this slot."
       />
     );
@@ -845,7 +845,7 @@ function JudgeSlotScorecardForm({
       <Dialog
         open={isLockConfirmOpen}
         onClose={() => setIsLockConfirmOpen(false)}
-        title="LOCK IN SCORECARD RATINGS"
+        title="Submit scorecard ratings"
         description="Finalize this evaluation and submit ratings to the leaderboard."
       >
         <div className="space-y-4 pt-2 font-sans">

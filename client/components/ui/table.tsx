@@ -6,10 +6,10 @@ export function Table({
   ...props
 }: React.HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="w-full overflow-x-auto">
+    <div className="w-full overflow-x-auto rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
       <table
         className={cn(
-          "w-full text-left font-sans text-xs border-separate [border-spacing:0_0.5rem]",
+          "w-full text-left font-sans text-xs border-collapse",
           className
         )}
         {...props}
@@ -24,7 +24,7 @@ export function TableHeader({
 }: React.HTMLAttributes<HTMLTableSectionElement>) {
   return (
     <thead
-      className={cn("[&_tr]:border-b-0", className)}
+      className={cn("bg-[var(--card-solid-subtle)] border-b border-[var(--card-line)]", className)}
       {...props}
     />
   );
@@ -36,7 +36,7 @@ export function TableBody({
 }: React.HTMLAttributes<HTMLTableSectionElement>) {
   return (
     <tbody
-      className={cn("[&_tr:last-child]:border-0", className)}
+      className={cn("divide-y divide-[var(--card-line)]", className)}
       {...props}
     />
   );
@@ -49,7 +49,7 @@ export function TableRow({
   return (
     <tr
       className={cn(
-        "group transition-colors duration-150 ease-out",
+        "group transition-colors duration-100 ease-out hover:bg-[var(--card-solid-subtle)]/70",
         className
       )}
       {...props}
@@ -64,7 +64,7 @@ export function TableHead({
   return (
     <th
       className={cn(
-        "px-4 pb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--ink-tertiary)] text-left align-middle",
+        "px-4 py-3 text-[11px] font-semibold text-[var(--ink-secondary)] text-left align-middle",
         className
       )}
       {...props}
@@ -79,7 +79,7 @@ export function TableCell({
   return (
     <td
       className={cn(
-        "bg-[var(--card-solid)] px-4 py-3 align-middle text-xs text-[var(--ink-primary)] border-y border-[var(--card-border)] group-hover:bg-[var(--card-solid-subtle)] transition-colors first:border-l first:rounded-l-[14px] last:border-r last:rounded-r-[14px] shadow-[var(--shadow-card)]",
+        "px-4 py-3 align-middle text-xs text-[var(--ink-primary)]",
         className
       )}
       {...props}

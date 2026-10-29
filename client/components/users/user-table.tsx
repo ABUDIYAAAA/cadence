@@ -8,7 +8,7 @@ import {
   Trash2,
   Eye,
   Crown,
-  CheckCircle2,
+  Check,
   Clock,
 } from "lucide-react";
 import { UserDetailResponse } from "@/types/users";
@@ -50,8 +50,8 @@ export function UserTable({
     return (
       <div className="space-y-3 font-sans">
         <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center space-x-4 py-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center space-x-4 py-3 px-4 border-b border-[var(--card-line)]">
               <Skeleton className="h-4 w-1/4" />
               <Skeleton className="h-4 w-1/6" />
               <Skeleton className="h-4 w-1/6" />
@@ -67,34 +67,50 @@ export function UserTable({
   if (users.length === 0) {
     return (
       <EmptyState
-        title="No Users Found"
+        title="No users found"
         description="No users matched your current query or filter criteria. Try adjusting your filters or create a new user account."
       />
     );
   }
 
-  const getRoleBadgeVariant = (role: string) => {
+  const renderRoleBadge = (role: string) => {
     switch (role) {
       case "admin":
-        return "solid";
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-900/60 capitalize">
+            {role}
+          </span>
+        );
       case "judge":
-        return "blue";
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900/60 capitalize">
+            {role}
+          </span>
+        );
       case "volunteer":
-        return "outline";
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-900/60 capitalize">
+            {role}
+          </span>
+        );
       default:
-        return "subtle";
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 capitalize">
+            {role}
+          </span>
+        );
     }
   };
 
   return (
-    <div className="w-full overflow-x-auto font-sans">
+    <div className="w-full font-sans">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>User</TableHead>
             <TableHead>Role</TableHead>
             <TableHead>Team</TableHead>
-            <TableHead>Password Setup</TableHead>
+            <TableHead>Password setup</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Created</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -109,12 +125,12 @@ export function UserTable({
                 {/* User Name & Email */}
                 <TableCell>
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5 font-bold text-[var(--ink-primary)]">
+                    <div className="flex items-center gap-1.5 font-semibold text-[var(--ink-primary)]">
                       <span>{user.name}</span>
                       {user.is_leader && (
                         <span
-                          title="Team Leader"
-                          className="inline-flex items-center gap-0.5 text-[9px] bg-[var(--color-dark)] text-[var(--ink-inverse)] px-1 py-0.2 rounded-[4px] tracking-wider uppercase font-bold"
+                          title="Team Lead"
+                          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded-[4px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900/60"
                         >
                           <Crown className="h-2.5 w-2.5" />
                           Lead
@@ -132,35 +148,33 @@ export function UserTable({
                   </div>
                 </TableCell>
 
-                {/* Role */}
+                {/* Role with distinctive styling */}
                 <TableCell>
-                  <Badge variant={getRoleBadgeVariant(user.role)} size="sm">
-                    {user.role}
-                  </Badge>
+                  {renderRoleBadge(user.role)}
                 </TableCell>
 
                 {/* Team */}
                 <TableCell className="text-xs">
                   {user.team_name ? (
-                    <span className="font-semibold text-[var(--ink-primary)]">
+                    <span className="font-medium text-[var(--ink-primary)]">
                       {user.team_name}
                     </span>
                   ) : (
-                    <span className="text-[var(--ink-tertiary)] italic">None</span>
+                    <span className="text-[var(--ink-tertiary)]">Unassigned</span>
                   )}
                 </TableCell>
 
                 {/* Password / Onboarding */}
                 <TableCell>
                   {user.is_password_configured ? (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-secondary)] font-medium">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-blue)]" />
+                    <span className="inline-flex items-center gap-1 text-xs text-[var(--ink-secondary)] font-medium">
+                      <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                       Configured
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-tertiary)] font-medium">
-                      <Clock className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
-                      Pending Setup
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                      <Clock className="h-3 w-3" />
+                      Pending setup
                     </span>
                   )}
                 </TableCell>
@@ -177,19 +191,19 @@ export function UserTable({
                 </TableCell>
 
                 {/* Created */}
-                <TableCell className="text-xs text-[var(--ink-secondary)] font-mono">
+                <TableCell className="text-xs text-[var(--ink-secondary)] font-mono whitespace-nowrap">
                   {new Date(user.created_at).toLocaleDateString()}
                 </TableCell>
 
                 {/* Actions */}
-                <TableCell className="text-right">
+                <TableCell className="text-right whitespace-nowrap">
                   <div className="flex items-center justify-end gap-1">
                     {/* View Details */}
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => onView(user)}
-                      title="Inspect User Details"
+                      title="Inspect user details"
                       className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                     >
                       <Eye className="h-3.5 w-3.5" />
@@ -200,7 +214,7 @@ export function UserTable({
                       variant="ghost"
                       size="sm"
                       onClick={() => onEdit(user)}
-                      title="Edit User"
+                      title="Edit user"
                       className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                     >
                       <Edit2 className="h-3.5 w-3.5" />
@@ -213,8 +227,8 @@ export function UserTable({
                         size="sm"
                         disabled={isProcessing}
                         onClick={() => onSendInvite(user)}
-                        title="Send Onboarding Invite Email"
-                        className="h-7 w-7 p-0 text-[var(--color-blue)] hover:text-[var(--ink-primary)]"
+                        title="Send onboarding invite"
+                        className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--color-blue)]"
                       >
                         <Mail className="h-3.5 w-3.5" />
                       </Button>
@@ -226,7 +240,7 @@ export function UserTable({
                       size="sm"
                       disabled={isProcessing}
                       onClick={() => onResetPassword(user)}
-                      title="Trigger Password Reset Email"
+                      title="Send password reset link"
                       className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                     >
                       <KeyRound className="h-3.5 w-3.5" />
@@ -238,8 +252,8 @@ export function UserTable({
                       size="sm"
                       disabled={isProcessing}
                       onClick={() => onDelete(user)}
-                      title="Delete User Account"
-                      className="h-7 w-7 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
+                      title="Delete user"
+                      className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--color-coral)]"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>

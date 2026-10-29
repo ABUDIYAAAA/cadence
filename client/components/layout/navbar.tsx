@@ -105,7 +105,7 @@ export function Navbar() {
 
   return (
     <header className="app-header font-sans transition-colors duration-200">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
         {/* Brand & Mobile Sidebar Trigger */}
         <div className="flex items-center gap-2 sm:gap-3">
           {isAuthenticated && user && isDashboard && (
@@ -115,7 +115,7 @@ export function Navbar() {
                 window.dispatchEvent(new CustomEvent("cadence:toggle-sidebar"))
               }
               aria-label="Toggle navigation menu"
-              className="md:hidden flex items-center justify-center h-8 w-8 rounded-full bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] active:scale-95 transition-transform cursor-pointer"
+              className="md:hidden flex items-center justify-center h-8 w-8 rounded-[6px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] active:scale-95 transition-transform cursor-pointer"
             >
               <Menu className="h-4 w-4" />
             </button>
@@ -125,10 +125,10 @@ export function Navbar() {
             href={homeHref}
             className="flex items-center gap-2.5 text-decoration-none group select-none"
           >
-            <span className="w-7 h-7 rounded-[8px] bg-[var(--color-dark)] text-[var(--ink-inverse)] font-extrabold text-xs flex items-center justify-center shadow-sm group-hover:scale-105 active:scale-95 transition-transform">
+            <span className="w-6 h-6 rounded-[6px] bg-[var(--color-dark)] text-[var(--ink-inverse)] font-bold text-xs flex items-center justify-center shadow-xs">
               C
             </span>
-            <span className="text-lg font-extrabold tracking-tight text-[var(--ink-primary)]">
+            <span className="text-base font-bold tracking-tight text-[var(--ink-primary)]">
               Cadence
             </span>
           </Link>
@@ -136,14 +136,14 @@ export function Navbar() {
 
         {/* Right Section: Theme Switcher, Notification Bell & User Avatar */}
         <div className="flex items-center gap-2">
-          {/* Theme Switcher Circle Button */}
+          {/* Theme Switcher Button */}
           <button
             type="button"
             onClick={toggleTheme}
             aria-label="Toggle light/dark theme"
-            className="circle-icon-btn !w-9 !h-9 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+            className="circle-icon-btn !w-8 !h-8 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
           >
-            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {isDark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
           </button>
 
           {isAuthenticated && user ? (
@@ -157,25 +157,25 @@ export function Navbar() {
                   onClick={() => setDropdownOpen((prev) => !prev)}
                   aria-label="User menu"
                   aria-expanded={dropdownOpen}
-                  className="flex items-center justify-center h-9 w-9 rounded-full bg-[var(--color-dark)] text-[var(--ink-inverse)] font-extrabold text-xs shadow-sm hover:scale-105 active:scale-95 transition-transform cursor-pointer select-none"
+                  className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] font-semibold text-xs shadow-xs hover:border-[var(--color-blue)] transition-[border-color,transform] active:scale-95 cursor-pointer select-none"
                 >
                   {initials}
                 </button>
 
-                {/* Dropdown Menu (Floating Glass Card with origin-top-right) */}
+                {/* Dropdown Menu */}
                 {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
+                  <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
                     {/* User Profile Header */}
-                    <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[14px] border border-[var(--card-line)] mb-1.5">
+                    <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[8px] border border-[var(--card-line)] mb-1.5">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] font-medium text-[var(--ink-secondary)]">
-                          Active Account
+                          Account
                         </span>
-                        <Badge variant="solid" size="sm">
+                        <Badge variant="subtle" size="sm">
                           {user.role}
                         </Badge>
                       </div>
-                      <p className="text-xs font-bold text-[var(--ink-primary)] truncate">
+                      <p className="text-xs font-semibold text-[var(--ink-primary)] truncate">
                         {user.name}
                       </p>
                       <p className="text-[11px] text-[var(--ink-secondary)] truncate font-mono">
@@ -188,10 +188,10 @@ export function Navbar() {
                       <Link
                         href={getDashboardRoute(user.role)}
                         onClick={() => setDropdownOpen(false)}
-                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-[10px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
+                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
                       >
                         <LayoutDashboard className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                        <span>My Dashboard</span>
+                        <span>Dashboard</span>
                       </Link>
                     </div>
 
@@ -200,14 +200,14 @@ export function Navbar() {
                       <div className="mt-1 px-3 py-2 border-t border-[var(--card-line)] flex items-center justify-between text-xs">
                         <span className="flex items-center gap-1.5 text-[var(--ink-secondary)]">
                           <Bell className="h-3.5 w-3.5" />
-                          <span>Push Alerts</span>
+                          <span>Push alerts</span>
                         </span>
                         <button
                           type="button"
                           onClick={() =>
                             isSubscribed ? disablePush() : enablePush()
                           }
-                          className="text-[11px] font-semibold rounded-full px-2.5 py-0.5 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] hover:bg-[var(--color-dark)] hover:text-[var(--ink-inverse)] transition-colors cursor-pointer"
+                          className="text-[11px] font-medium rounded-[6px] px-2.5 py-0.5 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] hover:bg-[var(--card-solid)] transition-colors cursor-pointer"
                         >
                           {isSubscribed ? "Active" : "Enable"}
                         </button>
@@ -220,11 +220,11 @@ export function Navbar() {
                         type="button"
                         onClick={handleLogout}
                         disabled={isLoggingOut}
-                        className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-[10px] text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer font-bold disabled:opacity-50"
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-[6px] text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer font-medium disabled:opacity-50"
                       >
                         <span className="flex items-center gap-2">
                           <LogOut className="h-3.5 w-3.5" />
-                          <span>{isLoggingOut ? "Signing out..." : "Log Out"}</span>
+                          <span>{isLoggingOut ? "Signing out..." : "Log out"}</span>
                         </span>
                         <span className="text-[10px] uppercase opacity-60">ESC</span>
                       </button>
@@ -236,7 +236,7 @@ export function Navbar() {
           ) : (
             <Link href="/login">
               <Button variant="primary" size="sm" className="text-xs h-8">
-                Sign In
+                Sign in
               </Button>
             </Link>
           )}

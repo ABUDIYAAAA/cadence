@@ -27,8 +27,8 @@ export function RoundActivateDialog({
     <Dialog
       open={open}
       onClose={isLoading ? () => {} : onClose}
-      title="ACTIVATE JUDGING ROUND"
-      description="Transition this evaluation round from DRAFT to ACTIVE."
+      title="Activate judging round"
+      description="Transition this evaluation round from draft to active."
     >
       <div className="space-y-4 pt-2 font-sans">
         <div className="rounded-[16px] border border-[var(--card-line)] p-4 bg-[var(--card-solid-subtle)] space-y-2.5">

@@ -8,8 +8,8 @@ export default function JudgeDashboardPage() {
   return (
     <RoleDashboard
       expectedRole="judge"
-      title="Judge Evaluation Panel"
-      description="Scorecard interface to evaluate assigned team slots, review submitted code repositories, run countdown timers, and lock in ratings."
+      title="Judging panel"
+      description="Evaluate assigned team presentations, review submissions, and submit ratings."
     >
       <div className="pt-2">
         <JudgeEvaluationView />

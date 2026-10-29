@@ -3,104 +3,110 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Palette & Accents from Ron Design Refined Tokens in preview2.html */
-  --color-dark: #10141A;
+  --color-dark: #0F172A;
   
-  /* Calm, structured top-to-bottom gradient:
-     Soft neutral mist at top, gently grading into powder slate blue at bottom */
-  --gradient-canvas: linear-gradient(180deg, #E8EDF5 0%, #DFE7F2 35%, #CDDCF0 75%, #C2D4EB 100%);
+  /* Clean, calm neutral slate canvas */
+  --canvas-bg: #F8FAFC;
   
-  /* Layer 1: Translucent Container Glass (bleeds the canvas blue through) */
-  --glass-container: rgba(255, 255, 255, 0.50);
-  --glass-container-border: rgba(255, 255, 255, 0.78);
-  --glass-container-subtle: rgba(255, 255, 255, 0.35);
+  /* Structured Surface (Clean, crisp, high-craft) */
+  --surface-panel: #FFFFFF;
+  --surface-panel-border: #E2E8F0;
+  --surface-panel-subtle: #F1F5F9;
 
-  /* Layer 2: Actual Content Cards Sitting on Top (Solid White, Clean) */
+  /* Content Cards */
   --card-solid: #FFFFFF;
-  --card-solid-subtle: #F8FAFD;
-  --card-border: rgba(255, 255, 255, 0.95);
-  --card-line: #E5ECF4;
+  --card-solid-subtle: #F8FAFC;
+  --card-border: #E2E8F0;
+  --card-line: #E2E8F0;
 
   /* Accents */
-  --color-blue: #83A2DB;
-  --color-blue-dim: #EEF3FB;
-  --color-blue-border: #D0DDF3;
+  --color-blue: #2563EB;
+  --color-blue-dim: #EFF6FF;
+  --color-blue-border: #BFDBFE;
 
-  --color-coral: #CE6969;
-  --color-coral-dim: #FAEDED;
-  --color-coral-border: #F3CCCC;
+  --color-coral: #DC2626;
+  --color-coral-dim: #FEF2F2;
+  --color-coral-border: #FECACA;
 
-  --color-emerald: #2EB88A;
-  --color-emerald-dim: #EDF8F4;
-  --color-emerald-border: #B7E8D6;
+  --color-emerald: #059669;
+  --color-emerald-dim: #ECFDF5;
+  --color-emerald-border: #A7F3D0;
+
+  --color-amber: #D97706;
+  --color-amber-dim: #FFFBEB;
+  --color-amber-border: #FDE68A;
 
   /* Typography Ink */
-  --ink-primary: #10141A;
-  --ink-secondary: #586375;
-  --ink-tertiary: #5F6B7E;
+  --ink-primary: #0F172A;
+  --ink-secondary: #64748B;
+  --ink-tertiary: #94A3B8;
   --ink-inverse: #FFFFFF;
 
-  /* Radii */
-  --radius-xl: 28px;
-  --radius-lg: 20px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
+  /* Radii - restrained, intentional hierarchy */
+  --radius-xl: 16px;
+  --radius-lg: 12px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
   --radius-pill: 9999px;
 
-  /* Restrained Soft Shadows */
-  --shadow-container: 0 16px 36px -10px rgba(30, 48, 80, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.85);
-  --shadow-card: 0 4px 16px -2px rgba(24, 32, 48, 0.04), inset 0 0 0 1px rgba(255, 255, 255, 0.95);
-  --shadow-pill: 0 4px 12px -2px rgba(24, 32, 48, 0.05);
-  --shadow-dark: 0 8px 22px -3px rgba(16, 20, 26, 0.3);
+  /* Crisp, subtle shadows */
+  --shadow-container: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.05);
+  --shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --shadow-pill: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-dark: 0 1px 2px 0 rgba(15, 23, 42, 0.1);
 
-  /* Apple & Emil Kowalski Motion */
+  /* Emil Kowalski & Apple Motion */
   --ease-apple: cubic-bezier(0.25, 1, 0.35, 1);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --duration-tactile: 130ms;
 
-  --background: #E8EDF5;
-  --foreground: #10141A;
+  --background: #F8FAFC;
+  --foreground: #0F172A;
 }
 
 html.dark {
-  --color-dark: #FFFFFF;
+  --color-dark: #F8FAFC;
   
-  --gradient-canvas: linear-gradient(180deg, #0F1319 0%, #131923 35%, #182232 75%, #1B293D 100%);
+  --canvas-bg: #0B0F17;
   
-  --glass-container: rgba(22, 29, 41, 0.55);
-  --glass-container-border: rgba(255, 255, 255, 0.08);
-  --glass-container-subtle: rgba(255, 255, 255, 0.04);
+  --surface-panel: #131924;
+  --surface-panel-border: #1E293B;
+  --surface-panel-subtle: #172033;
 
-  --card-solid: #171E2B;
-  --card-solid-subtle: #1C2433;
-  --card-border: rgba(255, 255, 255, 0.06);
-  --card-line: #263143;
+  --card-solid: #131924;
+  --card-solid-subtle: #172033;
+  --card-border: #1E293B;
+  --card-line: #1E293B;
 
-  --color-blue: #95B4ED;
-  --color-blue-dim: #16243A;
-  --color-blue-border: #233758;
+  --color-blue: #60A5FA;
+  --color-blue-dim: #172554;
+  --color-blue-border: #1E3A8A;
 
-  --color-coral: #E07D7D;
-  --color-coral-dim: #32191D;
-  --color-coral-border: #4D262C;
+  --color-coral: #F87171;
+  --color-coral-dim: #450A0A;
+  --color-coral-border: #7F1D1D;
 
-  --color-emerald: #47CCA0;
-  --color-emerald-dim: #152B24;
-  --color-emerald-border: #1F4538;
+  --color-emerald: #34D399;
+  --color-emerald-dim: #064E3B;
+  --color-emerald-border: #065F46;
 
-  --ink-primary: #FFFFFF;
-  --ink-secondary: #9DA8BA;
-  --ink-tertiary: #8A96AA;
-  --ink-inverse: #10141A;
+  --color-amber: #FBBF24;
+  --color-amber-dim: #451A03;
+  --color-amber-border: #78350F;
 
-  --shadow-container: 0 16px 36px -10px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-card: 0 4px 16px -2px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-pill: 0 4px 12px -2px rgba(0, 0, 0, 0.3);
-  --shadow-dark: 0 8px 22px -3px rgba(255, 255, 255, 0.2);
+  --ink-primary: #F8FAFC;
+  --ink-secondary: #94A3B8;
+  --ink-tertiary: #64748B;
+  --ink-inverse: #0F172A;
 
-  --background: #0F1319;
-  --foreground: #FFFFFF;
+  --shadow-container: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.25);
+  --shadow-pill: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+  --shadow-dark: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+
+  --background: #0B0F17;
+  --foreground: #F8FAFC;
 }
 
 @theme inline {
@@ -119,48 +125,43 @@ html.dark {
   --font-mono: var(--font-mono, "Geist Mono", ui-monospace, Menlo, monospace);
 }
 
-/* App Header (Ron Design from preview2.html) */
+/* App Header - clean, quiet navigation surface */
 .app-header {
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid var(--glass-container-border);
+  background: rgba(255, 255, 255, 0.90);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--card-line);
   position: sticky;
   top: 0;
   z-index: 40;
 }
 
 html.dark .app-header {
-  background: rgba(15, 19, 25, 0.70);
-  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(11, 15, 23, 0.90);
+  border-bottom-color: var(--card-line);
 }
 
-/* Vertical Dock (Ron Design from preview2.html) */
-.left-vertical-dock {
-  background: var(--glass-container);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--glass-container-border);
-  box-shadow: var(--shadow-container);
-}
-
-/* Circle Icon Button (Ron Design from preview2.html) */
+/* Circle Icon Button (tactile, restrained) */
 .circle-icon-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
   background: var(--card-solid);
-  border: 1px solid var(--glass-container-border);
-  box-shadow: var(--shadow-pill);
-  color: var(--ink-primary);
+  border: 1px solid var(--card-line);
+  box-shadow: var(--shadow-card);
+  color: var(--ink-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform var(--duration-tactile) var(--ease-apple), box-shadow 150ms ease;
+  transition: transform var(--duration-tactile) var(--ease-apple), color 150ms ease, background-color 150ms ease;
+}
+.circle-icon-btn:hover {
+  color: var(--ink-primary);
+  background: var(--card-solid-subtle);
 }
 .circle-icon-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.96);
 }
 
 * {
@@ -169,69 +170,67 @@ html.dark .app-header {
 }
 
 body {
-  background: var(--gradient-canvas);
-  background-attachment: fixed;
+  background: var(--background);
   color: var(--ink-primary);
   font-family: var(--font-sans, "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   font-size: 14px;
   line-height: 1.5;
   min-height: 100vh;
   overflow-x: hidden;
-  transition: background 300ms var(--ease-apple), color 240ms var(--ease-apple);
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
-/* Layer 1: Translucent Container Glass */
-.translucent-container {
-  background: var(--glass-container);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+/* Main Surface Panel: Solid, crisp, professional (replaces glass mockup container) */
+.translucent-container,
+.page-surface {
+  background: var(--surface-panel);
   border-radius: var(--radius-xl);
-  border: 1px solid var(--glass-container-border);
+  border: 1px solid var(--surface-panel-border);
   box-shadow: var(--shadow-container);
-  padding: 1.75rem 2rem;
+  padding: 1.5rem 1.75rem;
   margin-bottom: 1.75rem;
   position: relative;
 }
 
-/* Layer 2: Clean Content Card */
+/* Content Card */
 .content-card-solid {
   background: var(--card-solid);
   border-radius: var(--radius-lg);
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow-card);
-  padding: 1.35rem 1.45rem;
-  transition: transform 160ms var(--ease-apple), box-shadow 160ms ease;
+  padding: 1.25rem 1.35rem;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
-/* Pill Badges (Ron Design from preview2.html) */
+/* Badges - clean rectangular tags by default */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.25rem 0.85rem;
-  border-radius: var(--radius-pill);
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
 .pill-blue {
-  background: var(--color-blue);
-  color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(131, 162, 219, 0.3);
+  background: var(--color-blue-dim);
+  color: var(--color-blue);
+  border: 1px solid var(--color-blue-border);
 }
 
 .pill-coral {
-  background: var(--color-coral);
-  color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(206, 105, 105, 0.3);
+  background: var(--color-coral-dim);
+  color: var(--color-coral);
+  border: 1px solid var(--color-coral-border);
 }
 
 .pill-emerald {
-  background: var(--color-emerald);
-  color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(46, 184, 138, 0.3);
+  background: var(--color-emerald-dim);
+  color: var(--color-emerald);
+  border: 1px solid var(--color-emerald-border);
 }
 
 .pill-subtle {
@@ -241,20 +240,20 @@ body {
 }
 
 .pill-dark {
-  background: var(--color-dark);
-  color: var(--ink-inverse);
-  box-shadow: var(--shadow-dark);
+  background: var(--card-solid-subtle);
+  color: var(--ink-primary);
+  border: 1px solid var(--card-line);
 }
 
-/* Tactile press response (Emil Kowalski & Apple Design principles) */
+/* Tactile press response (Emil Kowalski) */
 .tactile-press {
   transition: transform var(--duration-tactile) var(--ease-apple), background-color 150ms ease, box-shadow 150ms ease;
 }
 .tactile-press:active {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 
-/* Soft Table (preview2.html table style) */
+/* Clean Data Table */
 .soft-table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -262,38 +261,25 @@ body {
 
 table.soft-table {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 0 0.5rem;
+  border-collapse: collapse;
   font-size: 13px;
 }
 
 table.soft-table th {
-  padding: 0 1.25rem 0.5rem 1.25rem;
-  color: var(--ink-tertiary);
+  padding: 0.65rem 1rem;
+  color: var(--ink-secondary);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
   text-align: left;
+  border-bottom: 1px solid var(--card-line);
 }
 
 table.soft-table td {
   background: var(--card-solid);
-  padding: 0.95rem 1.25rem;
-  border-top: 1px solid var(--card-border);
-  border-bottom: 1px solid var(--card-border);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--card-line);
   color: var(--ink-primary);
   transition: background-color 140ms ease;
-}
-
-table.soft-table tr td:first-child {
-  border-left: 1px solid var(--card-border);
-  border-top-left-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-md);
-}
-
-table.soft-table tr td:last-child {
-  border-right: 1px solid var(--card-border);
-  border-top-right-radius: var(--radius-md);
-  border-bottom-right-radius: var(--radius-md);
 }
 
 table.soft-table tr:hover td {

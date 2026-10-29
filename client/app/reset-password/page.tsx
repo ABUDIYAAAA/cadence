@@ -76,86 +76,77 @@ function ResetPasswordForm() {
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 font-sans">
       <div className="w-full max-w-md">
-        <div className="translucent-container p-2 sm:p-3">
-          <Card className="border border-[var(--card-border)] shadow-none">
-            <CardHeader className="pb-4">
-              <div className="pb-1">
-                <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
-                  Create New Password
-                </CardTitle>
-              </div>
-              <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
-                Enter your security token and configure a new password.
-              </CardDescription>
-            </CardHeader>
+        <Card className="border border-[var(--card-line)] shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
+              Create new password
+            </CardTitle>
+            <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
+              Enter your reset token and choose a new password.
+            </CardDescription>
+          </CardHeader>
 
-            {isSuccess ? (
-              <div>
-                <CardContent className="space-y-4">
-                  <Alert variant="success" title="PASSWORD RESET SUCCESSFUL">
-                    Your password has been changed. You can now use your new password
-                    to access your account.
-                  </Alert>
-                </CardContent>
+          {isSuccess ? (
+            <div>
+              <CardContent className="space-y-4">
+                <Alert variant="success" title="Password reset complete">
+                  Your password has been changed. You can now use your new password
+                  to sign in.
+                </Alert>
+              </CardContent>
 
-                <CardFooter className="pt-3">
-                  <Link href="/login" className="w-full">
-                    <Button variant="primary" className="w-full h-11 text-sm font-semibold">
-                      Sign In Now
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                <CardContent className="space-y-4">
-                  {!hasUrlToken ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-[var(--ink-primary)]">
-                          Security Verification Token
-                        </span>
-                      </div>
-
-                      <Alert variant="warning" title="TOKEN REQUIRED">
-                        No reset token was detected in your link. Please paste the
-                        token provided in your reset email.
-                      </Alert>
-
-                      <Input
-                        label="Reset Token"
-                        required
-                        placeholder="Paste reset token from email"
-                        value={manualToken}
-                        onChange={(e) => setManualToken(e.target.value)}
-                        error={!effectiveToken && validationError ? validationError : undefined}
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between p-3 rounded-[14px] bg-[var(--card-solid)] border border-[var(--card-line)] text-xs">
-                      <span className="text-[var(--ink-secondary)]">Token Attached</span>
-                      <span className="font-mono text-[var(--color-blue)] font-semibold truncate max-w-[200px]">
-                        {urlToken.slice(0, 10)}...{urlToken.slice(-6)}
-                      </span>
-                    </div>
-                  )}
-
-                  {validationError && (
-                    <Alert variant="error" title="ERROR">
-                      {validationError}
+              <CardFooter className="pt-3">
+                <Link href="/login" className="w-full">
+                  <Button variant="primary" className="w-full h-11 text-sm font-semibold">
+                    Sign in
+                  </Button>
+                </Link>
+              </CardFooter>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              <CardContent className="space-y-4">
+                {!hasUrlToken ? (
+                  <div className="space-y-3">
+                    <Alert variant="warning" title="Token required">
+                      No reset token was detected in your link. Please paste the
+                      token from your reset email.
                     </Alert>
-                  )}
 
-                  <Input
-                    label="New Password"
-                    type="password"
-                    required
-                    autoComplete="new-password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    helperText="Minimum 8 characters with at least one letter and number."
-                  />
+                    <Input
+                      label="Reset token"
+                      required
+                      placeholder="Paste reset token from email"
+                      value={manualToken}
+                      onChange={(e) => setManualToken(e.target.value)}
+                      error={!effectiveToken && validationError ? validationError : undefined}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between p-3 rounded-[8px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-xs">
+                    <span className="text-[var(--ink-secondary)]">Token attached</span>
+                    <span className="font-mono text-[var(--ink-primary)] font-semibold truncate max-w-[200px]">
+                      {urlToken.slice(0, 10)}...{urlToken.slice(-6)}
+                    </span>
+                  </div>
+                )}
+
+                {validationError && (
+                  <Alert variant="error" title="Validation error">
+                    {validationError}
+                  </Alert>
+                )}
+
+                <Input
+                  label="New password"
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  helperText="Minimum 8 characters with at least one letter and number."
+                />
 
                   <Input
                     label="Confirm New Password"
@@ -180,7 +171,7 @@ function ResetPasswordForm() {
                     className="w-full h-11 text-sm font-semibold"
                     isLoading={resetPasswordMutation.isPending}
                   >
-                    Update Password
+                    Update password
                   </Button>
 
                   <div className="flex w-full justify-center text-xs text-[var(--ink-secondary)] pt-2 border-t border-[var(--card-line)]">
@@ -188,7 +179,7 @@ function ResetPasswordForm() {
                       href="/login"
                       className="hover:text-[var(--ink-primary)] underline transition-colors"
                     >
-                      ← Back to Sign In
+                      ← Back to sign in
                     </Link>
                   </div>
                 </CardFooter>
@@ -197,7 +188,6 @@ function ResetPasswordForm() {
           </Card>
         </div>
       </div>
-    </div>
   );
 }
 

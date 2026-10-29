@@ -63,36 +63,36 @@ export function RoleDashboard({
   return (
     <div className="mx-auto max-w-5xl space-y-6 font-sans">
       {isRoleMismatch && (
-        <Alert variant="warning" title="ROLE MISMATCH DETECTED">
+        <Alert variant="warning" title="Role mismatch">
           Your account role is{" "}
-          <strong className="uppercase">{user.role}</strong>, but you are viewing
-          the <strong className="uppercase">{expectedRole}</strong> dashboard.
+          <strong className="capitalize">{user.role}</strong>, but you are viewing
+          the <strong className="capitalize">{expectedRole}</strong> dashboard.
           <div className="mt-3">
             <Button
               variant="outline"
               size="sm"
               onClick={() => router.push(getDashboardRoute(user.role))}
             >
-              Go to Your Dashboard ({user.role})
+              Go to your dashboard ({user.role})
             </Button>
           </div>
         </Alert>
       )}
 
-      {/* Main Glass Container (Layer 1) */}
-      <div className="translucent-container">
-        {/* Container Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-[var(--glass-container-border)]">
+      {/* Main Surface Panel */}
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--card-line)]">
           <div>
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="pill pill-blue">
-                {expectedRole} Console
-              </span>
-              <span className="text-xs text-[var(--ink-secondary)] font-semibold">
-                Live Session
+              <Badge variant="blue" size="sm" className="capitalize">
+                {expectedRole} portal
+              </Badge>
+              <span className="text-xs text-[var(--ink-secondary)] font-medium">
+                Signed in
               </span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-[var(--ink-primary)]">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               {title}
             </h1>
             <p className="text-xs text-[var(--ink-secondary)] mt-1">
@@ -100,78 +100,76 @@ export function RoleDashboard({
             </p>
           </div>
 
-          <Badge variant="solid" size="md">
+          <Badge variant="subtle" size="sm" className="capitalize">
             {user.role}
           </Badge>
         </div>
 
-        {/* Content Card (Layer 2) */}
-        <div className="content-card-solid">
-          <div className="rounded-[16px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] overflow-hidden">
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid-subtle)]">
-              <span className="text-[var(--ink-secondary)] font-medium">Full Name</span>
-              <span className="font-bold text-[var(--ink-primary)]">{user.name}</span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid)]">
-              <span className="text-[var(--ink-secondary)] font-medium">Email Address</span>
-              <span className="font-mono text-[var(--ink-primary)]">{user.email}</span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid-subtle)]">
-              <span className="text-[var(--ink-secondary)] font-medium">User Identifier (UUID)</span>
-              <span className="font-mono text-[var(--ink-secondary)] break-all">{user.id}</span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid)]">
-              <span className="text-[var(--ink-secondary)] font-medium">System Role</span>
-              <span className="uppercase font-semibold text-[var(--ink-primary)]">{user.role}</span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid-subtle)]">
-              <span className="text-[var(--ink-secondary)] font-medium">Phone Number</span>
-              <span className="font-mono text-[var(--ink-primary)]">
-                {user.phone_number || "— (Not Provided)"}
-              </span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid)]">
-              <span className="text-[var(--ink-secondary)] font-medium">Assigned Team</span>
-              <span className="font-mono text-[var(--ink-primary)]">
-                {user.team_id ? user.team_id : "— (Unassigned)"}
-              </span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid-subtle)]">
-              <span className="text-[var(--ink-secondary)] font-medium">Password Setup</span>
-              <span className="font-semibold text-[var(--ink-primary)]">
-                {user.is_password_configured ? "Configured" : "Pending Setup"}
-              </span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between p-3.5 text-xs bg-[var(--card-solid)]">
-              <span className="text-[var(--ink-secondary)] font-medium">Account Created</span>
-              <span className="font-mono text-[var(--ink-secondary)]">
-                {new Date(user.created_at).toLocaleString()}
-              </span>
-            </div>
+        {/* User Account Details Card */}
+        <div className="rounded-[10px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] overflow-hidden bg-[var(--card-solid)]">
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)] font-medium">Name</span>
+            <span className="font-semibold text-[var(--ink-primary)]">{user.name}</span>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-5 mt-5 border-t border-[var(--card-line)]">
-            <p className="text-xs text-[var(--ink-secondary)]">
-              Session authenticated with signed HTTP-only cookies.
-            </p>
-
-            <Button
-              variant="destructive"
-              size="md"
-              isLoading={isLoggingOut}
-              onClick={handleLogout}
-              className="w-full sm:w-auto"
-            >
-              Log Out
-            </Button>
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
+            <span className="text-[var(--ink-secondary)] font-medium">Email</span>
+            <span className="font-mono text-[var(--ink-primary)]">{user.email}</span>
           </div>
+
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)] font-medium">User ID</span>
+            <span className="font-mono text-[var(--ink-secondary)] break-all">{user.id}</span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
+            <span className="text-[var(--ink-secondary)] font-medium">Role</span>
+            <span className="capitalize font-medium text-[var(--ink-primary)]">{user.role}</span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)] font-medium">Phone</span>
+            <span className="font-mono text-[var(--ink-primary)]">
+              {user.phone_number || "—"}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
+            <span className="text-[var(--ink-secondary)] font-medium">Team</span>
+            <span className="font-mono text-[var(--ink-primary)]">
+              {user.team_id ? user.team_id : "Unassigned"}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)] font-medium">Password</span>
+            <span className="font-medium text-[var(--ink-primary)]">
+              {user.is_password_configured ? "Configured" : "Pending setup"}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
+            <span className="text-[var(--ink-secondary)] font-medium">Created</span>
+            <span className="font-mono text-[var(--ink-secondary)]">
+              {new Date(user.created_at).toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-[var(--card-line)]">
+          <p className="text-xs text-[var(--ink-secondary)]">
+            Authenticated via secure HTTP-only session cookies.
+          </p>
+
+          <Button
+            variant="destructive"
+            size="sm"
+            isLoading={isLoggingOut}
+            onClick={handleLogout}
+            className="w-full sm:w-auto"
+          >
+            Sign out
+          </Button>
         </div>
       </div>
 

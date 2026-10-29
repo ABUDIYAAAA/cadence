@@ -123,14 +123,9 @@ export function ParticipantJudgingStatusView() {
     return (
       <div className="font-sans space-y-4">
         <div className="flex items-center justify-between border-b border-[var(--card-line)] pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-              <Award className="h-4 w-4" />
-            </div>
-            <h2 className="text-lg font-bold text-[var(--ink-primary)]">
-              Participant Judging Status
-            </h2>
-          </div>
+          <h2 className="text-lg font-bold text-[var(--ink-primary)]">
+            Judging status
+          </h2>
           <Button
             variant="outline"
             size="sm"
@@ -144,8 +139,8 @@ export function ParticipantJudgingStatusView() {
         </div>
 
         <EmptyState
-          title="NO ACTIVE JUDGING ROUND"
-          description="Judging is not currently underway for your squad. Once an evaluation round is activated by organizers, your designated room, assigned evaluators, and real-time slot schedule will be displayed here."
+          title="No active judging round"
+          description="Judging is not currently underway for your team. Once an evaluation round is activated by organizers, your room, assigned panel, and time slot will be displayed here."
         />
       </div>
     );
@@ -160,16 +155,11 @@ export function ParticipantJudgingStatusView() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--card-line)] pb-4">
         <div>
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-              <Award className="h-5 w-5" />
-            </div>
-            <h2 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
-              Judging Slot & Evaluation Status
-            </h2>
-          </div>
-          <p className="text-xs text-[var(--ink-secondary)] mt-1 ml-11">
-            Active Round: <strong className="text-[var(--ink-primary)]">{status.round_name || "General Evaluation"}</strong>
+          <h2 className="text-xl font-bold tracking-tight text-[var(--ink-primary)]">
+            Judging schedule & status
+          </h2>
+          <p className="text-xs text-[var(--ink-secondary)] mt-1">
+            Active round: <strong className="text-[var(--ink-primary)]">{status.round_name || "General evaluation"}</strong>
           </p>
         </div>
 
@@ -205,28 +195,22 @@ export function ParticipantJudgingStatusView() {
       )}
 
       {isPresenting && (
-        <div className="rounded-[18px] border border-[#83A2DB]/40 bg-[var(--color-blue-dim)] p-4.5 flex items-start gap-3.5 shadow-sm">
-          <div className="h-8 w-8 rounded-full bg-[#83A2DB]/20 flex items-center justify-center text-[var(--color-blue)] shrink-0 mt-0.5">
-            <Play className="h-4 w-4 fill-current" />
-          </div>
+        <div className="rounded-[12px] border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] p-4 flex items-start gap-3 shadow-xs">
           <div className="space-y-1">
-            <div className="font-bold text-sm text-[var(--color-blue)] tracking-wide">EVALUATION IN PROGRESS</div>
-            <p className="text-xs text-[var(--color-blue)] leading-relaxed">
-              Your squad is currently being evaluated in <strong className="text-[var(--ink-primary)]">{status.room}</strong> with <strong className="text-[var(--ink-primary)]">{status.panel_name}</strong>.
+            <div className="font-semibold text-xs text-[var(--color-blue)]">Evaluation in progress</div>
+            <p className="text-xs text-[var(--ink-secondary)] leading-relaxed">
+              Your team is currently being evaluated in <strong className="text-[var(--ink-primary)]">{status.room}</strong> with <strong className="text-[var(--ink-primary)]">{status.panel_name}</strong>.
             </p>
           </div>
         </div>
       )}
 
       {isDone && (
-        <div className="rounded-[18px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-4.5 flex items-start gap-3.5 shadow-sm">
-          <div className="h-8 w-8 rounded-full bg-[#2EB88A]/15 flex items-center justify-center text-[#2EB88A] shrink-0 mt-0.5">
-            <CheckCircle2 className="h-4 w-4" />
-          </div>
+        <div className="rounded-[12px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-4 flex items-start gap-3 shadow-xs">
           <div className="space-y-1">
-            <div className="font-bold text-sm text-[#2EB88A]">ROUND EVALUATION COMPLETED</div>
-            <p className="text-xs text-[var(--color-emerald)] leading-relaxed">
-              Your squad has finished presenting for this round. Scores and rankings will be computed upon round completion.
+            <div className="font-semibold text-xs text-[var(--color-emerald)]">Round evaluation complete</div>
+            <p className="text-xs text-[var(--ink-secondary)] leading-relaxed">
+              Your team has finished presenting for this round. Scores and rankings will be computed upon round completion.
             </p>
           </div>
         </div>
@@ -235,15 +219,12 @@ export function ParticipantJudgingStatusView() {
       {/* Primary Status Grid: Room, Slot Time, Queue Position */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 1. ROOM ASSIGNMENT */}
-        <div className="rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 shadow-[var(--shadow-card)] flex flex-col justify-between">
+        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 shadow-xs flex flex-col justify-between">
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-semibold">
-              <span className="flex items-center gap-1.5">
-                <DoorOpen className="h-4 w-4 text-[var(--color-blue)]" />
-                Room Assignment
-              </span>
+            <div className="flex items-center justify-between text-[var(--ink-secondary)] text-xs font-medium">
+              <span>Room</span>
               <Badge variant={status.room ? "blue" : "subtle"} size="sm">
-                {status.room ? "ASSIGNED" : "PENDING"}
+                {status.room ? "Assigned" : "Pending"}
               </Badge>
             </div>
 
@@ -397,7 +378,7 @@ export function ParticipantJudgingStatusView() {
       <Dialog
         open={isEditLinksOpen}
         onClose={() => setIsEditLinksOpen(false)}
-        title="SUBMISSION ARTIFACT LINKS"
+        title="Project links"
         description="Attach public links for evaluators to review during your evaluation."
       >
         <div className="space-y-4 pt-2 font-sans">

@@ -6,7 +6,6 @@ import {
   Download,
   RefreshCw,
   ShieldAlert,
-  Activity,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -70,7 +69,7 @@ export default function AuditLogsPage() {
   if (!isAdmin) {
     return (
       <div className="p-6 font-mono max-w-4xl mx-auto space-y-4">
-        <Alert variant="error" title="ACCESS RESTRICTED">
+        <Alert variant="error" title="Access restricted">
           <div className="flex items-center gap-2">
             <ShieldAlert className="h-5 w-5" />
             <span>
@@ -83,7 +82,7 @@ export default function AuditLogsPage() {
               size="sm"
               onClick={() => router.push("/dashboard")}
             >
-              Return to Dashboard
+              Return to dashboard
             </Button>
           </div>
         </Alert>
@@ -94,7 +93,7 @@ export default function AuditLogsPage() {
   // Handlers
   const handleExportCsv = async () => {
     try {
-      toast.info("Generating CSV export from audit stream...", "EXPORT INITIATED");
+      toast.info("Generating CSV export from audit stream...", "Export started");
       const blob = await exportMutation.mutateAsync(filters);
 
       // Create download anchor
@@ -110,26 +109,25 @@ export default function AuditLogsPage() {
 
       toast.success(
         "Audit log CSV downloaded successfully.",
-        "EXPORT COMPLETE"
+        "Export complete"
       );
     } catch (err: unknown) {
       const errorMsg =
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Failed to export audit logs";
-      toast.error(errorMsg, "EXPORT FAILED");
+      toast.error(errorMsg, "Export failed");
     }
   };
 
   return (
-    <div className="translucent-container space-y-6 font-sans">
+    <div className="space-y-6 font-sans">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-              <Activity className="h-6 w-6 text-[var(--color-blue)]" />
-              <span>Immutable Audit Trail</span>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+              Audit log
             </h1>
             {auditResponse?.total_count !== undefined && (
               <Badge variant="subtle" size="sm">
@@ -137,8 +135,8 @@ export default function AuditLogsPage() {
               </Badge>
             )}
           </div>
-          <p className="text-xs text-[var(--ink-secondary)] mt-1">
-            Persistent log of authentication events, user operations, ticketing scans, and judging updates.
+          <p className="text-sm text-[var(--ink-secondary)] mt-1">
+            Activity and security events across the platform.
           </p>
         </div>
 
@@ -150,7 +148,7 @@ export default function AuditLogsPage() {
             onClick={() => refetch()}
             disabled={isFetching}
             className="h-9 px-3 text-xs gap-1.5"
-            title="Refresh Audit Logs"
+            title="Refresh audit logs"
           >
             <RefreshCw
               className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
@@ -163,7 +161,7 @@ export default function AuditLogsPage() {
             size="sm"
             onClick={handleExportCsv}
             isLoading={exportMutation.isPending}
-            className="h-9 px-4 text-xs gap-1.5"
+            className="h-9 px-4 text-xs gap-1.5 font-semibold"
           >
             <Download className="h-3.5 w-3.5" />
             <span>Export CSV</span>
@@ -171,43 +169,43 @@ export default function AuditLogsPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <AuditFilters
-        filters={filters}
-        onChange={(newFilters) => setFilters(newFilters)}
-        onReset={() =>
-          setFilters({
-            page: 1,
-            limit: filters.limit,
-            search: "",
-            action: undefined,
-            target_type: undefined,
-            from_date: undefined,
-            to_date: undefined,
-          })
-        }
-      />
-
-      {/* Table */}
-      <AuditTable
-        logs={auditResponse?.data ?? []}
-        isLoading={auditLoading}
-        onView={(log) => setSelectedLog(log)}
-      />
-
-      {/* Pagination */}
-      {auditResponse && (
-        <Pagination
-          page={auditResponse.page}
-          totalPages={auditResponse.total_pages}
-          totalCount={auditResponse.total_count}
-          limit={auditResponse.limit}
-          onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
-          onLimitChange={(limit) =>
-            setFilters((prev) => ({ ...prev, limit, page: 1 }))
+      {/* Primary Surface: Filters + Table + Pagination */}
+      <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
+        <AuditFilters
+          filters={filters}
+          onChange={(newFilters) => setFilters(newFilters)}
+          onReset={() =>
+            setFilters({
+              page: 1,
+              limit: filters.limit,
+              search: "",
+              action: undefined,
+              target_type: undefined,
+              from_date: undefined,
+              to_date: undefined,
+            })
           }
         />
-      )}
+
+        <AuditTable
+          logs={auditResponse?.data ?? []}
+          isLoading={auditLoading}
+          onView={(log) => setSelectedLog(log)}
+        />
+
+        {auditResponse && (
+          <Pagination
+            page={auditResponse.page}
+            totalPages={auditResponse.total_pages}
+            totalCount={auditResponse.total_count}
+            limit={auditResponse.limit}
+            onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
+            onLimitChange={(limit) =>
+              setFilters((prev) => ({ ...prev, limit, page: 1 }))
+            }
+          />
+        )}
+      </div>
 
       {/* Event Details Inspector Modal */}
       <AuditDetailDialog

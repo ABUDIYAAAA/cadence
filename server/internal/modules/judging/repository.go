@@ -147,7 +147,7 @@ func (r *Repository) ListRounds(ctx context.Context) ([]map[string]any, error) {
 	}
 	defer rows.Close()
 
-	var result []map[string]any
+	result := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, name, status string
 		var bufferSize, duration, panelCount, slotCount int
@@ -330,7 +330,7 @@ func (r *Repository) GetJudgePanels(ctx context.Context, judgeID string) ([]Judg
 	}
 	defer rows.Close()
 
-	var panels []JudgePanelSummary
+	panels := make([]JudgePanelSummary, 0)
 	for rows.Next() {
 		var p JudgePanelSummary
 		if err := rows.Scan(&p.PanelID, &p.PanelName, &p.Room, &p.RoundID, &p.RoundName, &p.RoundStatus, &p.SlotDurationMins, &p.BufferSize); err != nil {
@@ -838,7 +838,7 @@ func (r *Repository) GetVolunteerSchedule(ctx context.Context) ([]VolunteerPanel
 	}
 	defer rows.Close()
 
-	var panels []VolunteerPanelSchedule
+	panels := make([]VolunteerPanelSchedule, 0)
 	for rows.Next() {
 		var p VolunteerPanelSchedule
 		if err := rows.Scan(&p.PanelID, &p.PanelName, &p.Room, &p.RoundID, &p.RoundName, &p.SlotDurationMins, &p.BufferSize); err != nil {

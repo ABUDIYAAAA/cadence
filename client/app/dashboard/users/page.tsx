@@ -1,14 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   UserPlus,
   Upload,
   Mail,
   RefreshCw,
-  Users as UsersIcon,
-  ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -51,10 +49,10 @@ export default function UsersPage() {
   const toast = useToast();
   const { user: currentUser, isAdmin, isLoading: authLoading } = useAuth();
 
-  // Filters state
+  // Filters state with dense page size for sensible viewport usage
   const [filters, setFilters] = useState<UserFilter>({
     page: 1,
-    limit: 10,
+    limit: 25,
     search: "",
     role: undefined,
     is_active: undefined,
@@ -85,6 +83,16 @@ export default function UsersPage() {
   const [deletingUser, setDeletingUser] = useState<UserDetailResponse | null>(null);
   const [actionInProgressId, setActionInProgressId] = useState<string | null>(null);
 
+  // Derive summary metrics from user records
+  const metrics = useMemo(() => {
+    const data = usersResponse?.data || [];
+    const total = usersResponse?.total_count ?? 0;
+    const active = data.filter((u) => u.is_active).length;
+    const pendingSetup = data.filter((u) => !u.is_password_configured).length;
+    const staff = data.filter((u) => u.role !== "participant").length;
+    return { total, active, pendingSetup, staff };
+  }, [usersResponse]);
+
   // Guards
   useEffect(() => {
     if (!authLoading && !currentUser) {
@@ -102,13 +110,10 @@ export default function UsersPage() {
 
   if (!isAdmin) {
     return (
-      <div className="p-6 font-mono max-w-4xl mx-auto space-y-4">
-        <Alert variant="error" title="ACCESS RESTRICTED">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="h-5 w-5" />
-            <span>
-              You do not have administrative privileges to manage user accounts.
-            </span>
+      <div className="p-6 font-sans max-w-4xl mx-auto space-y-4">
+        <Alert variant="error" title="Access restricted">
+          <div>
+            You do not have administrative privileges to manage user accounts.
           </div>
           <div className="mt-3">
             <Button
@@ -116,7 +121,7 @@ export default function UsersPage() {
               size="sm"
               onClick={() => router.push("/dashboard")}
             >
-              Return to Dashboard
+              Return to dashboard
             </Button>
           </div>
         </Alert>
@@ -130,14 +135,14 @@ export default function UsersPage() {
       const created = await createUserMutation.mutateAsync(data);
       toast.success(
         `User ${created.email} provisioned successfully.`,
-        "USER CREATED"
+        "User created"
       );
     } catch (err: unknown) {
       const errorMsg =
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Failed to create user";
-      toast.error(errorMsg, "CREATION FAILED");
+      toast.error(errorMsg, "Could not create user");
       throw err;
     }
   };
@@ -147,7 +152,7 @@ export default function UsersPage() {
       const res = await bulkCreateMutation.mutateAsync(payload);
       toast.success(
         `Successfully imported ${res.total_created} of ${res.total_processed} accounts.`,
-        "BULK IMPORT COMPLETE"
+        "Import complete"
       );
       return res;
     } catch (err: unknown) {
@@ -155,7 +160,7 @@ export default function UsersPage() {
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Bulk import failed";
-      toast.error(errorMsg, "IMPORT ERROR");
+      toast.error(errorMsg, "Import error");
       throw err;
     }
   };
@@ -163,13 +168,13 @@ export default function UsersPage() {
   const handleUpdateUser = async (id: string, payload: UpdateUserRequest) => {
     try {
       await updateUserMutation.mutateAsync({ id, payload });
-      toast.success("User account details updated successfully.", "UPDATED");
+      toast.success("User account details updated.", "Account updated");
     } catch (err: unknown) {
       const errorMsg =
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Update failed";
-      toast.error(errorMsg, "ERROR");
+      toast.error(errorMsg, "Error");
       throw err;
     }
   };
@@ -178,8 +183,8 @@ export default function UsersPage() {
     try {
       await deleteUserMutation.mutateAsync(id);
       toast.info(
-        "User removed and access tokens blacklisted in Redis.",
-        "ACCOUNT TERMINATED"
+        "User removed and session invalidated.",
+        "Account removed"
       );
       setDeletingUser(null);
     } catch (err: unknown) {
@@ -187,7 +192,7 @@ export default function UsersPage() {
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Deletion failed";
-      toast.error(errorMsg, "ERROR");
+      toast.error(errorMsg, "Error");
     }
   };
 
@@ -197,14 +202,14 @@ export default function UsersPage() {
       await sendInviteMutation.mutateAsync(targetUser.id);
       toast.success(
         `Onboarding invite email dispatched to ${targetUser.email}`,
-        "INVITE DISPATCHED"
+        "Invite sent"
       );
     } catch (err: unknown) {
       const errorMsg =
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Failed to send invite";
-      toast.error(errorMsg, "INVITE FAILED");
+      toast.error(errorMsg, "Invite failed");
     } finally {
       setActionInProgressId(null);
     }
@@ -219,7 +224,7 @@ export default function UsersPage() {
           : 0;
       toast.success(
         `Dispatched setup invites to unconfigured users.`,
-        "INVITES QUEUED"
+        "Invites queued"
       );
       return count;
     } catch (err: unknown) {
@@ -227,7 +232,7 @@ export default function UsersPage() {
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Bulk invite dispatch failed";
-      toast.error(errorMsg, "ERROR");
+      toast.error(errorMsg, "Error");
       throw err;
     }
   };
@@ -238,28 +243,27 @@ export default function UsersPage() {
       await resetPasswordMutation.mutateAsync(targetUser.id);
       toast.success(
         `Password recovery link emailed to ${targetUser.email}`,
-        "RESET LINK DISPATCHED"
+        "Password reset sent"
       );
     } catch (err: unknown) {
       const errorMsg =
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Password reset trigger failed";
-      toast.error(errorMsg, "ERROR");
+      toast.error(errorMsg, "Error");
     } finally {
       setActionInProgressId(null);
     }
   };
 
   return (
-    <div className="translucent-container space-y-6 font-sans">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
+    <div className="space-y-6 font-sans">
+      {/* Level 1: Page Header directly on canvas */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--card-line)]">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-              <UsersIcon className="h-6 w-6 text-[var(--color-blue)]" />
-              <span>User Accounts</span>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+              Users
             </h1>
             {usersResponse?.total_count !== undefined && (
               <Badge variant="subtle" size="sm">
@@ -268,7 +272,7 @@ export default function UsersPage() {
             )}
           </div>
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
-            Directory of participants, judges, volunteers, and administrators.
+            Directory of participants, judges, volunteers, and organizers.
           </p>
         </div>
 
@@ -295,7 +299,7 @@ export default function UsersPage() {
             className="h-9 px-3 text-xs gap-1.5"
           >
             <Mail className="h-3.5 w-3.5" />
-            <span>Send Invites</span>
+            <span>Send invites</span>
           </Button>
 
           <Button
@@ -312,15 +316,44 @@ export default function UsersPage() {
             variant="primary"
             size="sm"
             onClick={() => setIsCreateOpen(true)}
-            className="h-9 px-4 text-xs gap-1.5"
+            className="h-9 px-4 text-xs gap-1.5 font-semibold"
           >
             <UserPlus className="h-3.5 w-3.5" />
-            <span>Add User</span>
+            <span>Add user</span>
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Purposeful Operational Metrics Strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
+          <span className="text-[11px] font-medium text-[var(--ink-secondary)]">Total accounts</span>
+          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">{metrics.total}</div>
+        </div>
+        <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-[var(--ink-secondary)]">Active accounts</span>
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          </div>
+          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">{metrics.active}</div>
+        </div>
+        <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-[var(--ink-secondary)]">Pending setup</span>
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+          </div>
+          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">{metrics.pendingSetup}</div>
+        </div>
+        <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-[var(--ink-secondary)]">Staff & evaluators</span>
+            <span className="h-2 w-2 rounded-full bg-indigo-500" />
+          </div>
+          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">{metrics.staff}</div>
+        </div>
+      </div>
+
+      {/* Inline Filters */}
       <UserFilters
         filters={filters}
         onChange={(newFilters) => setFilters(newFilters)}
@@ -335,7 +368,7 @@ export default function UsersPage() {
         }
       />
 
-      {/* Users Table */}
+      {/* Level 2: Primary Surface (The Table) */}
       <UserTable
         users={usersResponse?.data ?? []}
         isLoading={usersLoading}
@@ -347,7 +380,7 @@ export default function UsersPage() {
         actionInProgressId={actionInProgressId}
       />
 
-      {/* Pagination */}
+      {/* Level 3: Pagination Controls */}
       {usersResponse && (
         <Pagination
           page={usersResponse.page}

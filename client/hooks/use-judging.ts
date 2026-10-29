@@ -44,7 +44,7 @@ export function useUpdateSlotLinks() {
 export function useVolunteerSchedule() {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "volunteer-schedule"],
-    queryFn: () => judgingService.getVolunteerSchedule(),
+    queryFn: async () => (await judgingService.getVolunteerSchedule()) ?? [],
     refetchInterval: 1000 * 10, // volunteer updates frequently
   });
 }
@@ -53,7 +53,7 @@ export function useVolunteerSchedule() {
 export function useJudgePanels() {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "judge-panels"],
-    queryFn: () => judgingService.getJudgePanels(),
+    queryFn: async () => (await judgingService.getJudgePanels()) ?? [],
   });
 }
 
@@ -136,7 +136,7 @@ export function useCompleteSlot() {
 export function useJudgingRounds(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "rounds"],
-    queryFn: () => judgingService.listRounds(),
+    queryFn: async () => (await judgingService.listRounds()) ?? [],
     enabled: options?.enabled ?? true,
   });
 }

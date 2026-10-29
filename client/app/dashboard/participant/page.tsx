@@ -10,8 +10,8 @@ export default function ParticipantDashboardPage() {
   return (
     <RoleDashboard
       expectedRole="participant"
-      title="Participant Portal"
-      description="View your digital event ticket pass, track real-time queue position, and submit project links."
+      title="Participant portal"
+      description="View your event pass, check judging schedule, and manage your team submission."
     >
       <div className="pt-2 space-y-8">
         <MyTicketView />

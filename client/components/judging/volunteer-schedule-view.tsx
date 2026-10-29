@@ -90,8 +90,8 @@ export function VolunteerScheduleView() {
   return (
     <div className="font-sans space-y-6">
       <SectionToolbar
-        title="Room staging"
-        subtitle="Live queues and on-deck teams for each room"
+        title="Room staging & queues"
+        subtitle="Live presentation status and on-deck escorts for each room"
         onRefresh={() => refetch()}
         isFetching={isFetching}
       />
@@ -172,14 +172,16 @@ function RoomScheduleCard({
       : 0;
 
   return (
-    <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] flex flex-col justify-between overflow-hidden">
+    <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] flex flex-col justify-between overflow-hidden">
       {/* Card Header */}
-      <div className="border-b border-[var(--card-line)] p-5 bg-[var(--card-solid-subtle)]">
+      <div className="border-b border-[var(--card-line)] p-4 bg-[var(--card-solid-subtle)]">
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-base text-[var(--ink-primary)]">{panel.room || "Room Unassigned"}</span>
-              <Badge variant="blue" className="text-[10px] uppercase font-semibold">
+              <span className="font-semibold text-sm text-[var(--ink-primary)]">
+                {panel.room || "Room unassigned"}
+              </span>
+              <Badge variant="subtle" size="sm">
                 {panel.panel_name}
               </Badge>
             </div>
@@ -189,45 +191,45 @@ function RoomScheduleCard({
           </div>
 
           <div className="text-right">
-            <span className="text-xs font-bold font-mono text-[var(--ink-primary)]">
-              {panel.completed_count} / {panel.total_count} Evaluated
+            <span className="text-xs font-mono font-medium text-[var(--ink-primary)]">
+              {panel.completed_count} / {panel.total_count} evaluated
             </span>
-            <div className="w-24 bg-[var(--card-line)] h-2 rounded-full mt-1.5 ml-auto overflow-hidden">
+            <div className="w-24 bg-[var(--card-line)] h-1.5 rounded-full mt-1.5 ml-auto overflow-hidden">
               <div
-                className="bg-[#83A2DB] h-full rounded-full transition-all duration-300"
+                className="bg-[var(--color-blue)] h-full rounded-full transition-all duration-300"
                 style={{ width: `${percentComplete}%` }}
               />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-3 text-xs text-[var(--ink-secondary)]">
-          <span className="flex items-center gap-1 font-mono">
+        <div className="flex items-center gap-3 mt-2.5 text-xs text-[var(--ink-secondary)] font-mono">
+          <span className="flex items-center gap-1">
             <Clock className="h-3 w-3 text-[var(--ink-tertiary)]" />
-            {panel.slot_duration_mins}m per slot
+            {panel.slot_duration_mins}m slot
           </span>
-          <span>•</span>
+          <span>·</span>
           <span>Buffer: {panel.buffer_size} on-deck</span>
         </div>
       </div>
 
       {/* Card Body */}
-      <div className="p-5 space-y-4 flex-1">
+      <div className="p-4 space-y-3.5 flex-1">
         {/* 1. CURRENTLY PRESENTING TEAM */}
         <div>
-          <div className="text-xs font-semibold text-[var(--ink-tertiary)] mb-1.5 flex items-center gap-1.5">
-            <Play className="h-3 w-3 fill-[#83A2DB] text-[var(--color-blue)]" />
-            Currently In Room (Presenting)
+          <div className="text-xs font-semibold text-[var(--ink-secondary)] mb-1.5 flex items-center gap-1.5">
+            <Play className="h-3 w-3 fill-current text-[var(--color-blue)]" />
+            <span>Currently presenting</span>
           </div>
 
           {panel.active_team ? (
-            <div className="rounded-[16px] border border-[#83A2DB]/30 bg-[var(--color-blue-dim)] p-3.5 flex items-start justify-between gap-3">
+            <div className="rounded-[12px] border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] p-3 flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm text-[var(--ink-primary)]">
+                  <span className="font-semibold text-xs text-[var(--ink-primary)]">
                     {panel.active_team.team_name}
                   </span>
-                  <Badge variant="blue" className="text-[9px] uppercase font-semibold">
+                  <Badge variant="blue" size="sm">
                     Slot #{panel.active_team.sequence_order}
                   </Badge>
                 </div>
@@ -247,9 +249,9 @@ function RoomScheduleCard({
                         target="_blank"
                         rel="noreferrer"
                         title={k}
-                        className="p-1 px-2 rounded-lg border border-[#83A2DB]/30 text-xs bg-[var(--card-solid)] hover:text-[var(--color-blue)] transition-colors inline-flex items-center gap-1"
+                        className="p-1 px-1.5 rounded-[6px] border border-[var(--card-line)] text-xs bg-[var(--card-solid)] hover:text-[var(--color-blue)] transition-colors inline-flex items-center gap-1"
                       >
-                        <span className="capitalize text-[10px] font-bold">{k}</span>
+                        <span className="capitalize text-[10px] font-medium">{k}</span>
                         <ExternalLink className="h-2.5 w-2.5 text-[var(--ink-tertiary)]" />
                       </a>
                     ))}
@@ -257,7 +259,7 @@ function RoomScheduleCard({
                 )}
             </div>
           ) : (
-            <div className="rounded-[14px] border border-dashed border-[var(--card-line)] p-3.5 text-center text-xs text-[var(--ink-tertiary)]">
+            <div className="rounded-[10px] border border-dashed border-[var(--card-line)] p-3 text-center text-xs text-[var(--ink-tertiary)]">
               No team currently presenting in this room.
             </div>
           )}
@@ -268,13 +270,13 @@ function RoomScheduleCard({
           <div className="text-xs font-semibold text-[var(--color-coral)] mb-1.5 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <Volume2 className="h-3.5 w-3.5" />
-              On-Deck Staging Buffer ({panel.queued_teams.length} Call-Ups)
+              <span>On-deck staging buffer ({panel.queued_teams.length})</span>
             </span>
-            <span className="text-[9px] text-[var(--ink-tertiary)]">Escort to {panel.room}</span>
+            <span className="text-[11px] text-[var(--ink-tertiary)] font-normal">Escort to {panel.room}</span>
           </div>
 
           {panel.queued_teams.length === 0 ? (
-            <div className="text-xs text-[var(--ink-tertiary)] italic p-3 rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
+            <div className="text-xs text-[var(--ink-tertiary)] italic p-2.5 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
               Queue buffer is clear.
             </div>
           ) : (
@@ -282,15 +284,15 @@ function RoomScheduleCard({
               {panel.queued_teams.map((t, idx) => (
                 <div
                   key={t.slot_id}
-                  className="rounded-[14px] border border-[#CE6969]/25 bg-[var(--color-coral-dim)] p-2.5 px-3 flex items-center justify-between text-xs"
+                  className="rounded-[10px] border border-[#CE6969]/25 bg-[var(--color-coral-dim)] p-2.5 px-3 flex items-center justify-between text-xs"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-[#CE6969] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded-full bg-[#CE6969] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
                       {idx + 1}
                     </span>
                     <div>
-                      <span className="font-bold text-[var(--ink-primary)]">{t.team_name}</span>
-                      <span className="text-[var(--ink-tertiary)] text-[10px] ml-1.5 font-mono">
+                      <span className="font-semibold text-[var(--ink-primary)]">{t.team_name}</span>
+                      <span className="text-[var(--ink-tertiary)] text-[11px] ml-1.5 font-mono">
                         (Slot #{t.sequence_order})
                       </span>
                     </div>
@@ -308,11 +310,11 @@ function RoomScheduleCard({
         {/* 3. UPCOMING SCHEDULE */}
         {panel.upcoming_teams.length > 0 && (
           <div>
-            <div className="text-xs font-semibold text-[var(--ink-tertiary)] mb-1.5">
-              Later in Schedule ({panel.upcoming_teams.length} Teams)
+            <div className="text-xs font-medium text-[var(--ink-tertiary)] mb-1.5">
+              Later in schedule ({panel.upcoming_teams.length})
             </div>
 
-            <div className="rounded-[14px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] max-h-32 overflow-y-auto">
+            <div className="rounded-[10px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] max-h-32 overflow-y-auto">
               {panel.upcoming_teams.map((t) => (
                 <div
                   key={t.slot_id}
@@ -335,13 +337,13 @@ function RoomScheduleCard({
       </div>
 
       {/* Card Footer */}
-      <div className="border-t border-[var(--card-line)] p-3 px-5 bg-[var(--card-solid-subtle)] text-xs text-[var(--ink-tertiary)] flex items-center justify-between">
+      <div className="border-t border-[var(--card-line)] p-2.5 px-4 bg-[var(--card-solid-subtle)] text-[11px] text-[var(--ink-tertiary)] flex items-center justify-between">
         <span className="flex items-center gap-1.5">
           <Shield className="h-3 w-3 text-[var(--color-blue)]" />
-          Live queue updates every 10s
+          <span>Real-time staging sync</span>
         </span>
-        <span className="uppercase font-semibold text-[var(--ink-secondary)] font-mono text-[10px]">
-          Panel ID: {panel.panel_id.substring(0, 8)}...
+        <span className="font-mono text-[10px] text-[var(--ink-secondary)]">
+          Panel: {panel.panel_id.substring(0, 8)}
         </span>
       </div>
     </div>

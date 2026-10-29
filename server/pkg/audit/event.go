@@ -40,6 +40,8 @@ const (
 	ActionJudgingSlotStart     = "judging.slot_start"
 	ActionJudgingScoreLock     = "judging.score_lock"
 	ActionJudgingSlotComplete  = "judging.slot_complete"
+	ActionJudgingSlotMove      = "judging.slot_move"
+	ActionJudgingSlotQueue     = "judging.slot_queue"
 
 	// Notification actions
 	ActionNotificationBroadcast   = "notification.broadcast"

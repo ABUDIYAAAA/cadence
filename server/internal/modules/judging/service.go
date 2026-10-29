@@ -410,6 +410,93 @@ func (s *Service) GetAdminLeaderboard(ctx context.Context, roundID string) (*Adm
 	return s.repo.GetAdminLeaderboard(ctx, roundID)
 }
 
+// MoveSlot moves a team slot across panels or reorders inside a panel.
+func (s *Service) MoveSlot(
+	ctx context.Context,
+	slotID string,
+	req MoveSlotRequest,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.MoveSlot(ctx, slotID, req); err != nil {
+		return err
+	}
+
+	metadata := map[string]any{"slot_id": slotID}
+	if req.TargetPanelID != nil {
+		metadata["target_panel_id"] = *req.TargetPanelID
+	}
+	if req.TargetSequenceOrder != nil {
+		metadata["target_sequence_order"] = *req.TargetSequenceOrder
+	}
+	if req.Status != nil {
+		metadata["status"] = *req.Status
+	}
+
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingSlotMove,
+		audit.TargetJudgingSlot,
+		&slotID,
+		fmt.Sprintf("Judging slot moved by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		metadata,
+		&ip, &userAgent,
+	)
+
+	return nil
+}
+
+// QueueSlot immediately puts a team slot on-deck into the room queue ('queued' status).
+func (s *Service) QueueSlot(
+	ctx context.Context,
+	slotID string,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.QueueSlot(ctx, slotID); err != nil {
+		return err
+	}
+
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingSlotQueue,
+		audit.TargetJudgingSlot,
+		&slotID,
+		fmt.Sprintf("Team slot thrown into room queue by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"slot_id": slotID, "status": "queued"},
+		&ip, &userAgent,
+	)
+
+	return nil
+}
+
+// UnqueueSlot reverts a queued slot back to scheduled.
+func (s *Service) UnqueueSlot(
+	ctx context.Context,
+	slotID string,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.UnqueueSlot(ctx, slotID); err != nil {
+		return err
+	}
+
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingSlotMove,
+		audit.TargetJudgingSlot,
+		&slotID,
+		fmt.Sprintf("Team slot removed from queue by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"slot_id": slotID, "status": "scheduled"},
+		&ip, &userAgent,
+	)
+
+	return nil
+}
+
 func (s *Service) recordAudit(
 	ctx context.Context,
 	action, targetType string,

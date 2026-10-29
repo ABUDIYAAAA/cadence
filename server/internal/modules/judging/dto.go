@@ -45,6 +45,13 @@ type UpdateSlotLinksRequest struct {
 	SubmissionLinks map[string]string `json:"submission_links" validate:"required"`
 }
 
+// MoveSlotRequest payload for moving a team slot between panels or reordering in a queue.
+type MoveSlotRequest struct {
+	TargetPanelID       *string `json:"target_panel_id"`
+	TargetSequenceOrder *int    `json:"target_sequence_order"`
+	Status              *string `json:"status"` // e.g. "queued" to throw into room queue, or "scheduled"
+}
+
 // CriterionScoreInput captures a single judge criterion rating.
 type CriterionScoreInput struct {
 	CriterionID string  `json:"criterion_id" validate:"required,uuid"`

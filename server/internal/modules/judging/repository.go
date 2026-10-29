@@ -1078,3 +1078,248 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		AverageScore:     roundAverageScore,
 	}, nil
 }
+
+// recalibratePanelEstimatesTx recalculates estimated start times for scheduled and queued slots.
+func (r *Repository) recalibratePanelEstimatesTx(ctx context.Context, tx pgx.Tx, panelID string, durationMins int) error {
+	now := time.Now()
+	recalQuery := `
+		SELECT id, sequence_order
+		FROM judging_slots
+		WHERE panel_id = $1 AND status IN ('scheduled', 'queued')
+		ORDER BY sequence_order ASC;
+	`
+	rows, err := tx.Query(ctx, recalQuery, panelID)
+	if err != nil {
+		return err
+	}
+	type slotSeq struct {
+		id  string
+		seq int
+	}
+	var pending []slotSeq
+	for rows.Next() {
+		var s slotSeq
+		if err := rows.Scan(&s.id, &s.seq); err == nil {
+			pending = append(pending, s)
+		}
+	}
+	rows.Close()
+
+	for idx, s := range pending {
+		est := now.Add(time.Duration(idx*durationMins) * time.Minute)
+		if _, err := tx.Exec(ctx, `UPDATE judging_slots SET estimated_start_time = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`, s.id, est); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MoveSlot moves a team slot within its current panel or transfers it to a new panel/room,
+// optionally overriding status (e.g. to 'queued' to throw into the room queue) and updating sequence order.
+// NOTE: Admins can throw teams into the room queue even if it exceeds the round buffer limit.
+func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRequest) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Fetch current slot details
+	var sourcePanelID, teamID, currentStatus string
+	var currentSeqOrder, durationMins int
+	var sourceRoundID string
+	query := `
+		SELECT s.panel_id, s.team_id, s.sequence_order, s.status::text, p.round_id, r.slot_duration_mins
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE s.id = $1;
+	`
+	if err := tx.QueryRow(ctx, query, slotID).Scan(&sourcePanelID, &teamID, &currentSeqOrder, &currentStatus, &sourceRoundID, &durationMins); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSlotNotFound
+		}
+		return fmt.Errorf("fetch current slot: %w", err)
+	}
+
+	if currentStatus == "completed" {
+		return errors.New("cannot move an already completed slot")
+	}
+
+	targetPanelID := sourcePanelID
+	isCrossPanel := false
+	if req.TargetPanelID != nil && *req.TargetPanelID != "" && *req.TargetPanelID != sourcePanelID {
+		targetPanelID = *req.TargetPanelID
+		isCrossPanel = true
+
+		// Verify target panel exists and belongs to same round
+		var targetRoundID string
+		var targetDuration int
+		err := tx.QueryRow(ctx, `
+			SELECT p.round_id, r.slot_duration_mins
+			FROM judging_panels p
+			JOIN judging_rounds r ON r.id = p.round_id
+			WHERE p.id = $1;
+		`, targetPanelID).Scan(&targetRoundID, &targetDuration)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errors.New("target panel not found")
+			}
+			return fmt.Errorf("verify target panel: %w", err)
+		}
+		if targetRoundID != sourceRoundID {
+			return errors.New("cannot move team across different judging rounds")
+		}
+		durationMins = targetDuration
+	}
+
+	// 2. Fetch all slots in target panel (excluding moving slot if already in target panel)
+	type slotEntry struct {
+		id  string
+		seq int
+	}
+	var targetSlots []slotEntry
+	rows, err := tx.Query(ctx, `
+		SELECT id, sequence_order
+		FROM judging_slots
+		WHERE panel_id = $1 AND id != $2
+		ORDER BY sequence_order ASC;
+	`, targetPanelID, slotID)
+	if err != nil {
+		return fmt.Errorf("query target panel slots: %w", err)
+	}
+	for rows.Next() {
+		var s slotEntry
+		if err := rows.Scan(&s.id, &s.seq); err != nil {
+			rows.Close()
+			return err
+		}
+		targetSlots = append(targetSlots, s)
+	}
+	rows.Close()
+
+	// 3. Determine target sequence order
+	targetPos := len(targetSlots) + 1
+	if req.TargetSequenceOrder != nil && *req.TargetSequenceOrder >= 1 {
+		targetPos = *req.TargetSequenceOrder
+		if targetPos > len(targetSlots)+1 {
+			targetPos = len(targetSlots) + 1
+		}
+	}
+
+	// Build new ordered list of slot IDs for target panel
+	var newTargetSlotIDs []string
+	inserted := false
+	for i, s := range targetSlots {
+		if (i + 1) == targetPos {
+			newTargetSlotIDs = append(newTargetSlotIDs, slotID)
+			inserted = true
+		}
+		newTargetSlotIDs = append(newTargetSlotIDs, s.id)
+	}
+	if !inserted {
+		newTargetSlotIDs = append(newTargetSlotIDs, slotID)
+	}
+
+	// 4. Update the moving slot's status if specified
+	var newStatus = currentStatus
+	if req.Status != nil && *req.Status != "" {
+		newStatus = *req.Status
+	}
+
+	// Use temporary high sequence order to avoid UNIQUE (panel_id, sequence_order) violations
+	if isCrossPanel {
+		if _, err := tx.Exec(ctx, `UPDATE judging_slots SET sequence_order = sequence_order + 10000 WHERE panel_id = $1;`, sourcePanelID); err != nil {
+			return fmt.Errorf("offset source panel slots: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE judging_slots SET sequence_order = sequence_order + 10000 WHERE panel_id = $1;`, targetPanelID); err != nil {
+		return fmt.Errorf("offset target panel slots: %w", err)
+	}
+
+	// Update slot's panel and status
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_slots
+		SET panel_id = $1, status = $2::judging_slot_status, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3;
+	`, targetPanelID, newStatus, slotID); err != nil {
+		return fmt.Errorf("update moving slot: %w", err)
+	}
+
+	// Renumber target panel slots sequentially
+	for idx, sID := range newTargetSlotIDs {
+		newSeq := idx + 1
+		if _, err := tx.Exec(ctx, `
+			UPDATE judging_slots
+			SET sequence_order = $1, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $2;
+		`, newSeq, sID); err != nil {
+			return fmt.Errorf("renumber target slot: %w", err)
+		}
+	}
+
+	// If cross-panel, renumber remaining slots in source panel
+	if isCrossPanel {
+		sourceRows, err := tx.Query(ctx, `
+			SELECT id
+			FROM judging_slots
+			WHERE panel_id = $1
+			ORDER BY sequence_order ASC;
+		`, sourcePanelID)
+		if err != nil {
+			return fmt.Errorf("query remaining source slots: %w", err)
+		}
+		var sourceSlotIDs []string
+		for sourceRows.Next() {
+			var id string
+			if err := sourceRows.Scan(&id); err == nil {
+				sourceSlotIDs = append(sourceSlotIDs, id)
+			}
+		}
+		sourceRows.Close()
+
+		for idx, sID := range sourceSlotIDs {
+			newSeq := idx + 1
+			if _, err := tx.Exec(ctx, `
+				UPDATE judging_slots
+				SET sequence_order = $1, updated_at = CURRENT_TIMESTAMP
+				WHERE id = $2;
+			`, newSeq, sID); err != nil {
+				return fmt.Errorf("renumber source slot: %w", err)
+			}
+		}
+
+		// Recalibrate source panel estimates
+		var sourceDuration int
+		_ = tx.QueryRow(ctx, `
+			SELECT r.slot_duration_mins
+			FROM judging_panels p
+			JOIN judging_rounds r ON r.id = p.round_id
+			WHERE p.id = $1;
+		`, sourcePanelID).Scan(&sourceDuration)
+		if sourceDuration > 0 {
+			if err := r.recalibratePanelEstimatesTx(ctx, tx, sourcePanelID, sourceDuration); err != nil {
+				return fmt.Errorf("recalibrate source estimates: %w", err)
+			}
+		}
+	}
+
+	// Recalibrate target panel estimates
+	if err := r.recalibratePanelEstimatesTx(ctx, tx, targetPanelID, durationMins); err != nil {
+		return fmt.Errorf("recalibrate target estimates: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// QueueSlot immediately throws a team slot into the room queue ('queued' status).
+func (r *Repository) QueueSlot(ctx context.Context, slotID string) error {
+	status := "queued"
+	return r.MoveSlot(ctx, slotID, MoveSlotRequest{Status: &status})
+}
+
+// UnqueueSlot reverts a queued slot back to 'scheduled'.
+func (r *Repository) UnqueueSlot(ctx context.Context, slotID string) error {
+	status := "scheduled"
+	return r.MoveSlot(ctx, slotID, MoveSlotRequest{Status: &status})
+}

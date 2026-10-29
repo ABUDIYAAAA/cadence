@@ -48,6 +48,20 @@ function isNonRefreshableAuthRoute(url?: string): boolean {
   );
 }
 
+function isPublicAuthPage(pathname: string): boolean {
+  return (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth/login") ||
+    pathname.startsWith("/setup-password") ||
+    pathname.startsWith("/auth/setup-password") ||
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/auth/reset-password") ||
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/auth/forgot-password") ||
+    pathname === "/"
+  );
+}
+
 // Response interceptor: handle automatic token refresh and format errors
 apiClient.interceptors.response.use(
   (response) => response,
@@ -95,18 +109,19 @@ apiClient.interceptors.response.use(
       } catch (refreshErr) {
         processQueue(refreshErr);
 
-        // Clear cached auth/query state to prevent redirect ping-pong loops
+        // Mark user as unauthenticated in cache.
+        // NOTE: NEVER call qc.clear() here because active mounted query observers
+        // (like useCurrentUser in AuthProvider) will instantly refetch /auth/me,
+        // creating a rapid 35ms infinite refresh loop!
         try {
           const qc = getQueryClient();
           qc.setQueryData(["auth", "me"], null);
-          qc.clear();
         } catch {}
 
-        // If the refresh token is truly invalid/expired, redirect to login once
+        // If the refresh token is truly invalid/expired, redirect to login only for protected pages
         if (
           typeof window !== "undefined" &&
-          !window.location.pathname.startsWith("/login") &&
-          !window.location.pathname.startsWith("/auth/login")
+          !isPublicAuthPage(window.location.pathname)
         ) {
           // eslint-disable-next-line @next/next/no-location-assign-relative-destination
           window.location.href = "/login";

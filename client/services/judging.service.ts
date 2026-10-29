@@ -133,4 +133,29 @@ export const judgingService = {
     );
     return data;
   },
+
+  async moveSlot(
+    slotId: string,
+    payload: MoveSlotRequest
+  ): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/slots/${slotId}/move`,
+      payload
+    );
+    return data;
+  },
+
+  async queueSlot(slotId: string): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/slots/${slotId}/queue`
+    );
+    return data;
+  },
+
+  async unqueueSlot(slotId: string): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/slots/${slotId}/unqueue`
+    );
+    return data;
+  },
 };

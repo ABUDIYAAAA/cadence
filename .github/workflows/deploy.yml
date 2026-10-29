@@ -40,7 +40,11 @@ jobs:
             "${SSH[@]}" "ubuntu@${VPS_HOST}" 'cat > ~/projects/.cadence.env'
 
           # Deploy on the VPS.
+          # The script is wrapped in main() so bash reads all of it before
+          # running anything; otherwise a command that reads stdin can
+          # swallow the rest of the script and the deploy exits 0 early.
           "${SSH[@]}" "ubuntu@${VPS_HOST}" 'bash -s' <<'REMOTE'
+          main() {
           set -Eeuo pipefail
 
           cd ~/projects
@@ -74,8 +78,8 @@ jobs:
           dc up -d db redis rabbitmq
           dc build backend
 
-          dc run --rm --entrypoint /app/cadence-migrate backend
-          dc run --rm --entrypoint /app/cadence-seed backend
+          dc run --rm -T --entrypoint /app/cadence-migrate backend </dev/null
+          dc run --rm -T --entrypoint /app/cadence-seed backend </dev/null
 
           # Start every service declared in Compose.
           dc up -d --remove-orphans
@@ -100,4 +104,6 @@ jobs:
           echo "Deployment successful."
           dc ps -a
           docker image prune -f
+          }
+          main
           REMOTE

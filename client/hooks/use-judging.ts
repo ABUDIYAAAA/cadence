@@ -6,6 +6,7 @@ import {
   ConfigureSlotsRequest,
   CreatePanelRequest,
   CreateRoundRequest,
+  MoveSlotRequest,
   SubmitScoresRequest,
   UpdateSlotLinksRequest,
 } from "@/types/judging";
@@ -205,6 +206,45 @@ export function useConfigureSlots() {
       panelId: string;
       payload: ConfigureSlotsRequest;
     }) => judgingService.configureSlots(panelId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useMoveSlot() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      slotId,
+      payload,
+    }: {
+      slotId: string;
+      payload: MoveSlotRequest;
+    }) => judgingService.moveSlot(slotId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useQueueSlot() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (slotId: string) => judgingService.queueSlot(slotId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useUnqueueSlot() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (slotId: string) => judgingService.unqueueSlot(slotId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
     },

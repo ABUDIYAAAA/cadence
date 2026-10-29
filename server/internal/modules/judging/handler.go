@@ -489,3 +489,102 @@ func (h *Handler) HandleGetAdminLeaderboard(w http.ResponseWriter, r *http.Reque
 
 	utils.JSON(w, http.StatusOK, leaderboard)
 }
+
+// HandleMoveSlot moves a team slot across panels or reorders inside a panel.
+func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slotID := chi.URLParam(r, "slotId")
+	if slotID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "slot ID is required")
+		return
+	}
+
+	var req MoveSlotRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ip := r.RemoteAddr
+	ua := r.UserAgent()
+
+	if err := h.service.MoveSlot(r.Context(), slotID, req, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
+		if errors.Is(err, ErrSlotNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{
+		"message": "Team slot moved and room queue updated successfully",
+	})
+}
+
+// HandleQueueSlot immediately stages a team slot into the room queue ('queued' status).
+func (h *Handler) HandleQueueSlot(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slotID := chi.URLParam(r, "slotId")
+	if slotID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "slot ID is required")
+		return
+	}
+
+	ip := r.RemoteAddr
+	ua := r.UserAgent()
+
+	if err := h.service.QueueSlot(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
+		if errors.Is(err, ErrSlotNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{
+		"message": "Team successfully queued on-deck for room evaluation",
+	})
+}
+
+// HandleUnqueueSlot moves a team slot from 'queued' back to 'scheduled'.
+func (h *Handler) HandleUnqueueSlot(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slotID := chi.URLParam(r, "slotId")
+	if slotID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "slot ID is required")
+		return
+	}
+
+	ip := r.RemoteAddr
+	ua := r.UserAgent()
+
+	if err := h.service.UnqueueSlot(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, ip, ua); err != nil {
+		if errors.Is(err, ErrSlotNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{
+		"message": "Team reverted to scheduled slot",
+	})
+}

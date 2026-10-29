@@ -35,6 +35,12 @@ export interface UpdateSlotLinksRequest {
   submission_links: Record<string, string>;
 }
 
+export interface MoveSlotRequest {
+  target_panel_id?: string;
+  target_sequence_order?: number;
+  status?: string;
+}
+
 export interface CriterionScoreInput {
   criterion_id: string;
   score: number;

@@ -8,7 +8,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 text-[var(--ink-primary)] shadow-[var(--shadow-card)] transition-[border-color,box-shadow,background-color] duration-150 ease-out",
+        "rounded-[16px] border border-[var(--card-border)] bg-[var(--card-solid)] p-5 text-[var(--ink-primary)] shadow-[var(--shadow-card)] transition-[border-color,box-shadow] duration-150 ease-out",
         className
       )}
       {...props}
@@ -34,7 +34,7 @@ export function CardTitle({
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("text-sm sm:text-base font-extrabold tracking-tight text-[var(--ink-primary)]", className)}
+      className={cn("text-sm sm:text-base font-bold tracking-tight text-[var(--ink-primary)]", className)}
       {...props}
     />
   );
@@ -46,7 +46,7 @@ export function CardDescription({
 }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
     <p
-      className={cn("text-xs text-[var(--ink-secondary)]", className)}
+      className={cn("text-xs text-[var(--ink-secondary)] leading-relaxed", className)}
       {...props}
     />
   );

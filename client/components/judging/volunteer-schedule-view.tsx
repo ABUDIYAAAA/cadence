@@ -21,7 +21,8 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
 export function VolunteerScheduleView() {
-  const { data: schedule = [], isLoading, isFetching, refetch } = useVolunteerSchedule();
+  const { data: rawSchedule, isLoading, isFetching, refetch } = useVolunteerSchedule();
+  const schedule = useMemo(() => (Array.isArray(rawSchedule) ? rawSchedule : []), [rawSchedule]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRoom, setSelectedRoom] = useState<string>("all");
 
@@ -199,7 +200,7 @@ export function VolunteerScheduleView() {
         </div>
       ) : filteredSchedule.length === 0 ? (
         <EmptyState
-          title="NO ACTIVE JUDGING SCHEDULES"
+          title="No active judging schedules"
           description="There are currently no active judging panels or rooms scheduled. Once an administrator activates a judging round, room staging queues will populate automatically."
         />
       ) : (

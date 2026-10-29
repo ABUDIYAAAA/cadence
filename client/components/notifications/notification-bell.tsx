@@ -96,7 +96,7 @@ export function NotificationBell() {
         onClick={() => setIsOpen((prev) => !prev)}
         aria-label="View notifications"
         aria-expanded={isOpen}
-        className="circle-icon-btn !w-9 !h-9 relative text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+        className="circle-icon-btn !w-8 !h-8 relative text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
       >
         <Bell className="h-4 w-4" />
 
@@ -109,22 +109,22 @@ export function NotificationBell() {
         )}
       </button>
 
-      {/* Notification Dropdown Menu (Floating Glass Card) */}
+      {/* Notification Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-[20px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)]">
+        <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)]">
           {/* Header */}
-          <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[14px] border border-[var(--card-line)] flex items-center justify-between mb-1.5">
+          <div className="p-2.5 bg-[var(--card-solid-subtle)] rounded-[8px] border border-[var(--card-line)] flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-[var(--ink-primary)]">
+              <span className="text-xs font-semibold text-[var(--ink-primary)]">
                 Notifications
               </span>
               {unreadCount > 0 ? (
                 <Badge variant="blue" size="sm">
-                  {unreadCount} NEW
+                  {unreadCount} new
                 </Badge>
               ) : (
                 <Badge variant="subtle" size="sm">
-                  0 NEW
+                  0 new
                 </Badge>
               )}
             </div>
@@ -135,10 +135,10 @@ export function NotificationBell() {
                 size="sm"
                 onClick={handleMarkAllRead}
                 isLoading={markAllAsReadMutation.isPending}
-                className="h-6 px-2 text-[10px] gap-1 rounded-full text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] uppercase font-bold"
+                className="h-6 px-2 text-[11px] gap-1 rounded-[6px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
               >
                 <CheckCheck className="h-3 w-3" />
-                <span>Mark All Read</span>
+                <span>Mark all read</span>
               </Button>
             )}
           </div>
@@ -147,15 +147,15 @@ export function NotificationBell() {
           <div className="max-h-80 overflow-y-auto space-y-1">
             {isLoading ? (
               <div className="p-6 text-center text-xs text-[var(--ink-secondary)]">
-                Checking notification feed...
+                Loading notifications...
               </div>
             ) : notifications.length === 0 ? (
               <div className="p-8 text-center space-y-1">
-                <p className="text-xs font-bold uppercase text-[var(--ink-secondary)]">
-                  Inbox is Clear
+                <p className="text-xs font-semibold text-[var(--ink-secondary)]">
+                  No notifications yet
                 </p>
                 <p className="text-[11px] text-[var(--ink-tertiary)]">
-                  No notifications or announcements received yet.
+                  Announcements and alerts will appear here.
                 </p>
               </div>
             ) : (
@@ -163,24 +163,24 @@ export function NotificationBell() {
                 <div
                   key={item.id}
                   onClick={() => handleNotificationClick(item)}
-                  className={`p-3 rounded-[12px] text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                  className={`p-2.5 rounded-[8px] text-left transition-colors cursor-pointer flex items-start gap-2.5 ${
                     !item.is_read
                       ? "bg-[var(--color-blue-dim)] hover:bg-[var(--color-blue-dim)]/80"
                       : "hover:bg-[var(--card-solid-subtle)] opacity-80"
                   }`}
                 >
                   {/* Unread indicator bullet */}
-                  <div className="pt-1 shrink-0">
+                  <div className="pt-1.5 shrink-0">
                     {!item.is_read ? (
-                      <span className="block h-2 w-2 rounded-full bg-[var(--color-blue)]" />
+                      <span className="block h-1.5 w-1.5 rounded-full bg-[var(--color-blue)]" />
                     ) : (
-                      <span className="block h-2 w-2 rounded-full bg-[var(--card-line)]" />
+                      <span className="block h-1.5 w-1.5 rounded-full bg-[var(--card-line)]" />
                     )}
                   </div>
 
                   <div className="flex-1 min-w-0 space-y-0.5">
                     <div className="flex items-center justify-between gap-2">
-                      <h5 className="text-xs font-bold text-[var(--ink-primary)] truncate">
+                      <h5 className="text-xs font-semibold text-[var(--ink-primary)] truncate">
                         {item.title}
                       </h5>
                       <span className="text-[10px] text-[var(--ink-tertiary)] shrink-0 whitespace-nowrap">
@@ -197,7 +197,7 @@ export function NotificationBell() {
                         item.action_url.trim() &&
                         item.action_url !== "/"
                     ) && (
-                      <div className="pt-1 flex items-center gap-1 text-[10px] font-bold text-[var(--color-blue)] hover:underline">
+                      <div className="pt-1 flex items-center gap-1 text-[11px] font-medium text-[var(--color-blue)] hover:underline">
                         <span>Open link</span>
                         <ExternalLink className="h-2.5 w-2.5" />
                       </div>
@@ -206,13 +206,6 @@ export function NotificationBell() {
                 </div>
               ))
             )}
-          </div>
-
-          {/* Dropdown Footer */}
-          <div className="p-2 border-t border-[var(--card-line)] text-center mt-1">
-            <span className="text-[10px] text-[var(--ink-tertiary)] uppercase tracking-wider">
-              Press ESC or click outside to dismiss
-            </span>
           </div>
         </div>
       )}

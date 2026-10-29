@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { QrCode, Crown, CheckSquare, Square } from "lucide-react";
+import { QrCode, CheckSquare, Square } from "lucide-react";
 import { UserDetailResponse } from "@/types/users";
 import {
   Table,
@@ -129,13 +129,12 @@ export function TicketUserTable({
                 {/* Name & Email */}
                 <TableCell>
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5 font-bold text-[var(--ink-primary)] text-sm">
+                    <div className="flex items-center gap-1.5 font-medium text-[var(--ink-primary)] text-sm">
                       <span>{user.name}</span>
                       {user.is_leader && (
-                        <span className="inline-flex items-center gap-0.5 text-[9px] bg-[var(--color-dark)] text-[var(--ink-inverse)] px-1 py-0.2 rounded-[4px] uppercase font-bold">
-                          <Crown className="h-2.5 w-2.5" />
+                        <Badge variant="amber" size="sm">
                           Lead
-                        </span>
+                        </Badge>
                       )}
                     </div>
                     <span className="text-xs text-[var(--ink-secondary)] font-mono">
@@ -151,7 +150,18 @@ export function TicketUserTable({
 
                 {/* Role */}
                 <TableCell>
-                  <Badge variant="subtle" size="sm">
+                  <Badge
+                    variant={
+                      user.role === "admin"
+                        ? "indigo"
+                        : user.role === "judge"
+                        ? "amber"
+                        : user.role === "volunteer"
+                        ? "emerald"
+                        : "subtle"
+                    }
+                    size="sm"
+                  >
                     {user.role}
                   </Badge>
                 </TableCell>

@@ -2,7 +2,6 @@
 
 import React from "react";
 import {
-  Award,
   Play,
   Clock,
   Users,
@@ -98,10 +97,9 @@ export function RoundTable({
                 {/* Name */}
                 <TableCell>
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5 font-bold text-[var(--ink-primary)] text-sm">
-                      <Award className="h-4 w-4 shrink-0 text-[var(--color-blue)]" />
-                      <span>{round.name}</span>
-                    </div>
+                    <span className="font-semibold text-[var(--ink-primary)] text-sm">
+                      {round.name}
+                    </span>
                     <span className="text-[10px] text-[var(--ink-tertiary)] font-mono">
                       ID: {round.id.slice(0, 8)}...
                     </span>

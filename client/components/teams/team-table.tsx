@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Users, Crown, Edit2, Trash2, Layers } from "lucide-react";
+import { Users, Edit2, Trash2 } from "lucide-react";
 import { TeamResponse } from "@/types/teams";
 import {
   Table,
@@ -78,10 +78,9 @@ export function TeamTable({
               {/* Team Name */}
               <TableCell>
                 <div className="flex flex-col">
-                  <div className="flex items-center gap-1.5 font-bold text-[var(--ink-primary)] text-sm">
-                    <Layers className="h-4 w-4 shrink-0 text-[var(--color-blue)]" />
-                    <span>{team.name}</span>
-                  </div>
+                  <span className="font-semibold text-[var(--ink-primary)] text-sm">
+                    {team.name}
+                  </span>
                   <span className="text-[10px] text-[var(--ink-tertiary)] font-mono">
                     ID: {team.id.slice(0, 8)}...
                   </span>
@@ -91,38 +90,27 @@ export function TeamTable({
               {/* Leader */}
               <TableCell className="text-xs">
                 {team.leader_name ? (
-                  <div className="flex items-center gap-1.5">
-                    <Crown className="h-3.5 w-3.5 text-[var(--color-blue)] shrink-0" />
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-[var(--ink-primary)]">
-                        {team.leader_name}
+                  <div className="flex flex-col">
+                    <span className="font-medium text-[var(--ink-primary)]">
+                      {team.leader_name}
+                    </span>
+                    {team.leader_email && (
+                      <span className="text-[10px] text-[var(--ink-secondary)] font-mono">
+                        {team.leader_email}
                       </span>
-                      {team.leader_email && (
-                        <span className="text-[10px] text-[var(--ink-secondary)] font-mono">
-                          {team.leader_email}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </div>
                 ) : (
-                  <span className="text-[var(--ink-tertiary)] italic text-[11px]">
-                    No Leader Assigned
+                  <span className="text-[var(--ink-tertiary)] text-xs">
+                    No lead assigned
                   </span>
                 )}
               </TableCell>
 
               {/* Member Count */}
               <TableCell>
-                <Badge
-                  variant={team.member_count > 0 ? "solid" : "subtle"}
-                  size="sm"
-                  className="gap-1"
-                >
-                  <Users className="h-3 w-3" />
-                  <span>
-                    {team.member_count}{" "}
-                    {team.member_count === 1 ? "Member" : "Members"}
-                  </span>
+                <Badge variant="subtle" size="sm">
+                  {team.member_count} {team.member_count === 1 ? "member" : "members"}
                 </Badge>
               </TableCell>
 

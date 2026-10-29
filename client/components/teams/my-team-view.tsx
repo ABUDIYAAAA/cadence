@@ -48,27 +48,21 @@ export function MyTeamView() {
                   {team.members.length} {team.members.length === 1 ? "participant" : "participants"}
                 </Badge>
               </div>
-              <CardTitle className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)]">
-                  <Layers className="h-4 w-4" />
-                </div>
-                <span>{team.name}</span>
+              <CardTitle className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+                {team.name}
               </CardTitle>
-              <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1 ml-10">
-                Squad ID: <span className="font-mono text-[var(--ink-primary)]">{team.id}</span>
+              <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
+                Team ID: <span className="font-mono text-[var(--ink-primary)]">{team.id}</span>
               </CardDescription>
             </div>
 
             {team.leader && (
-              <div className="flex items-center gap-2.5 rounded-[16px] border border-[var(--card-line)] p-3 px-4 bg-[var(--card-solid-subtle)]">
-                <div className="h-8 w-8 rounded-full bg-[var(--color-blue-dim)] flex items-center justify-center text-[var(--color-blue)] shrink-0">
-                  <Crown className="h-4 w-4" />
-                </div>
+              <div className="flex items-center gap-2.5 rounded-[10px] border border-[var(--card-line)] p-2.5 px-3.5 bg-[var(--card-solid-subtle)]">
                 <div className="text-left">
-                  <div className="text-[10px] uppercase font-bold text-[var(--ink-tertiary)] tracking-wider">
-                    Squad Leader
+                  <div className="text-[11px] font-medium text-[var(--ink-secondary)]">
+                    Team lead
                   </div>
-                  <div className="text-xs font-bold text-[var(--ink-primary)]">
+                  <div className="text-xs font-semibold text-[var(--ink-primary)]">
                     {team.leader.name}
                   </div>
                 </div>
@@ -79,9 +73,8 @@ export function MyTeamView() {
 
         <CardContent className="space-y-4">
           <div className="overflow-hidden">
-            <div className="px-4 py-3 border-b border-[var(--card-line)] font-bold text-xs uppercase tracking-wider text-[var(--ink-secondary)] flex items-center justify-between">
-              <span>Squad Roster</span>
-              <Users className="h-4 w-4 text-[var(--ink-tertiary)]" />
+            <div className="px-4 py-2.5 border-b border-[var(--card-line)] font-semibold text-xs text-[var(--ink-secondary)]">
+              Team roster
             </div>
 
             <Table>

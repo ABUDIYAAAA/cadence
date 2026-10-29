@@ -172,7 +172,7 @@ export function UserBulkCreateDialog({
       <div className="space-y-4 font-mono text-xs">
         {result ? (
           <div className="space-y-3">
-            <Alert variant="info" title="BULK IMPORT COMPLETED">
+            <Alert variant="info" title="Bulk import complete">
               Processed {result.total_processed} accounts.
             </Alert>
 

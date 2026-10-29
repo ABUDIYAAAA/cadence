@@ -62,7 +62,7 @@ export function Sidebar() {
       roles: ["admin", "volunteer", "judge"],
     },
     {
-      label: "Broadcast",
+      label: "Broadcasts",
       href: "/dashboard/admin/notifications",
       icon: Bell,
       roles: ["admin"],
@@ -80,13 +80,13 @@ export function Sidebar() {
       roles: ["admin", "volunteer", "participant"],
     },
     {
-      label: "Audit Logs",
+      label: "Audit log",
       href: "/dashboard/audit",
       icon: FileText,
       roles: ["admin"],
     },
     {
-      label: "Grafana Metrics",
+      label: "Metrics",
       href: "http://localhost:3001/d/cadence-overview/cadence-hackathon-operations-and-telemetry",
       icon: Activity,
       roles: ["admin"],
@@ -111,14 +111,14 @@ export function Sidebar() {
       <div className="md:hidden fixed bottom-5 right-5 z-50">
         <button
           onClick={() => setIsOpenMobile(!isOpenMobile)}
-          aria-label="Toggle Navigation Sidebar"
-          className="h-12 w-12 rounded-full bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-xl flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
+          aria-label="Toggle navigation menu"
+          className="h-11 w-11 rounded-[10px] bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-md flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
         >
           {isOpenMobile ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
 
-      {/* Mobile Drawer Backdrop & Drawer with iOS Curve Slide Transition */}
+      {/* Mobile Drawer */}
       <div
         className={cn(
           "fixed inset-0 z-50 md:hidden transition-all duration-200",
@@ -127,7 +127,7 @@ export function Sidebar() {
       >
         <div
           className={cn(
-            "fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out",
+            "fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity duration-200 ease-out",
             isOpenMobile ? "opacity-100" : "opacity-0"
           )}
           onClick={() => setIsOpenMobile(false)}
@@ -135,18 +135,18 @@ export function Sidebar() {
         />
         <aside
           className={cn(
-            "fixed inset-y-0 left-0 z-50 w-72 bg-[var(--card-solid)] border-r border-[var(--card-line)] p-5 shadow-2xl flex flex-col justify-between font-sans transition-transform duration-250 ease-[cubic-bezier(0.32,0.72,0,1)] transform",
+            "fixed inset-y-0 left-0 z-50 w-64 bg-[var(--card-solid)] border-r border-[var(--card-line)] p-4 shadow-xl flex flex-col justify-between font-sans transition-transform duration-200 ease-out transform",
             isOpenMobile ? "translate-x-0" : "-translate-x-full"
           )}
         >
           <div>
-            <div className="flex items-center justify-between pb-4 border-b border-[var(--card-line)] mb-4">
-              <span className="text-xs font-bold text-[var(--ink-primary)]">
-                Cadence Navigation
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--card-line)] mb-3">
+              <span className="text-xs font-semibold text-[var(--ink-secondary)]">
+                Navigation
               </span>
               <button
                 onClick={() => setIsOpenMobile(false)}
-                className="relative h-7 w-7 rounded-full bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] flex items-center justify-center cursor-pointer before:absolute before:-inset-2 before:content-['']"
+                className="h-7 w-7 rounded-[6px] bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] flex items-center justify-center cursor-pointer"
                 aria-label="Close navigation"
               >
                 ✕
@@ -165,10 +165,10 @@ export function Sidebar() {
                       href={item.href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-between px-3.5 py-2.5 rounded-[12px] text-xs font-semibold text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors"
+                      className="flex items-center justify-between px-3 py-2 rounded-[8px] text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors"
                     >
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4" />
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="h-4 w-4 text-[var(--ink-secondary)]" />
                         <span>{item.label}</span>
                       </div>
                       <ExternalLink className="h-3 w-3 opacity-60" />
@@ -182,14 +182,14 @@ export function Sidebar() {
                     href={item.href}
                     onClick={() => setIsOpenMobile(false)}
                     className={cn(
-                      "flex items-center justify-between px-3.5 py-2.5 rounded-[12px] text-xs font-semibold transition-[transform,background-color,color] duration-150 active:scale-[0.97]",
+                      "flex items-center justify-between px-3 py-2 rounded-[8px] text-xs transition-colors duration-150 active:scale-[0.98]",
                       active
-                        ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
-                        : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)]"
+                        ? "bg-[var(--card-solid-subtle)] text-[var(--ink-primary)] font-semibold border-l-2 border-[var(--color-blue)]"
+                        : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] font-medium"
                     )}
                   >
-                    <div className="flex items-center gap-3">
-                      <Icon className="h-4 w-4" />
+                    <div className="flex items-center gap-2.5">
+                      <Icon className={cn("h-4 w-4", active ? "text-[var(--color-blue)]" : "text-[var(--ink-secondary)]")} />
                       <span>{item.label}</span>
                     </div>
                   </Link>
@@ -199,9 +199,9 @@ export function Sidebar() {
           </div>
 
           {user && (
-            <div className="pt-4 border-t border-[var(--card-line)]">
-              <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[14px] border border-[var(--card-line)]">
-                <div className="text-xs font-bold text-[var(--ink-primary)] truncate">
+            <div className="pt-3 border-t border-[var(--card-line)]">
+              <div className="p-2.5 bg-[var(--card-solid-subtle)] rounded-[8px] border border-[var(--card-line)]">
+                <div className="text-xs font-semibold text-[var(--ink-primary)] truncate">
                   {user.name}
                 </div>
                 <div className="text-[11px] text-[var(--ink-secondary)] truncate capitalize">
@@ -213,51 +213,59 @@ export function Sidebar() {
         </aside>
       </div>
 
-      {/* Desktop Floating Vertical Dock */}
-      <aside className="hidden md:flex flex-col items-center w-[58px] rounded-full left-vertical-dock py-3 px-1.5 gap-2.5 sticky top-20 shrink-0 z-30 font-sans">
-        {visibleNavItems.map((item) => {
-          const active = isActive(item.href);
-          const Icon = item.icon;
+      {/* Desktop Navigation Sidebar (Anchored full-height sidebar column) */}
+      <aside className="hidden md:flex flex-col justify-between w-56 shrink-0 border-r border-[var(--card-line)] bg-[var(--card-solid)] p-3 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto font-sans">
+        <nav className="space-y-0.5">
+          {visibleNavItems.map((item) => {
+            const active = isActive(item.href);
+            const Icon = item.icon;
 
-          if (item.external) {
+            if (item.external) {
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between px-2.5 py-2 rounded-[6px] text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Icon className="h-4 w-4 text-[var(--ink-secondary)]" />
+                    <span>{item.label}</span>
+                  </div>
+                  <ExternalLink className="h-3 w-3 opacity-50" />
+                </a>
+              );
+            }
+
             return (
-              <a
+              <Link
                 key={item.href}
                 href={item.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={item.label}
-                className="group relative flex items-center justify-center h-[42px] w-[42px] rounded-full text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-[transform,background-color,color] duration-150 active:scale-[0.94]"
+                className={cn(
+                  "flex items-center gap-2.5 px-2.5 py-2 rounded-[6px] text-xs transition-colors duration-150 active:scale-[0.98]",
+                  active
+                    ? "bg-[var(--card-solid-subtle)] text-[var(--ink-primary)] font-semibold border-l-2 border-[var(--color-blue)]"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] font-medium"
+                )}
               >
-                <Icon className="h-[18px] w-[18px]" />
-                {/* Tooltip */}
-                <span className="pointer-events-none absolute left-full ml-3 hidden group-hover:flex items-center px-2.5 py-1 rounded-[8px] bg-[var(--color-dark)] text-[var(--ink-inverse)] text-[11px] font-medium shadow-md whitespace-nowrap z-50 animate-in fade-in-0 duration-100">
-                  {item.label}
-                </span>
-              </a>
+                <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[var(--color-blue)]" : "text-[var(--ink-secondary)]")} />
+                <span className="truncate">{item.label}</span>
+              </Link>
             );
-          }
+          })}
+        </nav>
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={item.label}
-              className={cn(
-                "group relative flex items-center justify-center h-[42px] w-[42px] rounded-full transition-[transform,background-color,color,box-shadow] duration-150 active:scale-[0.94]",
-                active
-                  ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-[var(--shadow-pill)]"
-                  : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)]"
-              )}
-            >
-              <Icon className="h-[18px] w-[18px]" />
-              {/* Tooltip */}
-              <span className="pointer-events-none absolute left-full ml-3 hidden group-hover:flex items-center px-2.5 py-1 rounded-[8px] bg-[var(--color-dark)] text-[var(--ink-inverse)] text-[11px] font-medium shadow-md whitespace-nowrap z-50 animate-in fade-in-0 duration-100">
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
+        {user && (
+          <div className="pt-2 mt-2 border-t border-[var(--card-line)] px-1 pb-1">
+            <div className="text-[11px] font-medium text-[var(--ink-primary)] truncate">
+              {user.name}
+            </div>
+            <div className="text-[10px] text-[var(--ink-secondary)] truncate capitalize">
+              {user.role}
+            </div>
+          </div>
+        )}
       </aside>
     </>
   );

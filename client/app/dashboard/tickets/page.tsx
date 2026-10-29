@@ -45,7 +45,7 @@ export default function TicketsPage() {
   // Filters for User Directory
   const [userFilters, setUserFilters] = useState<UserFilter>({
     page: 1,
-    limit: 10,
+    limit: 20,
     search: "",
     role: undefined,
   });
@@ -88,9 +88,8 @@ export default function TicketsPage() {
     return (
       <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl mx-auto font-sans">
         <div className="pb-4 border-b border-[var(--card-line)]">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-            <Ticket className="h-6 w-6 text-[var(--color-blue)]" />
-            <span>Digital Event Pass</span>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+            Digital event pass
           </h1>
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
             Your admission ticket and QR verification code for registration check-in.
@@ -124,7 +123,7 @@ export default function TicketsPage() {
       const res = await bulkSendMutation.mutateAsync(req);
       toast.success(
         `Dispatched ${res.enqueued} ticket emails. (${res.skipped} skipped)`,
-        "TICKETS ENQUEUED"
+        "Tickets enqueued"
       );
       setSelectedUserIds([]);
       return res;
@@ -133,7 +132,7 @@ export default function TicketsPage() {
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Failed to dispatch bulk tickets";
-      toast.error(errorMsg, "DISPATCH FAILED");
+      toast.error(errorMsg, "Dispatch failed");
       throw err;
     }
   };
@@ -145,14 +144,14 @@ export default function TicketsPage() {
       await sendSingleMutation.mutateAsync(targetUser.id);
       toast.success(
         `QR entry pass generated and emailed to ${targetUser.email}`,
-        "QR PASS DISPATCHED"
+        "QR pass dispatched"
       );
     } catch (err: unknown) {
       const errorMsg =
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
           : "Failed to issue ticket";
-      toast.error(errorMsg, "ERROR");
+      toast.error(errorMsg, "Error");
     } finally {
       setActionInProgressId(null);
     }
@@ -163,14 +162,13 @@ export default function TicketsPage() {
   );
 
   return (
-    <div className="translucent-container space-y-6 font-sans">
+    <div className="space-y-6 font-sans">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[var(--card-line)]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)] flex items-center gap-2">
-              <Ticket className="h-6 w-6 text-[var(--color-blue)]" />
-              <span>Ticketing & Gate Operations</span>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+              Tickets & check-in
             </h1>
             {analyticsData && (
               <Badge variant="subtle" size="sm">
@@ -179,8 +177,8 @@ export default function TicketsPage() {
               </Badge>
             )}
           </div>
-          <p className="text-xs text-[var(--ink-secondary)] mt-1">
-            QR badge distribution, bulk dispatch with domain filtering, and gate scanner verification.
+          <p className="text-sm text-[var(--ink-secondary)] mt-1">
+            Issue passes, scan badges at the entrance, and track attendance.
           </p>
         </div>
 
@@ -188,42 +186,39 @@ export default function TicketsPage() {
         <div className="flex flex-wrap items-center gap-2">
           {/* Admin Tab Switcher */}
           {isAdmin && (
-            <div className="inline-flex rounded-full border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)]">
+            <div className="inline-flex rounded-lg border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)] gap-1">
               <button
                 type="button"
                 onClick={() => setAdminTab("users")}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
                   adminTab === "users"
-                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
-                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
                 }`}
               >
-                <Users className="h-3.5 w-3.5" />
-                <span>Attendees</span>
+                Attendees
               </button>
               <button
                 type="button"
                 onClick={() => setAdminTab("scanner")}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
                   adminTab === "scanner"
-                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
-                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
                 }`}
               >
-                <Scan className="h-3.5 w-3.5" />
-                <span>QR Scanner</span>
+                Scanner
               </button>
               <button
                 type="button"
                 onClick={() => setAdminTab("analytics")}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
                   adminTab === "analytics"
-                    ? "bg-[var(--color-dark)] text-[var(--ink-inverse)] shadow-sm"
-                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
                 }`}
               >
-                <BarChart3 className="h-3.5 w-3.5" />
-                <span>Analytics</span>
+                Analytics
               </button>
             </div>
           )}
@@ -234,7 +229,7 @@ export default function TicketsPage() {
             onClick={() => refetchUsers()}
             disabled={usersFetching}
             className="h-9 px-3 text-xs gap-1.5"
-            title="Refresh Attendee Data"
+            title="Refresh attendee data"
           >
             <RefreshCw
               className={`h-3.5 w-3.5 ${usersFetching ? "animate-spin" : ""}`}
@@ -251,7 +246,7 @@ export default function TicketsPage() {
               className="h-9 px-4 text-xs gap-1.5"
             >
               <QrCode className="h-3.5 w-3.5" />
-              <span>Bulk Send QR ({selectedUserIds.length})</span>
+              <span>Send tickets ({selectedUserIds.length})</span>
             </Button>
           )}
         </div>
@@ -264,12 +259,9 @@ export default function TicketsPage() {
 
           <div className="space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--card-line)]">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-[var(--color-blue)]" />
-                <h3 className="font-bold text-sm uppercase tracking-wider text-[var(--ink-primary)]">
-                  Attendee Roster Lookup
-                </h3>
-              </div>
+              <h3 className="font-semibold text-sm text-[var(--ink-primary)]">
+                Attendee roster lookup
+              </h3>
             </div>
 
             {/* Quick search */}
@@ -323,25 +315,25 @@ export default function TicketsPage() {
           {adminTab === "analytics" && analyticsData && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] shadow-sm">
-                  <div className="text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
-                    Total Tickets Issued
+                <div className="rounded-[12px] border border-[var(--card-line)] p-4 bg-[var(--card-solid)]">
+                  <div className="text-xs text-[var(--ink-secondary)]">
+                    Total passes issued
                   </div>
                   <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
                     {analyticsData.total_issued}
                   </div>
                 </div>
-                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] shadow-sm">
-                  <div className="text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
-                    Gate Check-Ins
+                <div className="rounded-[12px] border border-[var(--card-line)] p-4 bg-[var(--card-solid)]">
+                  <div className="text-xs text-[var(--ink-secondary)]">
+                    Gate check-ins
                   </div>
                   <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
                     {analyticsData.checked_in_count}
                   </div>
                 </div>
-                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] shadow-sm">
-                  <div className="text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
-                    Attendance Rate
+                <div className="rounded-[12px] border border-[var(--card-line)] p-4 bg-[var(--card-solid)]">
+                  <div className="text-xs text-[var(--ink-secondary)]">
+                    Attendance rate
                   </div>
                   <div className="text-2xl font-bold text-[var(--ink-primary)] mt-1">
                     {Math.round(analyticsData.attendance_rate * 100)}%
@@ -351,11 +343,11 @@ export default function TicketsPage() {
 
               {/* Volunteer Leaderboard */}
               {analyticsData.volunteer_leaderboard.length > 0 && (
-                <div className="rounded-[20px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] space-y-3 shadow-sm">
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--ink-primary)]">
-                    Volunteer Gate Scan Leaderboard
+                <div className="rounded-[16px] border border-[var(--card-line)] p-5 bg-[var(--card-solid)] space-y-3">
+                  <h4 className="font-semibold text-sm text-[var(--ink-primary)]">
+                    Volunteer gate scan leaderboard
                   </h4>
-                  <div className="divide-y divide-[var(--card-line)] border border-[var(--card-line)] rounded-[14px] overflow-hidden">
+                  <div className="divide-y divide-[var(--card-line)] border border-[var(--card-line)] rounded-[8px] overflow-hidden">
                     {analyticsData.volunteer_leaderboard.map((v, i) => (
                       <div key={v.volunteer_id} className="flex justify-between items-center p-3 text-xs bg-[var(--card-solid)]">
                         <div className="flex items-center gap-2">
@@ -363,9 +355,9 @@ export default function TicketsPage() {
                           <span className="font-semibold text-[var(--ink-primary)]">{v.volunteer_name}</span>
                           <span className="text-[10px] text-[var(--ink-secondary)] font-mono">({v.volunteer_email})</span>
                         </div>
-                        <span className="font-bold text-[var(--ink-primary)] bg-[var(--card-solid-subtle)] px-2.5 py-1 rounded-[6px] border border-[var(--card-line)] text-xs">
-                          {v.count} Scans
-                        </span>
+                        <Badge variant="subtle" size="sm">
+                          {v.count} scans
+                        </Badge>
                       </div>
                     ))}
                   </div>
@@ -375,7 +367,7 @@ export default function TicketsPage() {
           )}
 
           {adminTab === "users" && (
-            <div className="space-y-4">
+            <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
               {/* Filter bar */}
               <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
                 <div className="flex-1 max-w-md">
@@ -397,7 +389,7 @@ export default function TicketsPage() {
                     }
                     className="text-xs h-9"
                   >
-                    <option value="">All Roles</option>
+                    <option value="">All roles</option>
                     <option value="participant">Participants</option>
                     <option value="judge">Judges</option>
                     <option value="volunteer">Volunteers</option>
@@ -408,10 +400,10 @@ export default function TicketsPage() {
 
               {/* Selection banner */}
               {selectedUserIds.length > 0 && (
-                <div className="rounded-[16px] border border-[#83A2DB]/40 bg-[var(--color-blue-dim)] p-3 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2 text-[var(--color-blue)]">
-                    <CheckCircle2 className="h-4 w-4 shrink-0" />
-                    <span className="text-[var(--ink-primary)]">
+                <div className="rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-[var(--ink-primary)]">
+                    <CheckCircle2 className="h-4 w-4 text-[var(--color-blue)] shrink-0" />
+                    <span>
                       <strong>{selectedUserIds.length}</strong> attendee
                       {selectedUserIds.length === 1 ? "" : "s"} selected
                     </span>
@@ -424,16 +416,16 @@ export default function TicketsPage() {
                       onClick={() => setIsBulkSendOpen(true)}
                       className="h-8 text-xs gap-1.5 font-semibold"
                     >
-                      <QrCode className="h-3 w-3" />
-                      <span>Send QR Codes</span>
+                      <QrCode className="h-3.5 w-3.5" />
+                      <span>Send passes</span>
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={handleClearSelection}
-                      className="h-8 text-xs font-semibold"
+                      className="h-8 text-xs"
                     >
-                      Clear Selection
+                      Clear selection
                     </Button>
                   </div>
                 </div>

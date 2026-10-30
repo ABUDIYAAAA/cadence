@@ -108,8 +108,29 @@ func TestCookieManagerSignUnsignAndHTTP(t *testing.T) {
 			t.Fatalf("expected 'jwt-value-xyz', got %q (err: %v)", val, err)
 		}
 
+		// Replay under different cookie name/purpose rejected (e.g. cookie named "refresh_token" containing signed access_token payload)
+		mismatchedReq := httptest.NewRequest(http.MethodGet, "/", nil)
+		mismatchedReq.AddCookie(&http.Cookie{
+			Name:  "refresh_token",
+			Value: c.Value,
+		})
+		if _, err := cm.GetSignedCookie(mismatchedReq, "refresh_token"); !errors.Is(err, ErrInvalidCookiePurpose) {
+			t.Fatalf("expected ErrInvalidCookiePurpose for purpose mismatch, got %v", err)
+		}
+
 		if _, err := cm.GetSignedCookie(req, "missing_cookie"); !errors.Is(err, ErrCookieNotFound) {
 			t.Fatalf("expected ErrCookieNotFound, got %v", err)
+		}
+
+		// Expired cookie rejected
+		expRec := httptest.NewRecorder()
+		cm.SetSignedCookie(expRec, "expired_token", "value", -1*time.Minute)
+		expReq := httptest.NewRequest(http.MethodGet, "/", nil)
+		for _, cookie := range expRec.Result().Cookies() {
+			expReq.AddCookie(cookie)
+		}
+		if _, err := cm.GetSignedCookie(expReq, "expired_token"); !errors.Is(err, ErrCookieExpired) {
+			t.Fatalf("expected ErrCookieExpired, got %v", err)
 		}
 
 		clearRec := httptest.NewRecorder()

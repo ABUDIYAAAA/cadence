@@ -135,12 +135,24 @@ func RateLimitMiddleware(
 				}
 			}
 
-			// 3. If unauthenticated, rate limit by signed device_id cookie (isolates devices behind NAT)
+			// 3. If unauthenticated, rate limit by verified signed device_id cookie (isolates devices behind NAT).
+			// When the client does NOT present a verified _did cookie (cookieless clients or cookie-dropping scripts),
+			// key the unauthenticated limit on client IP so dropping cookies cannot reset the 60/min quota.
 			if key == "" {
-				deviceID := GetDeviceID(ctx)
-				key = fmt.Sprintf("ratelimit:device:%s", deviceID)
-				limit = DefaultDeviceLimit
-				limiterType = "device"
+				if IsDeviceIDVerified(ctx) {
+					deviceID := GetDeviceID(ctx)
+					key = fmt.Sprintf("ratelimit:device:%s", deviceID)
+					limit = DefaultDeviceLimit
+					limiterType = "device"
+				} else {
+					clientIP := extractRemoteIP(r.RemoteAddr)
+					if clientIP == "" {
+						clientIP = "unknown"
+					}
+					key = fmt.Sprintf("ratelimit:unauth_ip:%s", clientIP)
+					limit = DefaultDeviceLimit
+					limiterType = "device"
+				}
 			}
 
 			// 4. Evaluate primary sliding window limit (user, refresh_token, or device)

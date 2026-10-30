@@ -36,8 +36,11 @@ func NewHandler(
 	}
 }
 
+const maxAuthBodyBytes = 16 << 10 // 16 KiB cap on authentication request payloads
+
 // HandleLogin authenticates the user and sets signed access & refresh cookies bound to this device.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
@@ -50,10 +53,12 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID := ratelimit.GetDeviceID(r.Context())
+	userAgent := r.UserAgent()
+	ip := getClientIP(r)
 
-	// Check device + target email failed login rate limit
+	// Check device + target email + client IP failed login rate limit
 	if h.loginGuard != nil {
-		allowed, ttl, err := h.loginGuard.CheckAllowed(r.Context(), deviceID, req.Email)
+		allowed, ttl, err := h.loginGuard.CheckAllowed(r.Context(), deviceID, req.Email, ip)
 		if err == nil && !allowed {
 			w.Header().Set("Retry-After", strconv.FormatInt(int64(ttl.Seconds()), 10))
 			utils.ErrorJSON(w, http.StatusTooManyRequests, "too many failed login attempts for this account on this device; please try again later")
@@ -61,15 +66,12 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	userAgent := r.UserAgent()
-	ip := getClientIP(r)
-
 	user, accessToken, refreshToken, err := h.service.Login(r.Context(), req, deviceID, userAgent, ip)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrInvalidCredentials):
 			if h.loginGuard != nil {
-				_ = h.loginGuard.RecordFailure(r.Context(), deviceID, req.Email)
+				_ = h.loginGuard.RecordFailure(r.Context(), deviceID, req.Email, ip)
 			}
 			utils.ErrorJSON(w, http.StatusUnauthorized, "invalid email or password")
 		case errors.Is(err, ErrPasswordNotSet):
@@ -98,6 +100,7 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 // HandleSetupPassword handles first-landing password setup via setup token.
 func (h *Handler) HandleSetupPassword(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	var req SetupPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
@@ -138,6 +141,7 @@ func (h *Handler) HandleSetupPassword(w http.ResponseWriter, r *http.Request) {
 
 // HandleForgotPassword initiates password reset.
 func (h *Handler) HandleForgotPassword(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	var req ForgotPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
@@ -159,6 +163,7 @@ func (h *Handler) HandleForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 // HandleResetPassword completes password reset.
 func (h *Handler) HandleResetPassword(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	var req ResetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")

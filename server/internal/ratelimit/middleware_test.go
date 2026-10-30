@@ -303,4 +303,53 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 			t.Fatalf("expected 200 OK on /metrics with valid token from saturated campus IP, got %d", authRec.Code)
 		}
 	})
+
+	t.Run("cookieless unauthenticated requests (dropping _did cookie) are throttled at DefaultDeviceLimit via IP bucket", func(t *testing.T) {
+		const cookielessPeer = "198.51.100.88:44321"
+		for i := int64(1); i <= DefaultDeviceLimit; i++ {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
+			req.RemoteAddr = cookielessPeer
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200 OK on cookieless request #%d, got %d", i, rec.Code)
+			}
+		}
+
+		// 61st cookieless request from the same IP must be 429'd even though no _did cookie was sent
+		overReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
+		overReq.RemoteAddr = cookielessPeer
+		overRec := httptest.NewRecorder()
+		r.ServeHTTP(overRec, overReq)
+		if overRec.Code != http.StatusTooManyRequests {
+			t.Fatalf("expected 429 on cookieless request #%d, got %d", DefaultDeviceLimit+1, overRec.Code)
+		}
+	})
+
+	t.Run("Bearer-only authenticated client without cookies is tracked in per-user bucket and throttled at DefaultUserLimit", func(t *testing.T) {
+		bearerToken, err := utils.GenerateAccessToken("user-bearer-only", "bearer@test.com", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		if err != nil {
+			t.Fatalf("generate bearer token: %v", err)
+		}
+
+		for i := int64(1); i <= DefaultUserLimit; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/judging/teams/my-status", nil)
+			req.RemoteAddr = campusIP
+			req.Header.Set("Authorization", "Bearer "+bearerToken)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200 OK on Bearer request #%d, got %d", i, rec.Code)
+			}
+		}
+
+		overReq := httptest.NewRequest(http.MethodGet, "/api/v1/judging/teams/my-status", nil)
+		overReq.RemoteAddr = campusIP
+		overReq.Header.Set("Authorization", "Bearer "+bearerToken)
+		overRec := httptest.NewRecorder()
+		r.ServeHTTP(overRec, overReq)
+		if overRec.Code != http.StatusTooManyRequests {
+			t.Fatalf("expected 429 on Bearer request #%d, got %d", DefaultUserLimit+1, overRec.Code)
+		}
+	})
 }

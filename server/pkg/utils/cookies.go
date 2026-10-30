@@ -7,13 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
+const CookieIssuer = "cadence"
+
 var (
 	ErrInvalidCookieSignature = errors.New("invalid or tampered cookie signature")
 	ErrCookieNotFound         = errors.New("cookie not found")
+	ErrCookieExpired          = errors.New("cookie has expired")
+	ErrInvalidCookiePurpose   = errors.New("cookie purpose or issuer mismatch")
 )
 
 // CookieManager manages signed HTTP cookies.
@@ -74,8 +79,12 @@ func (cm *CookieManager) Unsign(signedValue string) (string, error) {
 }
 
 // SetSignedCookie writes an HTTP-only signed cookie to the response.
+// The signed payload binds issuer, cookie purpose (name), and expiration timestamp
+// so tampered, cross-purpose, or expired cookies are rejected server-side.
 func (cm *CookieManager) SetSignedCookie(w http.ResponseWriter, name, value string, duration time.Duration) {
-	signed := cm.Sign(value)
+	expUnix := time.Now().Add(duration).Unix()
+	envelope := fmt.Sprintf("v1|iss=%s|purpose=%s|exp=%d|%s", CookieIssuer, name, expUnix, value)
+	signed := cm.Sign(envelope)
 	cookie := &http.Cookie{
 		Name:     name,
 		Value:    signed,
@@ -90,7 +99,8 @@ func (cm *CookieManager) SetSignedCookie(w http.ResponseWriter, name, value stri
 	http.SetCookie(w, cookie)
 }
 
-// GetSignedCookie reads and validates a signed cookie from the request.
+// GetSignedCookie reads and validates a signed cookie from the request, verifying
+// HMAC signature, issuer, purpose binding (cookie name), and expiration timestamp.
 func (cm *CookieManager) GetSignedCookie(r *http.Request, name string) (string, error) {
 	cookie, err := r.Cookie(name)
 	if err != nil {
@@ -100,7 +110,31 @@ func (cm *CookieManager) GetSignedCookie(r *http.Request, name string) (string, 
 		return "", err
 	}
 
-	return cm.Unsign(cookie.Value)
+	raw, err := cm.Unsign(cookie.Value)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse v1|iss=cadence|purpose=<name>|exp=<unix>|<value>
+	parts := strings.SplitN(raw, "|", 5)
+	if len(parts) != 5 || parts[0] != "v1" {
+		return "", ErrInvalidCookiePurpose
+	}
+	if parts[1] != "iss="+CookieIssuer || parts[2] != "purpose="+name {
+		return "", ErrInvalidCookiePurpose
+	}
+	if !strings.HasPrefix(parts[3], "exp=") {
+		return "", ErrInvalidCookiePurpose
+	}
+	expUnix, parseErr := strconv.ParseInt(strings.TrimPrefix(parts[3], "exp="), 10, 64)
+	if parseErr != nil {
+		return "", ErrInvalidCookiePurpose
+	}
+	if time.Now().Unix() > expUnix {
+		return "", ErrCookieExpired
+	}
+
+	return parts[4], nil
 }
 
 // ClearCookie invalidates an HTTP cookie by setting MaxAge to -1.

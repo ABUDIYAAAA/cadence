@@ -4,8 +4,8 @@ import "time"
 
 // CreateUserRequest defines payload for single or bulk user creation.
 type CreateUserRequest struct {
-	Email       string  `json:"email" validate:"required,email"`
-	Name        string  `json:"name" validate:"required"`
+	Email       string  `json:"email" validate:"required,email,max=254"`
+	Name        string  `json:"name" validate:"required,max=255"`
 	Role        string  `json:"role" validate:"omitempty,oneof=admin judge volunteer participant"`
 	PhoneNumber *string `json:"phone_number,omitempty"`
 	TeamName    *string `json:"team_name,omitempty"`

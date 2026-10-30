@@ -6,6 +6,11 @@ import "devclubxnst.com/cadence/pkg/audit"
 type Event = audit.Event
 type Recorder = audit.Recorder
 
+var (
+	SanitizeEvent           = audit.SanitizeEvent
+	SanitizeEventWithReport = audit.SanitizeEventWithReport
+)
+
 const (
 	ActionAuthLoginSuccess  = audit.ActionAuthLoginSuccess
 	ActionAuthLoginFailure  = audit.ActionAuthLoginFailure

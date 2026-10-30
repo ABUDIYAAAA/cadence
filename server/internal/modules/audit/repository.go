@@ -3,10 +3,12 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,6 +21,8 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 }
 
 func (r *Repository) InsertAuditLog(ctx context.Context, e Event) error {
+	e = SanitizeEvent(e)
+
 	metaJSON, err := json.Marshal(e.Metadata)
 	if err != nil || len(e.Metadata) == 0 {
 		metaJSON = []byte("{}")
@@ -40,11 +44,31 @@ func (r *Repository) InsertAuditLog(ctx context.Context, e Event) error {
 		e.ActorID, e.ActorEmail, e.ActorRole, e.Action, e.TargetType, e.TargetID,
 		e.Description, metaJSON, e.IPAddress, e.UserAgent, e.DeviceID, createdAt,
 	)
+	if err != nil && e.ActorID != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "22P02") {
+			// If the referenced actor_id no longer exists or is malformed, preserve the audit event with actor_id = NULL.
+			_, err = r.db.Exec(ctx, query,
+				nil, e.ActorEmail, e.ActorRole, e.Action, e.TargetType, e.TargetID,
+				e.Description, metaJSON, e.IPAddress, e.UserAgent, e.DeviceID, createdAt,
+			)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("insert audit log: %w", err)
 	}
 
 	return nil
+}
+
+// IsPermanentAuditInsertError reports whether an InsertAuditLog error is a permanent
+// PostgreSQL data or constraint error (SQLSTATE class 22 or 23) that will never succeed on retry.
+func IsPermanentAuditInsertError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")
 }
 
 func (r *Repository) ListAuditLogs(ctx context.Context, filter AuditLogFilter) ([]AuditLogResponse, int64, error) {

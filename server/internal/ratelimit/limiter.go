@@ -20,29 +20,41 @@ type Result struct {
 
 // slidingWindowScript atomically evicts expired entries, checks the current window count,
 // inserts the new request hit when under quota, and returns {allowed, remaining, oldest_micro}.
+// It uses redis.call("TIME") as the authoritative clock source to prevent multi-VPS NTP skew.
 var slidingWindowScript = redis.NewScript(`
 local key = KEYS[1]
-local clear_before = ARGV[1]
-local now_micro = tonumber(ARGV[2])
-local member = ARGV[3]
-local limit = tonumber(ARGV[4])
-local window_ms = tonumber(ARGV[5])
+local member_prefix = ARGV[1]
+local limit = tonumber(ARGV[2])
+local window_ms = tonumber(ARGV[3])
 
+-- 1. Obtain authoritative server time from Redis (sec, microsec)
+local rtime = redis.call("TIME")
+local now_sec = tonumber(rtime[1])
+local now_usec = tonumber(rtime[2])
+local now_micro = (now_sec * 1000000) + now_usec
+
+local clear_before = now_micro - (window_ms * 1000)
+local member = now_micro .. ":" .. member_prefix
+
+-- 2. Evict expired entries older than the sliding window
 redis.call("ZREMRANGEBYSCORE", key, "-inf", clear_before)
+
+-- 3. Check current member count
 local count = redis.call("ZCARD", key)
 
 if count < limit then
 	redis.call("ZADD", key, now_micro, member)
 	redis.call("PEXPIRE", key, window_ms)
-	return {1, limit - count - 1, "0"}
+	return {1, limit - count - 1, "0", tostring(now_micro)}
 end
 
+-- 4. Over quota: retrieve oldest member score to calculate precise Retry-After
 local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
 local oldest_score = "0"
 if oldest ~= nil and #oldest >= 2 then
 	oldest_score = tostring(oldest[2])
 end
-return {0, 0, oldest_score}
+return {0, 0, oldest_score, tostring(now_micro)}
 `)
 
 var memberCounter uint64
@@ -73,11 +85,7 @@ func (l *Limiter) Allow(ctx context.Context, key string, limit int64, window tim
 		return &Result{Allowed: true, Remaining: limit}, nil
 	}
 
-	now := time.Now()
-	nowMicro := now.UnixMicro()
-	clearBefore := strconv.FormatInt(now.Add(-window).UnixMicro(), 10)
 	seq := atomic.AddUint64(&memberCounter, 1)
-	member := fmt.Sprintf("%d:%d", now.UnixNano(), seq)
 	windowMs := window.Milliseconds()
 	if windowMs < 1 {
 		windowMs = 1
@@ -87,16 +95,14 @@ func (l *Limiter) Allow(ctx context.Context, key string, limit int64, window tim
 		ctx,
 		l.redis,
 		[]string{key},
-		clearBefore,
-		nowMicro,
-		member,
+		seq,
 		limit,
 		windowMs,
 	).Slice()
 	if err != nil {
 		return nil, fmt.Errorf("execute atomic sliding window script: %w", err)
 	}
-	if len(raw) < 3 {
+	if len(raw) < 4 {
 		return nil, fmt.Errorf("unexpected sliding window script result length: %d", len(raw))
 	}
 
@@ -111,9 +117,12 @@ func (l *Limiter) Allow(ctx context.Context, key string, limit int64, window tim
 	}
 
 	resetAfter := window
+	nowMicroStr, _ := raw[3].(string)
+	nowMicro, _ := strconv.ParseFloat(nowMicroStr, 64)
+
 	if oldestStr, ok := raw[2].(string); ok && oldestStr != "" && oldestStr != "0" {
-		if oldestMicro, parseErr := strconv.ParseFloat(oldestStr, 64); parseErr == nil && oldestMicro > 0 {
-			diffMicro := (oldestMicro + float64(window.Microseconds())) - float64(nowMicro)
+		if oldestMicro, parseErr := strconv.ParseFloat(oldestStr, 64); parseErr == nil && oldestMicro > 0 && nowMicro > 0 {
+			diffMicro := (oldestMicro + float64(window.Microseconds())) - nowMicro
 			diffSec := math.Ceil(diffMicro / 1_000_000)
 			if diffSec < 1 {
 				diffSec = 1

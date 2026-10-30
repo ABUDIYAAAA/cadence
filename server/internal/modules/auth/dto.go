@@ -4,26 +4,26 @@ import "time"
 
 // LoginRequest defines credentials for logging in.
 type LoginRequest struct {
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required,min=8"`
+	Email    string `json:"email" validate:"required,email,max=254"`
+	Password string `json:"password" validate:"required,min=8,max=128"`
 }
 
 // SetupPasswordRequest defines the payload for first-landing password setup.
 type SetupPasswordRequest struct {
-	Token           string `json:"token" validate:"required"`
-	Password        string `json:"password" validate:"required,min=8"`
+	Token           string `json:"token" validate:"required,max=256"`
+	Password        string `json:"password" validate:"required,min=8,max=128"`
 	ConfirmPassword string `json:"confirm_password" validate:"required,eqfield=Password"`
 }
 
 // ForgotPasswordRequest defines the payload to request a password reset link.
 type ForgotPasswordRequest struct {
-	Email string `json:"email" validate:"required,email"`
+	Email string `json:"email" validate:"required,email,max=254"`
 }
 
 // ResetPasswordRequest defines the payload to complete a password reset.
 type ResetPasswordRequest struct {
-	Token           string `json:"token" validate:"required"`
-	Password        string `json:"password" validate:"required,min=8"`
+	Token           string `json:"token" validate:"required,max=256"`
+	Password        string `json:"password" validate:"required,min=8,max=128"`
 	ConfirmPassword string `json:"confirm_password" validate:"required,eqfield=Password"`
 }
 

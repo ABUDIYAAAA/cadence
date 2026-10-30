@@ -46,6 +46,7 @@ import {
 	RoundTeamReassignDialog,
 	RoundDetailDialog,
 	RoundLeaderboardView,
+	RoundAnalyticsView,
 	RoundActivateDialog,
 	RoundConfirmDialog,
 	VolunteerScheduleView,
@@ -53,7 +54,7 @@ import {
 	JudgeEvaluationView,
 } from '@/components/judging';
 
-type JudgingTab = 'rounds' | 'volunteer_monitor' | 'leaderboard';
+type JudgingTab = 'rounds' | 'volunteer_monitor' | 'leaderboard' | 'analytics';
 
 export default function JudgingPage() {
 	const router = useRouter();
@@ -375,6 +376,16 @@ export default function JudgingPage() {
 							Leaderboard
 						</button>
 
+						<button
+							onClick={() => setActiveTab('analytics')}
+							className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
+								activeTab === 'analytics'
+									? 'bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold'
+									: 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium'
+							}`}>
+							Analytics
+						</button>
+
 					</div>
 				</div>
 			</div>
@@ -384,6 +395,9 @@ export default function JudgingPage() {
 
 			{/* LEADERBOARD (admin) */}
 			{activeTab === 'leaderboard' && <RoundLeaderboardView />}
+
+			{/* ANALYTICS (admin) */}
+			{activeTab === 'analytics' && <RoundAnalyticsView />}
 
 			{/* TAB 4: ROUNDS MANAGEMENT & CONFIGURATION */}
 			{activeTab === 'rounds' && (

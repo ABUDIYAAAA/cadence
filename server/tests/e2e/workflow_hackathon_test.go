@@ -425,6 +425,31 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 		t.Fatalf("expected Team Alpha CriteriaWeightedScores Innovation=14.0, Execution=8.0, got %+v", second.CriteriaWeightedScores)
 	}
 
+	// Analytics: same two graded teams, with judge timing and per-criterion averages recorded.
+	var analytics judging.RoundAnalyticsResponse
+	admin.DoJSON(t, http.MethodGet, fmt.Sprintf("/api/v1/judging/rounds/%s/analytics", roundID), nil, http.StatusOK, &analytics)
+	if analytics.Summary.GradedTeams != 2 || math.Abs(analytics.Summary.TotalScore-49.0) > 0.01 ||
+		math.Abs(analytics.Summary.AverageScore-24.5) > 0.01 || math.Abs(analytics.Summary.MedianScore-24.5) > 0.01 {
+		t.Fatalf("unexpected analytics summary: %+v", analytics.Summary)
+	}
+	if len(analytics.TopTeams) != 2 || analytics.TopTeams[0].TeamID != betaTeam.ID {
+		t.Fatalf("unexpected analytics top teams: %+v", analytics.TopTeams)
+	}
+	if len(analytics.Panels) == 0 || analytics.Panels[0].GradedTeams != 2 || analytics.Panels[0].TopTeam == "" {
+		t.Fatalf("unexpected analytics panels: %+v", analytics.Panels)
+	}
+	if len(analytics.Criteria) != 2 || analytics.Criteria[0].Scores == 0 {
+		t.Fatalf("unexpected analytics criteria: %+v", analytics.Criteria)
+	}
+	if len(analytics.Judges) == 0 {
+		t.Fatalf("expected judge analytics, got none")
+	}
+	for _, j := range analytics.Judges {
+		if j.ScorecardsLocked != 2 || j.TotalScoreGiven <= 0 || len(j.Criteria) != 2 {
+			t.Fatalf("unexpected judge analytics: %+v", j)
+		}
+	}
+
 	// =========================================================================
 	// PHASE 5: Notifications Broadcast (Global, Role, Team, User) & Inbox Lifecycle
 	// =========================================================================

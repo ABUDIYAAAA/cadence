@@ -1088,6 +1088,10 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 		}
 	}
 
+	if err := recordScoreChangesTx(ctx, tx, slotID, judgeID, scores); err != nil {
+		return err
+	}
+
 	upsertQuery := `
 		INSERT INTO judging_scores (slot_id, judge_id, criterion_id, score, notes, is_locked)
 		VALUES ($1, $2, $3, $4, $5, false)
@@ -1149,6 +1153,10 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 		SET pitch_ended_at = COALESCE(paused_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND pitch_ended_at IS NULL`, slotID); err != nil {
 		return fmt.Errorf("end pitch: %w", err)
+	}
+
+	if err := recordLockMetricsTx(ctx, tx, slotID, judgeID); err != nil {
+		return err
 	}
 
 	return tx.Commit(ctx)

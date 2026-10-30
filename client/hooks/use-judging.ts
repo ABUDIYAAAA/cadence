@@ -201,6 +201,15 @@ export function useAdminLeaderboard(roundId: string) {
   });
 }
 
+export function useRoundAnalytics(roundId: string) {
+  return useQuery({
+    queryKey: [...JUDGING_QUERY_KEY, "analytics", roundId],
+    queryFn: () => judgingService.getRoundAnalytics(roundId),
+    enabled: Boolean(roundId),
+    refetchInterval: 1000 * 10,
+  });
+}
+
 export function useCreateRound() {
   const queryClient = useQueryClient();
 

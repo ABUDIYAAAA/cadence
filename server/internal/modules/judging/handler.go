@@ -666,6 +666,27 @@ func (h *Handler) HandleGetAdminLeaderboard(w http.ResponseWriter, r *http.Reque
 	utils.JSON(w, http.StatusOK, leaderboard)
 }
 
+// HandleGetRoundAnalytics returns admin analytics for a round.
+func (h *Handler) HandleGetRoundAnalytics(w http.ResponseWriter, r *http.Request) {
+	roundID := chi.URLParam(r, "id")
+	if roundID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "round ID is required")
+		return
+	}
+
+	analytics, err := h.service.GetRoundAnalytics(r.Context(), roundID)
+	if err != nil {
+		if errors.Is(err, ErrRoundNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging round not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to compute analytics: "+err.Error())
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, analytics)
+}
+
 // HandleMoveSlot moves a team slot across panels or reorders inside a panel.
 func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.GetUserClaims(r.Context())

@@ -3,6 +3,7 @@ import {
   AssignedJudge,
   RoundPanelOverview,
   AdminLeaderboardResponse,
+  RoundAnalyticsResponse,
   ConfigureSlotsRequest,
   CreatePanelRequest,
   CreatePanelResponse,
@@ -170,6 +171,13 @@ export const judgingService = {
   async getAdminLeaderboard(roundId: string): Promise<AdminLeaderboardResponse> {
     const { data } = await apiClient.get<AdminLeaderboardResponse>(
       `/judging/rounds/${roundId}/leaderboard`
+    );
+    return data;
+  },
+
+  async getRoundAnalytics(roundId: string): Promise<RoundAnalyticsResponse> {
+    const { data } = await apiClient.get<RoundAnalyticsResponse>(
+      `/judging/rounds/${roundId}/analytics`
     );
     return data;
   },

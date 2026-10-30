@@ -461,6 +461,11 @@ func (s *Service) GetVolunteerSchedule(ctx context.Context, judgeID *string) ([]
 	return s.repo.GetVolunteerSchedule(ctx, judgeID)
 }
 
+// GetRoundAnalytics returns standings, panel, criterion and judge statistics for a round.
+func (s *Service) GetRoundAnalytics(ctx context.Context, roundID string) (*RoundAnalyticsResponse, error) {
+	return s.repo.GetRoundAnalytics(ctx, roundID)
+}
+
 // GetAdminLeaderboard calculates full round rankings with weighted criteria breakdown.
 func (s *Service) GetAdminLeaderboard(ctx context.Context, roundID string) (*AdminLeaderboardResponse, error) {
 	return s.repo.GetAdminLeaderboard(ctx, roundID)

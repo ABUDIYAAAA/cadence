@@ -231,6 +231,88 @@ export interface AdminLeaderboardResponse {
   average_score: number;
 }
 
+export interface AnalyticsSummary {
+  total_teams: number;
+  graded_teams: number;
+  partial_teams: number;
+  total_judges: number;
+  scorecards_locked: number;
+  max_possible_score: number;
+  total_score: number;
+  average_score: number;
+  median_score: number;
+  highest_score: number;
+  lowest_score: number;
+  avg_grading_secs: number;
+}
+
+export interface PanelAnalytics {
+  panel_id: string;
+  panel_name: string;
+  room: string;
+  judges: number;
+  total_teams: number;
+  graded_teams: number;
+  total_score: number;
+  average_score: number;
+  highest_score: number;
+  lowest_score: number;
+  top_team?: string;
+  avg_grading_secs: number;
+}
+
+export interface CriterionAnalytics {
+  criterion_id: string;
+  name: string;
+  min_score: number;
+  max_score: number;
+  weight: number;
+  scores: number;
+  avg_score: number;
+  lowest_score: number;
+  highest_score: number;
+  avg_pct: number;
+}
+
+export interface JudgeCriterionAvg {
+  criterion_id: string;
+  name: string;
+  avg_score: number;
+  avg_pct: number;
+  scores: number;
+}
+
+export interface JudgeAnalytics {
+  judge_id: string;
+  name: string;
+  panels: string[];
+  scorecards_locked: number;
+  scorecards_assigned: number;
+  avg_grading_secs: number;
+  min_grading_secs: number;
+  max_grading_secs: number;
+  avg_slot_secs: number;
+  avg_edits: number;
+  total_score_given: number;
+  avg_total_per_team: number;
+  avg_score: number;
+  avg_pct: number;
+  criteria: JudgeCriterionAvg[];
+}
+
+export interface RoundAnalyticsResponse {
+  round_id: string;
+  round_name: string;
+  status: string;
+  summary: AnalyticsSummary;
+  top_teams: AdminLeaderboardEntry[];
+  bottom_teams: AdminLeaderboardEntry[];
+  panels: PanelAnalytics[];
+  criteria: CriterionAnalytics[];
+  judges: JudgeAnalytics[];
+  score_distribution: { label: string; count: number }[];
+}
+
 export interface RoundSummary {
   id: string;
   name: string;

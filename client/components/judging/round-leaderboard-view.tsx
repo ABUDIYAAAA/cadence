@@ -4,6 +4,10 @@ import React, { useState } from "react";
 import { useJudgingRounds, useAdminLeaderboard } from "@/hooks/use-judging";
 import { SectionToolbar, MetricGrid, Metric } from "./section-shell";
 import { Select } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { downloadCsv, slugify, toCsv } from "@/lib/csv";
+import type { AdminLeaderboardEntry, AdminLeaderboardResponse } from "@/types/judging";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonCard } from "@/components/ui/skeleton";
@@ -17,6 +21,58 @@ import {
 } from "@/components/ui/table";
 
 const fmt = (n: number) => (Math.round(n * 100) / 100).toString();
+
+/** Sum of every locked judge's score; the stored score is their mean, so mean x judges locked. */
+const panelTotal = (e: { total_weighted_score: number; judges_evaluated_count: number }) =>
+  e.total_weighted_score * e.judges_evaluated_count;
+
+/** Best average first; teams with no locked scorecards go last, then by name. */
+function byAverage(a: AdminLeaderboardEntry, b: AdminLeaderboardEntry) {
+  const aScored = a.judges_evaluated_count > 0;
+  const bScored = b.judges_evaluated_count > 0;
+  if (aScored !== bScored) return aScored ? -1 : 1;
+  return b.total_weighted_score - a.total_weighted_score || a.team_name.localeCompare(b.team_name);
+}
+
+function buildCsv(data: AdminLeaderboardResponse, entries: AdminLeaderboardEntry[], scope: "global" | "panel") {
+  const criteria = data.criteria.map((c) => c.name);
+  const header = [
+    "Rank",
+    ...(scope === "global" ? ["Overall rank"] : []),
+    "Team",
+    "Room",
+    "Panel",
+    "Avg score",
+    "Max score",
+    "Panel total",
+    "Max panel total",
+    "Judges locked",
+    "Judges on panel",
+    "Status",
+    ...criteria.map((n) => `${n} (avg)`),
+  ];
+  let rank = 0;
+  const rows = [...entries].sort(byAverage).map((e) => {
+    const scored = e.judges_evaluated_count > 0;
+    if (scored) rank += 1;
+    return [
+      scored ? rank : "",
+      ...(scope === "global" ? [scored ? e.rank : ""] : []),
+      e.team_name,
+      e.room,
+      e.panel_name,
+      scored ? fmt(e.total_weighted_score) : "",
+      fmt(e.max_possible_score),
+      scored ? fmt(panelTotal(e)) : "",
+      fmt(e.max_possible_score * e.total_judges_on_panel),
+      e.judges_evaluated_count,
+      e.total_judges_on_panel,
+      !scored ? "Not scored" : e.all_panel_judges_locked ? "Final" : "Provisional",
+      ...criteria.map((n) => (scored && n in e.criteria_averages ? fmt(e.criteria_averages[n]) : "")),
+    ];
+  });
+  return toCsv(header, rows);
+}
 
 /**
  * Round standings from locked scorecards. Polls, so each judge's lock appears within seconds.
@@ -45,6 +101,22 @@ export function RoundLeaderboardView() {
 
   const entries = data?.leaderboard ?? [];
 
+  const panels = Array.from(
+    new Map(entries.map((e) => [`${e.room}|${e.panel_name}`, { room: e.room, name: e.panel_name }])).values()
+  );
+
+  const exportGlobal = () => {
+    if (!data) return;
+    downloadCsv(`${slugify(data.round_name)}-all-teams.csv`, buildCsv(data, entries, "global"));
+  };
+
+  const exportPanel = (key: string) => {
+    if (!data || !key) return;
+    const [room, name] = key.split("|");
+    const rows = entries.filter((e) => e.room === room && e.panel_name === name);
+    downloadCsv(`${slugify(data.round_name)}-${slugify(`${room}-${name}`)}.csv`, buildCsv(data, rows, "panel"));
+  };
+
   return (
     <div className="font-sans space-y-6">
       <SectionToolbar
@@ -64,6 +136,33 @@ export function RoundLeaderboardView() {
               {rounds.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportGlobal}
+          disabled={!data || entries.length === 0}
+          className="flex items-center gap-1.5 text-xs h-9"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export all
+        </Button>
+        {panels.length > 0 && (
+          <div className="w-44">
+            <Select
+              aria-label="Export a single panel"
+              value=""
+              onChange={(e) => exportPanel(e.target.value)}
+              className="text-xs h-9"
+            >
+              <option value="">Export panel…</option>
+              {panels.map((p) => (
+                <option key={`${p.room}|${p.name}`} value={`${p.room}|${p.name}`}>
+                  {p.room} · {p.name}
                 </option>
               ))}
             </Select>
@@ -98,7 +197,8 @@ export function RoundLeaderboardView() {
                   <TableHead className="w-14">Rank</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Room</TableHead>
-                  <TableHead className="text-right">Score</TableHead>
+                  <TableHead className="text-right">Avg score</TableHead>
+                  <TableHead className="text-right">Panel total</TableHead>
                   <TableHead>Judges locked</TableHead>
                 </TableRow>
               </TableHeader>
@@ -121,6 +221,19 @@ export function RoundLeaderboardView() {
                           <>
                             <strong className="text-[var(--ink-primary)]">{fmt(e.total_weighted_score)}</strong>
                             <span className="text-[var(--ink-tertiary)]"> / {fmt(e.max_possible_score)}</span>
+                          </>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {unscored ? (
+                          <span className="text-[var(--ink-tertiary)]">—</span>
+                        ) : (
+                          <>
+                            <strong className="text-[var(--ink-primary)]">{fmt(panelTotal(e))}</strong>
+                            <span className="text-[var(--ink-tertiary)]">
+                              {" "}
+                              / {fmt(e.max_possible_score * e.total_judges_on_panel)}
+                            </span>
                           </>
                         )}
                       </TableCell>

@@ -45,7 +45,8 @@ function TeamRows({ teams, max }: { teams: AdminLeaderboardEntry[]; max: number 
           <TableHead className="w-12">#</TableHead>
           <TableHead>Team</TableHead>
           <TableHead>Room</TableHead>
-          <TableHead className="text-right">Score</TableHead>
+          <TableHead className="text-right">Avg score</TableHead>
+          <TableHead className="text-right">Panel total</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -59,6 +60,12 @@ function TeamRows({ teams, max }: { teams: AdminLeaderboardEntry[]; max: number 
             <TableCell className="text-right font-mono tabular-nums">
               <strong className="text-[var(--ink-primary)]">{fmt(t.total_weighted_score)}</strong>
               <span className="text-[var(--ink-tertiary)]"> / {fmt(max)}</span>
+            </TableCell>
+            <TableCell className="text-right font-mono tabular-nums">
+              <strong className="text-[var(--ink-primary)]">
+                {fmt(t.total_weighted_score * t.judges_evaluated_count)}
+              </strong>
+              <span className="text-[var(--ink-tertiary)]"> / {fmt(max * t.total_judges_on_panel)}</span>
             </TableCell>
           </TableRow>
         ))}

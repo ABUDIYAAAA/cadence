@@ -256,7 +256,7 @@ export function RoundAnalyticsView() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Judge</TableHead>
-                    <TableHead className="text-right">Locked</TableHead>
+                    <TableHead className="text-right">Teams scored</TableHead>
                     <TableHead className="text-right">Avg grading</TableHead>
                     <TableHead className="text-right">Fastest / slowest</TableHead>
                     <TableHead className="text-right">Avg edits</TableHead>
@@ -303,8 +303,8 @@ export function RoundAnalyticsView() {
               </Table>
             )}
             <div className="text-[11px] text-[var(--ink-tertiary)]">
-              Grading time runs from a judge&apos;s first score entry to locking their scorecard. Edits count score
-              changes made after the first entry.
+              Grading time runs from the start of a team&apos;s pitch to the judge locking their scorecard, excluding
+              paused time. Edits count score changes saved after the first save.
             </div>
           </Surface>
         </>

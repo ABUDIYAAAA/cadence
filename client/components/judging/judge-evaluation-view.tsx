@@ -351,6 +351,10 @@ function JudgeSlotScorecardForm({
   const [isLockConfirmOpen, setIsLockConfirmOpen] = useState(false);
   const [copiedLinkKey, setCopiedLinkKey] = useState<string | null>(null);
 
+  // Mark a criterion as deliberately scored without changing its value (e.g. confirming a 0).
+  const markScored = (criterionId: string) =>
+    setScoredIds((prev) => (prev.has(criterionId) ? prev : new Set(prev).add(criterionId)));
+
   // Handle score value change
   const handleScoreChange = (criterionId: string, val: number) => {
     setScoredIds((prev) => (prev.has(criterionId) ? prev : new Set(prev).add(criterionId)));
@@ -727,9 +731,15 @@ function JudgeSlotScorecardForm({
                       <label className="text-xs font-medium text-[var(--ink-secondary)]">
                         Score (0 to {c.max_score})
                       </label>
-                      <span className="text-xs font-bold font-mono text-[var(--ink-primary)]">
-                        {currentScore} / {c.max_score}
-                      </span>
+                      {isLocked || scoredIds.has(c.criterion_id) ? (
+                        <span className="text-xs font-bold font-mono text-[var(--ink-primary)]">
+                          {currentScore} / {c.max_score}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium text-[var(--ink-tertiary)]">
+                          Not scored · tap the slider or a value
+                        </span>
+                      )}
                     </div>
 
                     {!isLocked ? (
@@ -742,6 +752,9 @@ function JudgeSlotScorecardForm({
                           step={1}
                           value={currentScore}
                           onChange={(e) => handleScoreChange(c.criterion_id, Number(e.target.value))}
+                          // onChange never fires when the slider is already at the value the judge wants (0)
+                          onPointerUp={() => markScored(c.criterion_id)}
+                          onKeyUp={() => markScored(c.criterion_id)}
                           disabled={!canScore}
                           className="w-full accent-[var(--color-blue)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                         />

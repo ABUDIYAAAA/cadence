@@ -182,7 +182,7 @@ func (r *Repository) fillPanelAnalytics(ctx context.Context, roundID string, gra
 	rows, err := r.db.Query(ctx, `
 		SELECT p.id, p.name, p.room,
 		       (SELECT COUNT(*) FROM judging_panel_judges pj WHERE pj.panel_id = p.id),
-		       COALESCE((SELECT AVG(m.grading_ms) FROM judging_judge_metrics m
+		       COALESCE((SELECT AVG(m.slot_ms) FROM judging_judge_metrics m
 		                 WHERE m.panel_id = p.id AND m.locked_at IS NOT NULL), 0) / 1000.0
 		FROM judging_panels p WHERE p.round_id = $1 ORDER BY p.name, p.room`, roundID)
 	if err != nil {
@@ -262,9 +262,9 @@ func (r *Repository) fillJudgeAnalytics(ctx context.Context, roundID string, out
 		       (SELECT COUNT(*) FROM judging_slots s WHERE s.panel_id = ANY(ARRAY_AGG(DISTINCT p.id))),
 		       COALESCE((SELECT COUNT(*) FROM judging_judge_metrics m
 		                 WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0),
-		       COALESCE((SELECT AVG(m.grading_ms) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8 / 1000,
-		       COALESCE((SELECT MIN(m.grading_ms) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8 / 1000,
-		       COALESCE((SELECT MAX(m.grading_ms) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8 / 1000,
+		       COALESCE((SELECT AVG(m.slot_ms) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8 / 1000,
+		       COALESCE((SELECT MIN(m.slot_ms) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8 / 1000,
+		       COALESCE((SELECT MAX(m.slot_ms) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8 / 1000,
 		       COALESCE((SELECT AVG(m.slot_ms) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8 / 1000,
 		       COALESCE((SELECT AVG(m.edit_count) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8,
 		       COALESCE((SELECT SUM(m.score_total) FROM judging_judge_metrics m WHERE m.judge_id = u.id AND m.round_id = $1 AND m.locked_at IS NOT NULL), 0)::float8,

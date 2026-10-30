@@ -20,3 +20,22 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+/** Split a comma-, semicolon-, or whitespace-separated domain input into normalized, deduplicated domains. */
+export function parseEmailDomains(raw: string): string[] {
+  const seen = new Set<string>();
+  for (const part of raw.split(/[\s,;]+/)) {
+    const d = part.trim().toLowerCase().replace(/^@+/, "");
+    if (d) seen.add(d);
+  }
+  return Array.from(seen);
+}
+
+/** True when `email` matches any domain (or subdomain) in `excludeDomains`, mirroring server utils.IsEmailExcluded. */
+export function isEmailExcluded(email: string, excludeDomains: string[]): boolean {
+  const normalizedEmail = email.trim().toLowerCase();
+  return excludeDomains.some((raw) => {
+    const d = raw.trim().toLowerCase().replace(/^@+/, "");
+    return Boolean(d) && (normalizedEmail.endsWith("@" + d) || normalizedEmail.endsWith("." + d));
+  });
+}

@@ -1036,7 +1036,7 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 	}
 	defer tx.Rollback(ctx)
 
-	if err := requireSlotInProgress(ctx, tx, slotID); err != nil {
+	if _, _, err := lockRunningSlot(ctx, tx, slotID); err != nil {
 		return err
 	}
 
@@ -1050,7 +1050,7 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 		return errors.New("scorecard is locked and cannot be edited")
 	}
 
-	// Fetch criteria bounds for this slot to validate score ranges
+	// Fetch criteria bounds for this slot to validate criterion ownership and score ranges
 	critBoundsQuery := `
 		SELECT c.id, c.name, c.min_score, c.max_score
 		FROM judging_criteria c
@@ -1079,12 +1079,23 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 		bounds[id] = b
 	}
 	bRows.Close()
+	if err := bRows.Err(); err != nil {
+		return fmt.Errorf("iterate criteria bounds: %w", err)
+	}
 
+	seenCriteria := make(map[string]struct{}, len(scores))
 	for _, sc := range scores {
-		if b, ok := bounds[sc.CriterionID]; ok {
-			if sc.Score < float64(b.minScore) || sc.Score > float64(b.maxScore) {
-				return fmt.Errorf("%w: criterion '%s' expects score between %d and %d, got %.2f", ErrScoreOutOfRange, b.name, b.minScore, b.maxScore, sc.Score)
-			}
+		if _, dup := seenCriteria[sc.CriterionID]; dup {
+			return fmt.Errorf("%w: %s", ErrDuplicateCriterion, sc.CriterionID)
+		}
+		seenCriteria[sc.CriterionID] = struct{}{}
+
+		b, ok := bounds[sc.CriterionID]
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrCriterionNotInRound, sc.CriterionID)
+		}
+		if math.IsNaN(sc.Score) || math.IsInf(sc.Score, 0) || sc.Score < float64(b.minScore) || sc.Score > float64(b.maxScore) {
+			return fmt.Errorf("%w: criterion '%s' expects score between %d and %d, got %.2f", ErrScoreOutOfRange, b.name, b.minScore, b.maxScore, sc.Score)
 		}
 	}
 
@@ -1096,11 +1107,16 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 		INSERT INTO judging_scores (slot_id, judge_id, criterion_id, score, notes, is_locked)
 		VALUES ($1, $2, $3, $4, $5, false)
 		ON CONFLICT (slot_id, judge_id, criterion_id)
-		DO UPDATE SET score = EXCLUDED.score, notes = EXCLUDED.notes, updated_at = CURRENT_TIMESTAMP;
+		DO UPDATE SET score = EXCLUDED.score, notes = EXCLUDED.notes, updated_at = CURRENT_TIMESTAMP
+		WHERE judging_scores.is_locked = false;
 	`
 	for _, sc := range scores {
-		if _, err := tx.Exec(ctx, upsertQuery, slotID, judgeID, sc.CriterionID, sc.Score, sc.Notes); err != nil {
+		cmdTag, err := tx.Exec(ctx, upsertQuery, slotID, judgeID, sc.CriterionID, sc.Score, sc.Notes)
+		if err != nil {
 			return fmt.Errorf("upsert score %s: %w", sc.CriterionID, err)
+		}
+		if cmdTag.RowsAffected() == 0 {
+			return errors.New("scorecard is locked and cannot be edited")
 		}
 	}
 
@@ -1119,16 +1135,38 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 		return err
 	}
 
-	// Every criterion in the round must have a score before the card can be locked.
+	// Remove any stray foreign-round score rows before evaluating completeness or locking.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM judging_scores sc
+		WHERE sc.slot_id = $1 AND sc.judge_id = $2
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM judging_slots s
+			JOIN judging_panels p ON p.id = s.panel_id
+			JOIN judging_criteria c ON c.round_id = p.round_id
+			WHERE s.id = sc.slot_id AND c.id = sc.criterion_id
+		  )`, slotID, judgeID); err != nil {
+		return fmt.Errorf("clean foreign score rows: %w", err)
+	}
+
+	// Every criterion in the slot's round must have a valid score within [min_score, max_score] before locking.
 	var required, scored int
 	if err := tx.QueryRow(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM judging_criteria c
-			 JOIN judging_panels p ON p.round_id = c.round_id
-			 JOIN judging_slots s ON s.panel_id = p.id
-			 WHERE s.id = $1),
-			(SELECT COUNT(*) FROM judging_scores sc
-			 WHERE sc.slot_id = $1 AND sc.judge_id = $2 AND sc.score IS NOT NULL)`,
+			COUNT(c.id) AS required,
+			COUNT(sc.id) FILTER (
+				WHERE sc.score IS NOT NULL
+				  AND sc.score >= c.min_score
+				  AND sc.score <= c.max_score
+			) AS scored
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_criteria c ON c.round_id = p.round_id
+		LEFT JOIN judging_scores sc
+			ON sc.slot_id = s.id
+		   AND sc.judge_id = $2
+		   AND sc.criterion_id = c.id
+		WHERE s.id = $1`,
 		slotID, judgeID).Scan(&required, &scored); err != nil {
 		return fmt.Errorf("count scored criteria: %w", err)
 	}
@@ -1140,9 +1178,15 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 	}
 
 	if _, err := tx.Exec(ctx, `
-		UPDATE judging_scores
+		UPDATE judging_scores sc
 		SET is_locked = true, locked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-		WHERE slot_id = $1 AND judge_id = $2`, slotID, judgeID); err != nil {
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_criteria c ON c.round_id = p.round_id
+		WHERE sc.slot_id = $1
+		  AND sc.judge_id = $2
+		  AND s.id = sc.slot_id
+		  AND c.id = sc.criterion_id`, slotID, judgeID); err != nil {
 		return fmt.Errorf("lock scorecard: %w", err)
 	}
 
@@ -1167,12 +1211,15 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 func (r *Repository) GetPanelLockProgress(ctx context.Context, slotID string) ([]PanelJudgeProgress, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT u.id, u.name,
-			(SELECT COUNT(*) FROM judging_scores sc
+			(SELECT COUNT(*)
+			 FROM judging_scores sc
+			 JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
 			 WHERE sc.slot_id = s.id AND sc.judge_id = u.id AND sc.is_locked = true)
-			>= (SELECT COUNT(*) FROM judging_criteria c
-			    JOIN judging_panels p ON p.round_id = c.round_id
-			    WHERE p.id = s.panel_id)
+			>= (SELECT COUNT(*)
+			    FROM judging_criteria c
+			    WHERE c.round_id = p.round_id)
 		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
 		JOIN users u ON u.id = pj.judge_id
 		WHERE s.id = $1
@@ -1212,9 +1259,12 @@ func (r *Repository) CheckAllPanelJudgesLocked(ctx context.Context, slotID strin
 		locked_judges AS (
 			SELECT sc.judge_id
 			FROM judging_scores sc
+			JOIN judging_slots s ON s.id = sc.slot_id
+			JOIN judging_panels p ON p.id = s.panel_id
+			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
 			WHERE sc.slot_id = $1 AND sc.is_locked = true
 			GROUP BY sc.judge_id
-			HAVING COUNT(*) >= (SELECT n FROM criteria_count)
+			HAVING COUNT(DISTINCT c.id) >= (SELECT n FROM criteria_count)
 		)
 		SELECT 
 			(SELECT COUNT(*) FROM panel_judges) AS total_judges,
@@ -1496,7 +1546,9 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 				AVG(sc.score) as avg_score,
 				COUNT(DISTINCT sc.judge_id) as judges_evaluated
 			FROM judging_slots s
+			JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
 			JOIN judging_scores sc ON sc.slot_id = s.id AND sc.is_locked = true
+			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
 			GROUP BY s.id, sc.criterion_id
 		),
 		slot_totals AS (
@@ -1521,7 +1573,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			JOIN teams tm ON tm.id = s.team_id
 			LEFT JOIN panel_judges_count pjc ON pjc.panel_id = p.id
 			LEFT JOIN criterion_averages ca ON ca.slot_id = s.id
-			LEFT JOIN judging_criteria c ON c.id = ca.criterion_id
+			LEFT JOIN judging_criteria c ON c.id = ca.criterion_id AND c.round_id = p.round_id
 			GROUP BY s.id, s.team_id, tm.name, p.name, p.room, s.status, pjc.total_judges
 		)
 		SELECT 
@@ -1576,10 +1628,10 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		critRows, err := r.db.Query(ctx, `
 			SELECT c.name, c.min_score, c.max_score, c.weight, AVG(sc.score)
 			FROM judging_scores sc
-			JOIN judging_criteria c ON c.id = sc.criterion_id
+			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = $2
 			WHERE sc.slot_id = $1 AND sc.is_locked = true
 			GROUP BY c.id, c.name, c.min_score, c.max_score, c.weight;
-		`, re.slotID)
+		`, re.slotID, roundID)
 		if err == nil {
 			for critRows.Next() {
 				var cName string

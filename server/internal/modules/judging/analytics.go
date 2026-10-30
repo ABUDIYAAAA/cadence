@@ -236,7 +236,11 @@ func (r *Repository) fillCriteriaAnalytics(ctx context.Context, roundID string, 
 		       COALESCE(AVG(CASE WHEN c.max_score > c.min_score
 		            THEN (sc.score - c.min_score) / (c.max_score - c.min_score)::numeric END), 0)::float8
 		FROM judging_criteria c
-		LEFT JOIN judging_scores sc ON sc.criterion_id = c.id AND sc.is_locked = true
+		LEFT JOIN (
+			judging_scores sc
+			JOIN judging_slots s ON s.id = sc.slot_id
+			JOIN judging_panels p ON p.id = s.panel_id
+		) ON sc.criterion_id = c.id AND sc.is_locked = true AND p.round_id = c.round_id
 		WHERE c.round_id = $1
 		GROUP BY c.id, c.name, c.min_score, c.max_score, c.weight, c.order_index
 		ORDER BY c.order_index, c.name`, roundID)
@@ -316,7 +320,9 @@ func (r *Repository) fillJudgeAnalytics(ctx context.Context, roundID string, out
 		       COALESCE(AVG(CASE WHEN c.max_score > c.min_score
 		            THEN (sc.score - c.min_score) / (c.max_score - c.min_score)::numeric END), 0)::float8
 		FROM judging_scores sc
-		JOIN judging_criteria c ON c.id = sc.criterion_id
+		JOIN judging_slots s ON s.id = sc.slot_id
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
 		WHERE c.round_id = $1 AND sc.is_locked = true
 		GROUP BY sc.judge_id, c.id, c.name, c.order_index
 		ORDER BY c.order_index, c.name`, roundID)

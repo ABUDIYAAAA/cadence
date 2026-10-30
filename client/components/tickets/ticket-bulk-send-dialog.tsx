@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { UserDetailResponse } from "@/types/users";
 import { BulkSendTicketsRequest, BulkSendTicketsResponse } from "@/types/tickets";
 import { useAllUsers } from "@/hooks/use-users";
+import { isEmailExcluded, parseEmailDomains } from "@/lib/utils";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,16 +51,13 @@ export function TicketBulkSendDialog({
     onClose();
   };
 
-  const normalizedDomain = excludeDomain.trim().toLowerCase().replace(/^@/, "");
+  const excludedDomains = parseEmailDomains(excludeDomain);
 
-  // Exclude users whose email ends with the domain
-  const eligibleUsers = normalizedDomain
-    ? selectedUsers.filter(
-        (u) =>
-          !u.email.toLowerCase().endsWith("@" + normalizedDomain) &&
-          !u.email.toLowerCase().endsWith("." + normalizedDomain)
-      )
-    : selectedUsers;
+  // Exclude users whose email matches any of the excluded domains
+  const eligibleUsers =
+    excludedDomains.length > 0
+      ? selectedUsers.filter((u) => !isEmailExcluded(u.email, excludedDomains))
+      : selectedUsers;
 
   const excludedCount = selectedUsers.length - eligibleUsers.length;
 
@@ -69,7 +67,7 @@ export function TicketBulkSendDialog({
         {
           // Bulk mode lets the server resolve recipients; exclusion is enforced there too.
           ...(sendToAll ? {} : { user_ids: eligibleUsers.map((u) => u.id) }),
-          ...(normalizedDomain ? { exclude_domains: [normalizedDomain] } : {}),
+          ...(excludedDomains.length > 0 ? { exclude_domains: excludedDomains } : {}),
           skip_checked_in: skipCheckedIn,
         },
         mode
@@ -181,17 +179,17 @@ export function TicketBulkSendDialog({
             <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
               <div className="flex items-center gap-1.5 text-[var(--ink-primary)] font-semibold uppercase text-[11px]">
                 <Filter className="h-3.5 w-3.5 text-[var(--color-blue)]" />
-                <span>Exclude Specific Email Domain (Optional)</span>
+                <span>Exclude Email Domains (Optional)</span>
               </div>
               <Input
-                placeholder="e.g. test.com or company.internal"
+                placeholder="e.g. test.com, company.internal"
                 value={excludeDomain}
                 onChange={(e) => setExcludeDomain(e.target.value)}
                 disabled={isLoading}
                 className="text-xs"
               />
               <p className="text-[10px] text-[var(--ink-secondary)]">
-                Attendees on this domain will be skipped (for example, test accounts).
+                Separate multiple domains with commas or spaces. Attendees on these domains will be skipped (for example, test accounts).
               </p>
             </div>
 
@@ -215,9 +213,11 @@ export function TicketBulkSendDialog({
                 <span className="text-[var(--ink-secondary)]">Selected: </span>
                 <strong className="text-[var(--ink-primary)] font-mono">{selectedUsers.length}</strong>
               </div>
-              {normalizedDomain && (
+              {excludedDomains.length > 0 && (
                 <div>
-                  <span className="text-[var(--ink-secondary)]">Excluded ({normalizedDomain}): </span>
+                  <span className="text-[var(--ink-secondary)]">
+                    Excluded ({excludedDomains.join(", ")}):{" "}
+                  </span>
                   <strong className="text-[var(--ink-primary)] font-mono">{excludedCount}</strong>
                 </div>
               )}

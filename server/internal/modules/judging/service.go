@@ -12,9 +12,11 @@ import (
 )
 
 var (
-	ErrNotAllJudgesLocked = errors.New("cannot complete slot: not all judges on this panel have locked their scorecards")
-	ErrInvalidCriteria    = errors.New("each criterion must have valid min/max scores (max > min >= 0) and non-negative weight")
-	ErrScoreOutOfRange    = errors.New("submitted score is outside criterion allowed score range")
+	ErrNotAllJudgesLocked  = errors.New("cannot complete slot: not all judges on this panel have locked their scorecards")
+	ErrInvalidCriteria     = errors.New("each criterion must have valid min/max scores (max > min >= 0) and non-negative weight")
+	ErrScoreOutOfRange     = errors.New("submitted score is outside criterion allowed score range")
+	ErrCriterionNotInRound = errors.New("submitted criterion does not belong to this slot's judging round")
+	ErrDuplicateCriterion  = errors.New("duplicate criterion_id in score submission")
 )
 
 type Service struct {

@@ -108,7 +108,7 @@ func recordLockMetricsTx(ctx context.Context, tx pgx.Tx, slotID, judgeID string)
 			                THEN (sc.score - c.min_score) / (c.max_score - c.min_score)::numeric
 			                ELSE 1 END) AS pct
 			FROM judging_scores sc
-			JOIN judging_criteria c ON c.id = sc.criterion_id
+			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = $3
 			WHERE sc.slot_id = $1 AND sc.judge_id = $2
 		)
 		UPDATE judging_judge_metrics m
@@ -122,7 +122,7 @@ func recordLockMetricsTx(ctx context.Context, tx pgx.Tx, slotID, judgeID string)
 		    score_pct = agg.pct,
 		    updated_at = CURRENT_TIMESTAMP
 		FROM agg, judging_slots s
-		WHERE m.slot_id = $1 AND m.judge_id = $2 AND s.id = m.slot_id`, slotID, judgeID); err != nil {
+		WHERE m.slot_id = $1 AND m.judge_id = $2 AND s.id = m.slot_id`, slotID, judgeID, roundID); err != nil {
 		return fmt.Errorf("finalise judge metrics: %w", err)
 	}
 	return nil

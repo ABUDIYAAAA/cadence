@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { BulkInviteRequest } from "@/types/users";
 import { useAllUsers } from "@/hooks/use-users";
+import { isEmailExcluded, parseEmailDomains } from "@/lib/utils";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,31 +41,24 @@ export function UserBulkInviteDialog({
     (u) => !u.is_password_configured && u.is_active
   );
 
-  const normalizedDomain = excludeDomain.trim().toLowerCase().replace(/^@/, "");
+  const excludedDomains = parseEmailDomains(excludeDomain);
 
-  const excludedCount = normalizedDomain
-    ? unconfiguredUsers.filter((u) =>
-        u.email.toLowerCase().endsWith("@" + normalizedDomain) ||
-        u.email.toLowerCase().endsWith("." + normalizedDomain)
-      ).length
-    : 0;
+  const eligibleUserIds =
+    excludedDomains.length > 0
+      ? unconfiguredUsers
+          .filter((u) => !isEmailExcluded(u.email, excludedDomains))
+          .map((u) => u.id)
+      : unconfiguredUsers.map((u) => u.id);
 
-  const eligibleUserIds = normalizedDomain
-    ? unconfiguredUsers
-        .filter(
-          (u) =>
-            !u.email.toLowerCase().endsWith("@" + normalizedDomain) &&
-            !u.email.toLowerCase().endsWith("." + normalizedDomain)
-        )
-        .map((u) => u.id)
-    : unconfiguredUsers.map((u) => u.id);
+  const excludedCount = unconfiguredUsers.length - eligibleUserIds.length;
 
   const handleSend = async () => {
     try {
       // The server applies the exclusion too, so it holds beyond the loaded list.
-      const payload: BulkInviteRequest = normalizedDomain
-        ? { all_uninvited: true, exclude_domains: [normalizedDomain] }
-        : { all_uninvited: true };
+      const payload: BulkInviteRequest =
+        excludedDomains.length > 0
+          ? { all_uninvited: true, exclude_domains: excludedDomains }
+          : { all_uninvited: true };
 
       const count = await onSubmit(payload);
       setDispatchedCount(count);
@@ -137,17 +131,17 @@ export function UserBulkInviteDialog({
             <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
               <div className="flex items-center gap-1.5 text-[var(--ink-primary)] font-semibold uppercase text-[11px]">
                 <Filter className="h-3.5 w-3.5 text-[var(--color-blue)]" />
-                <span>Exclude Specific Email Domain (Optional)</span>
+                <span>Exclude Email Domains (Optional)</span>
               </div>
               <Input
-                placeholder="e.g. test.com or company.internal (no emails sent to this domain)"
+                placeholder="e.g. test.com, company.internal"
                 value={excludeDomain}
                 onChange={(e) => setExcludeDomain(e.target.value)}
                 disabled={isLoading}
                 className="text-xs"
               />
               <p className="text-[10px] text-[var(--ink-secondary)]">
-                Any unconfigured accounts ending with this domain will be excluded from the mailout.
+                Separate multiple domains with commas or spaces. Any unconfigured accounts ending with these domains will be excluded from the mailout.
               </p>
             </div>
 
@@ -157,9 +151,11 @@ export function UserBulkInviteDialog({
                 <span className="text-[var(--ink-secondary)]">Unconfigured Total: </span>
                 <strong className="text-[var(--ink-primary)] font-mono">{unconfiguredUsers.length}</strong>
               </div>
-              {normalizedDomain && (
+              {excludedDomains.length > 0 && (
                 <div>
-                  <span className="text-[var(--ink-secondary)]">Excluded ({normalizedDomain}): </span>
+                  <span className="text-[var(--ink-secondary)]">
+                    Excluded ({excludedDomains.join(", ")}):{" "}
+                  </span>
                   <strong className="text-[var(--ink-primary)] font-mono">{excludedCount}</strong>
                 </div>
               )}

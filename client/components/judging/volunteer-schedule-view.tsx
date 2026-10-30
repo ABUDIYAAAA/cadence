@@ -6,7 +6,6 @@ import {
   Clock,
   Play,
   ExternalLink,
-  Shield,
   Volume2,
 } from "lucide-react";
 import { useVolunteerSchedule } from "@/hooks/use-judging";
@@ -18,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
-export function VolunteerScheduleView() {
+export function VolunteerScheduleView({ showStats = true }: { showStats?: boolean }) {
   const { data: rawSchedule, isLoading, isFetching, refetch } = useVolunteerSchedule();
   const schedule = useMemo(() => (Array.isArray(rawSchedule) ? rawSchedule : []), [rawSchedule]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -96,6 +95,7 @@ export function VolunteerScheduleView() {
         isFetching={isFetching}
       />
 
+      {showStats && (
       <MetricGrid>
         <Metric label="Active rooms" value={stats.activeRooms} suffix={`/ ${stats.totalRooms}`} />
         <Metric label="Teams on deck" value={stats.onDeckCount} valueClassName="text-[var(--color-coral)]" />
@@ -106,6 +106,7 @@ export function VolunteerScheduleView() {
           valueClassName="text-[var(--color-blue)]"
         />
       </MetricGrid>
+      )}
 
       {/* Primary Surface: Search/Filters + Rooms */}
       <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
@@ -186,7 +187,7 @@ function RoomScheduleCard({
               </Badge>
             </div>
             <div className="text-xs text-[var(--ink-secondary)] mt-1 truncate">
-              Round: <strong className="text-[var(--ink-primary)]">{panel.round_name}</strong>
+              {panel.round_name} · {panel.slot_duration_mins}m slots
             </div>
           </div>
 
@@ -203,14 +204,6 @@ function RoomScheduleCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-2.5 text-xs text-[var(--ink-secondary)] font-mono">
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3 text-[var(--ink-tertiary)]" />
-            {panel.slot_duration_mins}m slot
-          </span>
-          <span>·</span>
-          <span>Buffer: {panel.buffer_size} on-deck</span>
-        </div>
       </div>
 
       {/* Card Body */}
@@ -270,14 +263,13 @@ function RoomScheduleCard({
           <div className="text-xs font-semibold text-[var(--color-coral)] mb-1.5 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <Volume2 className="h-3.5 w-3.5" />
-              <span>On-deck staging buffer ({panel.queued_teams.length})</span>
+              <span>On deck ({panel.queued_teams.length})</span>
             </span>
-            <span className="text-[11px] text-[var(--ink-tertiary)] font-normal">Escort to {panel.room}</span>
           </div>
 
           {panel.queued_teams.length === 0 ? (
             <div className="text-xs text-[var(--ink-tertiary)] italic p-2.5 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
-              Queue buffer is clear.
+              No teams on deck.
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -334,17 +326,6 @@ function RoomScheduleCard({
             </div>
           </div>
         )}
-      </div>
-
-      {/* Card Footer */}
-      <div className="border-t border-[var(--card-line)] p-2.5 px-4 bg-[var(--card-solid-subtle)] text-[11px] text-[var(--ink-tertiary)] flex items-center justify-between">
-        <span className="flex items-center gap-1.5">
-          <Shield className="h-3 w-3 text-[var(--color-blue)]" />
-          <span>Real-time staging sync</span>
-        </span>
-        <span className="font-mono text-[10px] text-[var(--ink-secondary)]">
-          Panel: {panel.panel_id.substring(0, 8)}
-        </span>
       </div>
     </div>
   );

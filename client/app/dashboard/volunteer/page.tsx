@@ -3,22 +3,12 @@
 import React, { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  QrCode,
-  DoorOpen,
-  Layers,
-  ArrowRight,
-  Volume2,
-  CheckCircle2,
-  Clock,
-  ExternalLink,
-} from "lucide-react";
+import { QrCode, Users } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
 import { useVolunteerSchedule } from "@/hooks/use-judging";
 import { useTicketAnalytics } from "@/hooks/use-tickets";
 import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { MetricGrid, Metric } from "@/components/judging/section-shell";
 import { VolunteerScheduleView } from "@/components/judging";
 
@@ -74,7 +64,7 @@ export default function VolunteerDashboardPage() {
             Welcome, {firstName}
           </h1>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
-            Coordinate room staging, manage on-deck queues, and handle gate check-in scanning.
+            Room queues and gate check-in.
           </p>
         </div>
 
@@ -84,14 +74,14 @@ export default function VolunteerDashboardPage() {
             className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-[var(--color-dark)] px-4 text-xs font-semibold text-[var(--ink-inverse)] transition-transform duration-150 active:scale-[0.97]"
           >
             <QrCode className="h-3.5 w-3.5" />
-            <span>Open Gate Scanner</span>
+            <span>Gate scanner</span>
           </Link>
           <Link
-            href="/dashboard/judging"
+            href="/dashboard/teams"
             className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] px-3 text-xs font-semibold text-[var(--ink-primary)] transition-transform duration-150 hover:bg-[var(--card-solid-subtle)] active:scale-[0.97]"
           >
-            <DoorOpen className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-            <span>Staging Fullview</span>
+            <Users className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+            <span>Teams</span>
           </Link>
         </div>
       </header>
@@ -102,13 +92,11 @@ export default function VolunteerDashboardPage() {
           label="Active rooms"
           value={scheduleLoading ? <Skeleton className="h-7 w-12" /> : activeRooms}
           suffix={totalRooms > 0 ? `/ ${totalRooms}` : undefined}
-          note={totalRooms > 0 ? `${totalRooms} rooms configured` : "No rooms active"}
         />
         <Metric
           label="Teams on-deck"
           value={scheduleLoading ? <Skeleton className="h-7 w-12" /> : onDeckCount}
           valueClassName="text-[var(--color-coral)]"
-          note="Ready to escort"
         />
         <Metric
           label="Pitches completed"
@@ -124,64 +112,9 @@ export default function VolunteerDashboardPage() {
         />
       </MetricGrid>
 
-      {/* Quick Action Navigation Surface */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Gate Scanner Tile */}
-        <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-5 flex flex-col justify-between space-y-4 hover:border-[var(--color-blue-border)] transition-colors duration-150">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-sm text-[var(--ink-primary)]">
-                Gate check-in & badges
-              </span>
-              <Badge variant="emerald" dot size="sm">
-                Active
-              </Badge>
-            </div>
-            <p className="text-xs text-[var(--ink-secondary)] leading-relaxed">
-              Verify attendee admission QR codes via camera scanner with duplicate check detection and manual attendee lookup.
-            </p>
-          </div>
-          <div className="pt-2">
-            <Link
-              href="/dashboard/tickets"
-              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-[10px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-xs font-semibold text-[var(--ink-primary)] hover:bg-[var(--card-solid)] transition-all active:scale-[0.98]"
-            >
-              <span>Launch scanner</span>
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        </div>
-
-        {/* Teams Directory Tile */}
-        <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-5 flex flex-col justify-between space-y-4 hover:border-[var(--color-blue-border)] transition-colors duration-150">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-sm text-[var(--ink-primary)]">
-                Teams directory & rosters
-              </span>
-              <Badge variant="subtle" size="sm">
-                Directory
-              </Badge>
-            </div>
-            <p className="text-xs text-[var(--ink-secondary)] leading-relaxed">
-              Search registered teams, verify member check-in states, and find team lead contact information.
-            </p>
-          </div>
-          <div className="pt-2">
-            <Link
-              href="/dashboard/teams"
-              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-[10px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-xs font-semibold text-[var(--ink-primary)] hover:bg-[var(--card-solid)] transition-all active:scale-[0.98]"
-            >
-              <span>View teams</span>
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        </div>
-      </div>
-
       {/* Embedded Live Room Staging Monitor */}
-      <section className="space-y-3 pt-2">
-        <VolunteerScheduleView />
+      <section>
+        <VolunteerScheduleView showStats={false} />
       </section>
     </div>
   );

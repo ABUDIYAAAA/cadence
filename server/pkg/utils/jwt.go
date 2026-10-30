@@ -49,19 +49,28 @@ func GenerateAccessToken(userID, email, role string, tokenVersion int, secret st
 
 // ValidateAccessToken parses and validates a signed JWT access token.
 func ValidateAccessToken(tokenString string, secret string) (*AccessTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &AccessTokenClaims{}, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
+	if tokenString == "" || secret == "" {
+		return nil, ErrInvalidToken
+	}
+
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		&AccessTokenClaims{},
+		func(t *jwt.Token) (any, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return []byte(secret), nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	)
 
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
 
 	claims, ok := token.Claims.(*AccessTokenClaims)
-	if !ok || !token.Valid {
+	if !ok || !token.Valid || claims.UserID == "" {
 		return nil, ErrInvalidToken
 	}
 

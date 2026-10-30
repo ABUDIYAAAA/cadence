@@ -190,25 +190,34 @@ var (
 	)
 )
 
+// HasValidScrapeToken verifies whether the request carries the expected Prometheus scrape token
+// using constant-time comparison. Fails closed when expectedToken is empty.
+func HasValidScrapeToken(r *http.Request, expectedToken string) bool {
+	if expectedToken == "" {
+		return false
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	token := ""
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	} else if qToken := r.URL.Query().Get("token"); qToken != "" {
+		token = qToken
+	}
+
+	if token == "" {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) == 1
+}
+
 // AuthMiddleware protects the /metrics endpoint with a Bearer token.
-// Uses crypto/subtle.ConstantTimeCompare to prevent timing attacks.
+// Uses crypto/subtle.ConstantTimeCompare to prevent timing attacks and fails closed if unconfigured.
 func AuthMiddleware(expectedToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if expectedToken == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			authHeader := r.Header.Get("Authorization")
-			token := ""
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
-			} else if qToken := r.URL.Query().Get("token"); qToken != "" {
-				token = qToken
-			}
-
-			if subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) != 1 {
+			if !HasValidScrapeToken(r, expectedToken) {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="cadence-metrics"`)
 				http.Error(w, "Unauthorized: invalid or missing scrape token", http.StatusUnauthorized)
 				return
@@ -245,13 +254,8 @@ func Middleware() func(http.Handler) http.Handler {
 				statusStr = "200"
 			}
 
-			// Extract Chi parameterized route pattern to avoid UUID cardinality explosion
-			routePattern := "unmatched"
-			if rctx := chi.RouteContext(r.Context()); rctx != nil {
-				if pattern := rctx.RoutePattern(); pattern != "" {
-					routePattern = pattern
-				}
-			}
+			// Extract normalized Chi parameterized route pattern to avoid UUID cardinality explosion
+			routePattern := resolveRoutePattern(r)
 
 			HTTPRequestsTotal.WithLabelValues(r.Method, routePattern, statusStr).Inc()
 			HTTPRequestDuration.WithLabelValues(r.Method, routePattern).Observe(duration)
@@ -259,6 +263,77 @@ func Middleware() func(http.Handler) http.Handler {
 			HTTPResponseSizeBytes.WithLabelValues(r.Method, routePattern).Observe(float64(ww.BytesWritten()))
 		})
 	}
+}
+
+// resolveRoutePattern extracts the normalized Chi route pattern for a request.
+// When a pre-routing middleware (e.g. CORS preflight or rate limiter) or a subrouter middleware
+// terminates the request before Chi finishes matching the leaf endpoint, it falls back to
+// searching the Chi routing tree via rctx.Routes.Find without executing any handler.
+func resolveRoutePattern(r *http.Request) string {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil {
+		return "unmatched"
+	}
+
+	if pattern := normalizeRoutePattern(rctx.RoutePattern()); pattern != "" && !strings.HasSuffix(pattern, "*") {
+		return pattern
+	}
+
+	if rctx.Routes == nil {
+		return "unmatched"
+	}
+
+	reqPath := r.URL.RawPath
+	if reqPath == "" {
+		reqPath = r.URL.Path
+	}
+	if reqPath == "" {
+		reqPath = "/"
+	}
+
+	// Build candidate methods to look up in the routing tree.
+	// For CORS OPTIONS preflights, prioritize Access-Control-Request-Method, then probe standard verbs.
+	var candidateMethods []string
+	if r.Method == http.MethodOptions {
+		if acrm := strings.ToUpper(strings.TrimSpace(r.Header.Get("Access-Control-Request-Method"))); acrm != "" {
+			candidateMethods = append(candidateMethods, acrm)
+		}
+		candidateMethods = append(candidateMethods,
+			http.MethodOptions,
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodPatch,
+			http.MethodDelete,
+		)
+	} else {
+		candidateMethods = []string{r.Method}
+	}
+
+	for _, method := range candidateMethods {
+		findCtx := chi.NewRouteContext()
+		if matched := rctx.Routes.Find(findCtx, method, reqPath); matched != "" {
+			if normalized := normalizeRoutePattern(matched); normalized != "" && !strings.HasSuffix(normalized, "*") {
+				return normalized
+			}
+		}
+	}
+
+	return "unmatched"
+}
+
+func normalizeRoutePattern(pattern string) string {
+	if pattern == "" {
+		return ""
+	}
+	for strings.Contains(pattern, "/*/") {
+		pattern = strings.ReplaceAll(pattern, "/*/", "/")
+	}
+	if pattern != "/" {
+		pattern = strings.TrimSuffix(pattern, "//")
+		pattern = strings.TrimSuffix(pattern, "/")
+	}
+	return pattern
 }
 
 func computeApproximateRequestSize(r *http.Request) int64 {

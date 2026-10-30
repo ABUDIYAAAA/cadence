@@ -120,13 +120,9 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Secure headers middleware
 	router.Use(secureHeadersMiddleware(cfg.IsProduction()))
 
-	// Cryptographically signed Device ID injection (isolates devices behind NAT)
-	router.Use(ratelimit.DeviceIDMiddleware(cookieManager))
-
-	// Stateless Redis-backed sliding window rate limiter
-	router.Use(ratelimit.RateLimitMiddleware(limiter, cfg, cookieManager))
-
 	// Cross-Origin Resource Sharing using frontend URL from .env
+	// Placed before DeviceID/RateLimit so OPTIONS preflights terminate before rate limiting
+	// and any 429 responses carry CORS headers.
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{cfg.FrontendURL},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -135,6 +131,12 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+
+	// Cryptographically signed Device ID injection (isolates devices behind NAT)
+	router.Use(ratelimit.DeviceIDMiddleware(cookieManager))
+
+	// Stateless Redis-backed sliding window rate limiter
+	router.Use(ratelimit.RateLimitMiddleware(limiter, cfg, cookieManager))
 
 	// Auth module initialization with instant Redis blocklist verification and audit recording
 	authRepo := auth.NewRepository(dbPool)

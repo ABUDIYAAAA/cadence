@@ -117,6 +117,16 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// HTTP RED Metrics Middleware
 	router.Use(metrics.Middleware())
 
+	// Global request body size limiter (caps request bodies to 2 MiB server-wide, preventing memory exhaustion)
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, 2<<20) // 2 MiB
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Secure headers middleware
 	router.Use(secureHeadersMiddleware(cfg.IsProduction()))
 

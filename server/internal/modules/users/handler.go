@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/go-chi/chi/v5"
 )
@@ -68,6 +69,11 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 // HandleList returns paginated users with optional role, team, active, and search filters.
 func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role != "admin" && claims.Role != "volunteer" {
+		utils.ErrorJSON(w, http.StatusForbidden, "insufficient permissions to list users")
+		return
+	}
+
 	query := r.URL.Query()
 	page, _ := strconv.Atoi(query.Get("page"))
 	limit, _ := strconv.Atoi(query.Get("limit"))
@@ -105,6 +111,11 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 
 // HandleGet returns a single user's details.
 func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role != "admin" && claims.Role != "volunteer" {
+		utils.ErrorJSON(w, http.StatusForbidden, "insufficient permissions to view user details")
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	user, err := h.service.GetUserByID(r.Context(), id)
 	if err != nil {

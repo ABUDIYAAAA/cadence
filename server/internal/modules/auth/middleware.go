@@ -108,6 +108,11 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 	}
 }
 
+// WithUserClaims stores access token claims into context.
+func WithUserClaims(ctx context.Context, claims *utils.AccessTokenClaims) context.Context {
+	return context.WithValue(ctx, userClaimsKey, claims)
+}
+
 // GetUserClaims retrieves token claims from request context.
 func GetUserClaims(ctx context.Context) (*utils.AccessTokenClaims, bool) {
 	claims, ok := ctx.Value(userClaimsKey).(*utils.AccessTokenClaims)

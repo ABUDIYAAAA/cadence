@@ -12,9 +12,9 @@ func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) 
 	r.Route("/users", func(r chi.Router) {
 		r.Use(authMiddleware)
 
-		// Read routes: Admin, Volunteer, Judge
+		// Read routes: Admin, Volunteer only (judges evaluate teams via /teams and must not enumerate user directory)
 		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireRoles("admin", "volunteer", "judge"))
+			r.Use(auth.RequireRoles("admin", "volunteer"))
 			r.Get("/", h.HandleList)
 			r.Get("/{id}", h.HandleGet)
 		})

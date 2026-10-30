@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"devclubxnst.com/cadence/internal/config"
@@ -45,17 +46,18 @@ func NewService(repo *Repository, cfg *config.Config, emailSender EmailSender, a
 }
 
 func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
+	sanitizedUA := truncateUserAgent(userAgent)
 	user, err := s.repo.GetUserByEmail(ctx, req.Email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, fmt.Sprintf("Failed login: unknown email %s", req.Email), &req.Email, nil, nil, &deviceID, &userAgent, &ip)
+			s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, fmt.Sprintf("Failed login: unknown email %s", req.Email), &req.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 			return nil, "", "", ErrInvalidCredentials
 		}
 		return nil, "", "", err
 	}
 
 	if !user.IsActive {
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: account %s is deactivated", req.Email), &user.Email, &user.Role, nil, &deviceID, &userAgent, &ip)
+		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: account %s is deactivated", req.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
 		return nil, "", "", ErrInactiveUser
 	}
 
@@ -65,26 +67,27 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAge
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
 		metrics.InstrumentAuthEvent("login", false)
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: invalid password for %s", req.Email), &user.Email, &user.Role, nil, &deviceID, &userAgent, &ip)
+		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: invalid password for %s", req.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
 		return nil, "", "", ErrInvalidCredentials
 	}
 
 	// Deduplicate active sessions on this specific device
 	_ = s.repo.RevokeDeviceSessions(ctx, user.ID, deviceID)
 
-	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, userAgent, ip)
+	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, sanitizedUA, ip)
 	if err != nil {
 		metrics.InstrumentAuthEvent("login", false)
 		return nil, "", "", err
 	}
 
 	metrics.InstrumentAuthEvent("login", true)
-	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s logged in successfully", user.Email), &user.Email, &user.Role, nil, &deviceID, &userAgent, &ip)
+	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s logged in successfully", user.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
 
 	return toUserResponse(user), accessToken, refreshToken, nil
 }
 
 func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
+	sanitizedUA := truncateUserAgent(userAgent)
 	tokenHash := utils.HashToken(req.Token)
 	resetToken, err := s.repo.GetResetTokenByHash(ctx, tokenHash, "initial_setup")
 	if err != nil {
@@ -124,29 +127,30 @@ func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, d
 	user.IsPasswordConfigured = true
 	user.TokenVersion++
 
-	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, userAgent, ip)
+	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, sanitizedUA, ip)
 	if err != nil {
 		return nil, "", "", err
 	}
 
-	s.recordAudit(ctx, audit.ActionAuthPasswordSetup, audit.TargetUser, &user.ID, fmt.Sprintf("User %s configured their initial password", user.Email), &user.Email, &user.Role, nil, &deviceID, &userAgent, &ip)
+	s.recordAudit(ctx, audit.ActionAuthPasswordSetup, audit.TargetUser, &user.ID, fmt.Sprintf("User %s configured their initial password", user.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
 
 	return toUserResponse(user), accessToken, refreshToken, nil
 }
 
 func (s *Service) ForgotPassword(ctx context.Context, email, deviceID, userAgent, ip string) (string, error) {
+	sanitizedUA := truncateUserAgent(userAgent)
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			// The caller still gets the generic response (no enumeration); the audit trail records the attempt.
-			s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetAuth, nil, fmt.Sprintf("Password reset requested for unknown email %s", email), &email, nil, map[string]any{"account_found": false}, &deviceID, &userAgent, &ip)
+			s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetAuth, nil, fmt.Sprintf("Password reset requested for unknown email %s", email), &email, nil, map[string]any{"account_found": false}, &deviceID, &sanitizedUA, &ip)
 			return "", nil
 		}
 		return "", err
 	}
 
 	if !user.IsActive {
-		s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset requested for deactivated account %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": false}, &deviceID, &userAgent, &ip)
+		s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset requested for deactivated account %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": false}, &deviceID, &sanitizedUA, &ip)
 		return "", nil
 	}
 
@@ -171,7 +175,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email, deviceID, userAgent
 		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
 	}
 
-	s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset link requested for %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": true}, &deviceID, &userAgent, &ip)
+	s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset link requested for %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": true}, &deviceID, &sanitizedUA, &ip)
 
 	return rawToken, nil
 }
@@ -371,4 +375,13 @@ func toUserResponse(u *User) *UserResponse {
 		IsPasswordConfigured: u.IsPasswordConfigured,
 		CreatedAt:            u.CreatedAt,
 	}
+}
+
+func truncateUserAgent(ua string) string {
+	const maxUALen = 512
+	cleaned := strings.ReplaceAll(ua, "\x00", "")
+	if len(cleaned) <= maxUALen {
+		return cleaned
+	}
+	return cleaned[:maxUALen]
 }

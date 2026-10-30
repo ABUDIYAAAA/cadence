@@ -70,6 +70,7 @@ type UserDetailResponse struct {
 	IsLeader             bool      `json:"is_leader"`
 	IsPasswordConfigured bool      `json:"is_password_configured"`
 	IsActive             bool      `json:"is_active"`
+	TokenVersion         int       `json:"token_version"`
 	CreatedAt            time.Time `json:"created_at"`
 	// Set only by the list endpoint: "checked_in", "not_checked_in" or "no_pass".
 	CheckinStatus string     `json:"checkin_status,omitempty"`

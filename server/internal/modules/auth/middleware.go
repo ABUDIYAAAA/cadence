@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -44,13 +45,35 @@ func AuthMiddleware(
 				return
 			}
 
-			// Check instant Redis blocklist
+			// Check instant Redis blocklist and minimum token version
 			if redisClient != nil {
 				blockedKey := fmt.Sprintf("blocked:user:%s", claims.UserID)
-				exists, err := redisClient.Exists(r.Context(), blockedKey).Result()
-				if err == nil && exists > 0 {
+				minVersionKey := fmt.Sprintf("user:min_token_version:%s", claims.UserID)
+
+				pipe := redisClient.Pipeline()
+				blockedCmd := pipe.Exists(r.Context(), blockedKey)
+				minVersionCmd := pipe.Get(r.Context(), minVersionKey)
+				_, pipeErr := pipe.Exec(r.Context())
+
+				if pipeErr != nil && !errors.Is(pipeErr, redis.Nil) {
+					// Fail closed on security verification if Redis is unreachable
+					utils.ErrorJSON(w, http.StatusServiceUnavailable, "authentication service temporarily unavailable; please retry shortly")
+					return
+				}
+
+				if blockedCmd.Val() > 0 {
 					utils.ErrorJSON(w, http.StatusUnauthorized, "user account has been deactivated or removed")
 					return
+				}
+
+				if minVersionStr, err := minVersionCmd.Result(); err == nil && minVersionStr != "" {
+					var minVersion int
+					if _, parseErr := fmt.Sscanf(minVersionStr, "%d", &minVersion); parseErr == nil {
+						if claims.TokenVersion < minVersion {
+							utils.ErrorJSON(w, http.StatusUnauthorized, "session revoked due to role change; please log in again")
+							return
+						}
+					}
 				}
 			}
 

@@ -228,9 +228,38 @@ func (s *Service) GetUserByID(ctx context.Context, id string) (*UserDetailRespon
 	return s.repo.GetUserByID(ctx, id)
 }
 
+// UpdateUser modifies user attributes. When role or active status changes, it synchronizes
+// the state into Redis with monotonic version progression and deactivation clearing.
 func (s *Service) UpdateUser(ctx context.Context, id string, req UpdateUserRequest) (*UserDetailResponse, error) {
 	user, err := s.repo.UpdateUser(ctx, id, req)
-	if err == nil && s.auditor != nil {
+	if err != nil {
+		return nil, err
+	}
+
+	// Synchronize revocation state into Redis after DB commit
+	if s.redis != nil && (req.Role != nil || req.IsActive != nil) {
+		ttl := 24 * time.Hour
+		if s.cfg != nil && s.cfg.JWTAccessExpiry > 0 {
+			ttl = s.cfg.JWTAccessExpiry * 2
+		}
+
+		if req.IsActive != nil {
+			if !*req.IsActive {
+				// Deactivation: block user immediately
+				_ = s.redis.Set(ctx, fmt.Sprintf("blocked:user:%s", id), "deactivated", ttl).Err()
+			} else {
+				// Reactivation: clear the deactivation block key so user can log in again.
+				// Their old tokens remain revoked because token_version was incremented in the DB.
+				_ = s.redis.Del(ctx, fmt.Sprintf("blocked:user:%s", id)).Err()
+			}
+		}
+
+		// For any role change or status change, monotonically update min_token_version in Redis.
+		// Uses atomic string comparison/check so a delayed write can never decrement the version.
+		updateMinTokenVersion(ctx, s.redis, id, user.TokenVersion, ttl)
+	}
+
+	if s.auditor != nil {
 		actorClaims, _ := auth.GetUserClaims(ctx)
 		var actorID, actorEmail, actorRole *string
 		if actorClaims != nil {
@@ -248,7 +277,38 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req UpdateUserReque
 			Description: fmt.Sprintf("Updated user profile %s", user.Email),
 		})
 	}
-	return user, err
+	return user, nil
+}
+
+func updateMinTokenVersion(ctx context.Context, rdb *redis.Client, userID string, newVersion int, ttl time.Duration) {
+	key := fmt.Sprintf("user:min_token_version:%s", userID)
+	// Ensure monotonic update: if existing version >= newVersion, do not overwrite.
+	// Watch the key in a simple Redis transaction.
+	for attempts := 0; attempts < 3; attempts++ {
+		err := rdb.Watch(ctx, func(tx *redis.Tx) error {
+			currentVal, getErr := tx.Get(ctx, key).Int()
+			if getErr != nil && !errors.Is(getErr, redis.Nil) {
+				return getErr
+			}
+			if getErr == nil && currentVal >= newVersion {
+				return nil // existing version is already higher or equal
+			}
+
+			_, pipeErr := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+				pipe.Set(ctx, key, fmt.Sprintf("%d", newVersion), ttl)
+				return nil
+			})
+			return pipeErr
+		}, key)
+
+		if err == nil {
+			return
+		}
+		if errors.Is(err, redis.TxFailedErr) {
+			continue // retry optimistic lock
+		}
+		break
+	}
 }
 
 func (s *Service) DeleteUser(ctx context.Context, id string) error {

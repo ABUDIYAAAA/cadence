@@ -80,7 +80,7 @@ func (r *Repository) CreateUserTx(
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailResponse, error) {
 	query := `
 		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at
+		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
 		FROM users u
 		LEFT JOIN teams t ON u.team_id = t.id
 		WHERE u.id = $1 AND u.deleted_at IS NULL
@@ -90,7 +90,7 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.CreatedAt,
+		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -108,7 +108,7 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDetailResponse, error) {
 	query := `
 		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at
+		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
 		FROM users u
 		LEFT JOIN teams t ON u.team_id = t.id
 		WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL
@@ -118,7 +118,7 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDet
 	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, email).Scan(
 		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.CreatedAt,
+		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -279,6 +279,11 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		argIndex++
 	}
 
+	// Any role change or deactivation/activation bumps token_version and invalidates previous sessions
+	if req.Role != nil || req.IsActive != nil {
+		sets = append(sets, "token_version = token_version + 1")
+	}
+
 	if len(sets) == 0 {
 		return r.GetUserByID(ctx, id)
 	}
@@ -287,12 +292,34 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d AND deleted_at IS NULL", strings.Join(sets, ", "), argIndex)
 	args = append(args, id)
 
-	tag, err := r.db.Exec(ctx, query, args...)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin update tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, ErrUserNotFound
+	}
+
+	// If role changed or user was deactivated, revoke all outstanding refresh tokens in the same transaction
+	if req.Role != nil || (req.IsActive != nil && !*req.IsActive) {
+		_, err = tx.Exec(ctx, `
+			UPDATE refresh_tokens
+			SET is_revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+			WHERE user_id = $1 AND is_revoked = FALSE
+		`, id)
+		if err != nil {
+			return nil, fmt.Errorf("revoke refresh tokens: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit update tx: %w", err)
 	}
 
 	return r.GetUserByID(ctx, id)

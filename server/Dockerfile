@@ -23,8 +23,8 @@ FROM alpine:3.20
 
 WORKDIR /app
 
-# Install runtime dependencies (TLS certificates, timezone data)
-RUN apk add --no-cache ca-certificates tzdata
+# Install runtime dependencies (TLS certificates, timezone data, pg_dump for backups)
+RUN apk add --no-cache ca-certificates tzdata postgresql16-client
 
 # Create an unprivileged non-root user and group
 RUN addgroup -S cadence && adduser -S -G cadence -u 10001 cadence

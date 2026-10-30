@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
+	"devclubxnst.com/cadence/internal/backup"
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/database"
 	"devclubxnst.com/cadence/internal/mailer"
@@ -175,6 +176,16 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	}
 	notifService := notifications.NewService(notifRepo, notifQueue, cfg, auditQueue)
 	notifHandler := notifications.NewHandler(notifService)
+
+	// Scheduled PostgreSQL backups to Cloudflare R2 (no-op unless R2_* is configured)
+	backupService, err := backup.New(cfg, appLogger)
+	if err != nil {
+		appLogger.Warn("database backup disabled", slog.Any("error", err))
+	} else if backupService != nil {
+		backupService.Start(ctx)
+	} else {
+		appLogger.Info("database backup disabled: R2 credentials not configured")
+	}
 
 	// Mount API v1
 	router.Route("/api/v1", func(r chi.Router) {

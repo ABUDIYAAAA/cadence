@@ -130,6 +130,64 @@ var (
 		},
 		[]string{"audience_type", "channel", "status"},
 	)
+
+	// Database Backup Metrics
+	BackupRunsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "cadence",
+			Subsystem: "backup",
+			Name:      "runs_total",
+			Help:      "Total database backup runs by outcome (success, dump_failed, upload_failed)",
+		},
+		[]string{"status"},
+	)
+
+	BackupLastRunTimestamp = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "cadence",
+			Subsystem: "backup",
+			Name:      "last_run_timestamp_seconds",
+			Help:      "Unix time of the most recent backup attempt, successful or not",
+		},
+	)
+
+	BackupLastSuccessTimestamp = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "cadence",
+			Subsystem: "backup",
+			Name:      "last_success_timestamp_seconds",
+			Help:      "Unix time of the most recent backup that was uploaded successfully",
+		},
+	)
+
+	BackupLastSizeBytes = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "cadence",
+			Subsystem: "backup",
+			Name:      "last_size_bytes",
+			Help:      "Size in bytes of the most recent successfully uploaded backup",
+		},
+	)
+
+	BackupDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "cadence",
+			Subsystem: "backup",
+			Name:      "duration_seconds",
+			Help:      "Time taken by each backup stage (dump, upload)",
+			Buckets:   []float64{0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600},
+		},
+		[]string{"stage"},
+	)
+
+	BackupEnabled = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "cadence",
+			Subsystem: "backup",
+			Name:      "enabled",
+			Help:      "1 when scheduled backups are configured and running, 0 otherwise",
+		},
+	)
 )
 
 // AuthMiddleware protects the /metrics endpoint with a Bearer token.

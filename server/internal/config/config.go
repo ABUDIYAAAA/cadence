@@ -54,10 +54,34 @@ type Config struct {
 
 	// Telemetry & Metrics Scrape Authentication
 	MetricsScrapeToken string `env:"METRICS_SCRAPE_TOKEN"`
+
+	// Scheduled Database Backups to Cloudflare R2 (disabled unless R2_BUCKET is set)
+	R2AccountID       string        `env:"R2_ACCOUNT_ID"`
+	R2AccessKeyID     string        `env:"R2_ACCESS_KEY_ID"`
+	R2SecretAccessKey string        `env:"R2_SECRET_ACCESS_KEY"`
+	R2Bucket          string        `env:"R2_BUCKET"`
+	R2Endpoint        string        `env:"R2_ENDPOINT"`
+	BackupInterval    time.Duration `env:"BACKUP_INTERVAL" envDefault:"30m"`
+	BackupPrefix      string        `env:"BACKUP_PREFIX" envDefault:"db-backups"`
+	BackupRetention   time.Duration `env:"BACKUP_RETENTION"`
 }
 
 func (c *Config) IsProduction() bool {
 	return c.Env == "production"
+}
+
+// BackupEnabled reports whether R2 credentials are present for scheduled backups.
+func (c *Config) BackupEnabled() bool {
+	return c.R2Bucket != "" && c.R2AccessKeyID != "" && c.R2SecretAccessKey != "" &&
+		(c.R2Endpoint != "" || c.R2AccountID != "")
+}
+
+// BackupEndpoint returns the R2 S3 endpoint host, derived from the account ID unless overridden.
+func (c *Config) BackupEndpoint() string {
+	if c.R2Endpoint != "" {
+		return c.R2Endpoint
+	}
+	return c.R2AccountID + ".r2.cloudflarestorage.com"
 }
 
 func NewConfig() (*Config, error) {

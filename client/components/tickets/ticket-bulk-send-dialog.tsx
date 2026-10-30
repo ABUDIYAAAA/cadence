@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { UserDetailResponse } from "@/types/users";
 import { BulkSendTicketsRequest, BulkSendTicketsResponse } from "@/types/tickets";
+import { useAllUsers } from "@/hooks/use-users";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,10 +20,16 @@ interface TicketBulkSendDialogProps {
 export function TicketBulkSendDialog({
   open,
   onClose,
-  selectedUsers,
+  selectedUsers: selectedProp,
   onSubmit,
   isLoading,
 }: TicketBulkSendDialogProps) {
+  // With no manual selection, target every attendee (exclusions still apply).
+  const sendToAll = selectedProp.length === 0;
+  const { data: allUsers, isLoading: allLoading } = useAllUsers({
+    enabled: open && sendToAll,
+  });
+  const selectedUsers = sendToAll ? allUsers || [] : selectedProp;
   const [excludeDomain, setExcludeDomain] = useState("");
   const [skipCheckedIn, setSkipCheckedIn] = useState(true);
   const [result, setResult] = useState<BulkSendTicketsResponse | null>(null);
@@ -54,7 +61,9 @@ export function TicketBulkSendDialog({
   const handleSend = async () => {
     try {
       const res = await onSubmit({
-        user_ids: eligibleUsers.map((u) => u.id),
+        // Bulk mode lets the server resolve recipients; exclusion is enforced there too.
+        ...(sendToAll ? {} : { user_ids: eligibleUsers.map((u) => u.id) }),
+        ...(normalizedDomain ? { exclude_domains: [normalizedDomain] } : {}),
         skip_checked_in: skipCheckedIn,
       });
       setResult(res);
@@ -85,7 +94,7 @@ export function TicketBulkSendDialog({
               variant="primary"
               size="sm"
               onClick={handleSend}
-              isLoading={isLoading}
+              isLoading={isLoading || (sendToAll && allLoading)}
               disabled={eligibleUsers.length === 0}
               className="gap-1.5"
             >
@@ -120,7 +129,9 @@ export function TicketBulkSendDialog({
           <div className="space-y-3">
             <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid-subtle)] space-y-1">
               <div className="flex justify-between items-center">
-                <span className="text-[var(--ink-secondary)]">Selected Recipients:</span>
+                <span className="text-[var(--ink-secondary)]">
+                  {sendToAll ? "All Attendees:" : "Selected Recipients:"}
+                </span>
                 <strong className="text-[var(--ink-primary)] font-mono">{selectedUsers.length} Users</strong>
               </div>
             </div>

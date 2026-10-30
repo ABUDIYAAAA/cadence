@@ -256,6 +256,17 @@ export default function TicketsPage() {
           </Button>
 
           {/* Admin Bulk Send Action */}
+          {isAdmin && adminTab === "users" && selectedUserIds.length === 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsBulkSendOpen(true)}
+              className="h-9 px-4 text-xs gap-1.5"
+            >
+              <QrCode className="h-3.5 w-3.5" />
+              <span>Bulk send tickets</span>
+            </Button>
+          )}
           {isAdmin && adminTab === "users" && selectedUserIds.length > 0 && (
             <Button
               variant="primary"

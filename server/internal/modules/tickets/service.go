@@ -245,6 +245,16 @@ func (s *Service) BulkSendTickets(
 		return nil, err
 	}
 
+	if len(req.ExcludeDomains) > 0 {
+		kept := eligible[:0]
+		for _, u := range eligible {
+			if !utils.IsEmailExcluded(u.Email, req.ExcludeDomains) {
+				kept = append(kept, u)
+			}
+		}
+		eligible = kept
+	}
+
 	total := len(eligible)
 	enqueued := 0
 	skipped := 0

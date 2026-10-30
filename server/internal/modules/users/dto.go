@@ -54,6 +54,8 @@ type UserFilter struct {
 type BulkInviteRequest struct {
 	UserIDs      []string `json:"user_ids"`
 	AllUninvited bool     `json:"all_uninvited"`
+	// ExcludeDomains lists email domains that must not receive an invite.
+	ExcludeDomains []string `json:"exclude_domains"`
 }
 
 // UserDetailResponse is the complete user view returned to administrators.

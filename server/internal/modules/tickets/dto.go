@@ -42,6 +42,8 @@ type BulkSendTicketsRequest struct {
 	TeamID        *string  `json:"team_id"`
 	Role          *string  `json:"role"`
 	SkipCheckedIn bool     `json:"skip_checked_in"`
+	// ExcludeDomains lists email domains that must not receive a ticket email.
+	ExcludeDomains []string `json:"exclude_domains"`
 }
 
 // BulkSendTicketsResponse summary of enqueued ticket jobs.

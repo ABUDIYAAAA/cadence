@@ -342,6 +342,9 @@ func (s *Service) BulkSendInvites(ctx context.Context, req BulkInviteRequest) (i
 		if err != nil || user.IsPasswordConfigured || !user.IsActive {
 			continue
 		}
+		if utils.IsEmailExcluded(user.Email, req.ExcludeDomains) {
+			continue
+		}
 		if err := s.dispatchSetupInvite(ctx, user.ID, user.Email, user.Name); err == nil {
 			dispatched++
 		}

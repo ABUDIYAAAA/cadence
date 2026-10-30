@@ -33,6 +33,7 @@ export interface BulkSendTicketsRequest {
   team_id?: string;
   role?: string;
   skip_checked_in?: boolean;
+  exclude_domains?: string[];
 }
 
 export interface BulkSendTicketsResponse {

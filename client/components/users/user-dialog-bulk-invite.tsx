@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { BulkInviteRequest } from "@/types/users";
-import { useUsers } from "@/hooks/use-users";
+import { useAllUsers } from "@/hooks/use-users";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,7 @@ export function UserBulkInviteDialog({
   onSubmit,
   isLoading,
 }: UserBulkInviteDialogProps) {
-  const { data: usersData, isLoading: usersLoading } = useUsers({ limit: 1000 });
+  const { data: allUsers, isLoading: usersLoading } = useAllUsers({ enabled: open });
   const [excludeDomain, setExcludeDomain] = useState("");
   const [dispatchedCount, setDispatchedCount] = useState<number | null>(null);
 
@@ -36,7 +36,7 @@ export function UserBulkInviteDialog({
   };
 
   // Filter unconfigured users
-  const unconfiguredUsers = (usersData?.data || []).filter(
+  const unconfiguredUsers = (allUsers || []).filter(
     (u) => !u.is_password_configured && u.is_active
   );
 
@@ -61,8 +61,9 @@ export function UserBulkInviteDialog({
 
   const handleSend = async () => {
     try {
+      // The server applies the exclusion too, so it holds beyond the loaded list.
       const payload: BulkInviteRequest = normalizedDomain
-        ? { user_ids: eligibleUserIds }
+        ? { all_uninvited: true, exclude_domains: [normalizedDomain] }
         : { all_uninvited: true };
 
       const count = await onSubmit(payload);

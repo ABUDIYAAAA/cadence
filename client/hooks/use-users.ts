@@ -7,6 +7,7 @@ import {
   BulkInviteRequest,
   CreateUserRequest,
   UpdateUserRequest,
+  UserDetailResponse,
   UserFilter,
 } from "@/types/users";
 
@@ -16,6 +17,26 @@ export function useUsers(filters?: UserFilter, options?: { enabled?: boolean }) 
   return useQuery({
     queryKey: [...USERS_QUERY_KEY, "list", filters],
     queryFn: () => usersService.list(filters),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+/** Fetches every user by walking all pages (the API caps page size at 100). */
+export function useAllUsers(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: [...USERS_QUERY_KEY, "all"],
+    queryFn: async () => {
+      const all: UserDetailResponse[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const res = await usersService.list({ page, limit: 100 });
+        all.push(...res.data);
+        totalPages = res.total_pages;
+        page++;
+      } while (page <= totalPages);
+      return all;
+    },
     enabled: options?.enabled ?? true,
   });
 }

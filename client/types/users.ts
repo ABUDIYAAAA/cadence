@@ -65,6 +65,7 @@ export interface UserFilter {
 export interface BulkInviteRequest {
   user_ids?: string[];
   all_uninvited?: boolean;
+  exclude_domains?: string[];
 }
 
 export type PaginatedUsersResponse = PaginatedResponse<UserDetailResponse>;

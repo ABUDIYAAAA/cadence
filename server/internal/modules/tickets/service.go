@@ -27,6 +27,7 @@ type Service struct {
 	cfg        *config.Config
 	mailQueue  *mailer.Queue
 	auditQueue audit.Recorder
+	cache      settingsCache
 }
 
 func NewService(repo *Repository, cfg *config.Config, mailQueue *mailer.Queue, auditQueue audit.Recorder) *Service {
@@ -91,7 +92,6 @@ func (s *Service) CheckIn(
 			&volunteerEmail,
 			&volunteerRole,
 			map[string]any{
-				"ticket_code":         ticketCode,
 				"attendee_id":         info.UserID,
 				"attendee_email":      info.UserEmail,
 				"prior_checked_in_at": checkedAtStr,
@@ -150,7 +150,6 @@ func (s *Service) CheckIn(
 		&volunteerEmail,
 		&volunteerRole,
 		map[string]any{
-			"ticket_code":    ticketCode,
 			"attendee_id":    info.UserID,
 			"attendee_email": info.UserEmail,
 			"checked_in_at":  checkedAtStr,
@@ -219,7 +218,6 @@ func (s *Service) SendSingleTicket(
 		&actorEmail,
 		&actorRole,
 		map[string]any{
-			"ticket_code":    ticket.TicketCode,
 			"recipient_id":   targetUserID,
 			"recipient_mail": email,
 		},

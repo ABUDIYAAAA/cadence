@@ -51,7 +51,7 @@ export function AuditTable({ logs, isLoading, onView }: AuditTableProps) {
   }
 
   const getActionBadgeVariant = (action: string) => {
-    if (action.includes("delete") || action.includes("failure") || action.includes("duplicate")) {
+    if (action.includes("delete") || action.includes("failure") || action.includes("failed") || action.includes("duplicate") || action.includes("rejected")) {
       return "coral";
     }
     if (action.includes("create") || action.includes("success") || action.includes("activate")) {

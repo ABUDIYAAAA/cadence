@@ -76,3 +76,68 @@ export interface AnalyticsResponse {
   hourly_arrivals: HourlyArrival[];
   team_completeness: TeamCompletenessSummary[];
 }
+
+export type ScanKind = "attendance" | "exit";
+
+export interface ScanSession {
+  id: string;
+  name: string;
+  kind: ScanKind;
+  is_open: boolean;
+  mark_team: boolean;
+  scanned_count: number;
+  created_at: string;
+  closed_at?: string | null;
+}
+
+export interface CreateScanSessionRequest {
+  name: string;
+  kind: ScanKind;
+  mark_team?: boolean;
+}
+
+export interface TeamScanResult {
+  team_name: string;
+  marked: number;
+  already_scanned: number;
+  skipped: { name: string; reason: "not_checked_in" | "no_pass" | string }[];
+}
+
+export interface SessionScanResponse {
+  success: boolean;
+  message: string;
+  session: ScanSession;
+  scanned_at: string;
+  attendee: AttendeeDetails;
+  team?: TeamScanResult;
+}
+
+export interface ReleaseTicketsResponse {
+  total_processed: number;
+  released: number;
+  already_had: number;
+  skipped: number;
+}
+
+export interface SessionPerson {
+  user_id: string;
+  name: string;
+  email: string;
+  phone_number?: string | null;
+  team_name?: string | null;
+  is_external: boolean;
+  scanned_at?: string | null;
+}
+
+export interface SessionReport {
+  session: ScanSession;
+  eligible: number;
+  scanned: number;
+  missing: SessionPerson[];
+  recent: SessionPerson[];
+}
+
+export interface TicketSettings {
+  internal_email_domains: string[];
+  source: "database" | "environment";
+}

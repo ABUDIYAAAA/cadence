@@ -152,6 +152,10 @@ export function formatApiError(
         "An unexpected error occurred",
       details: error.response.data.details,
       status: error.response.status,
+      body:
+        typeof error.response.data === "object"
+          ? (error.response.data as Record<string, unknown>)
+          : undefined,
     };
   }
 

@@ -34,24 +34,24 @@ const (
 	mailpitImage  = "axllent/mailpit:v1.21.8"
 
 	// Deterministic test credentials & secrets
-	TestAdminEmail        = "admin@cadence.local"
-	TestAdminPassword     = "AdminPass123!"
-	TestAdminName         = "System Admin"
-	TestMetricsToken      = "test_metrics_scrape_token_e2e_999"
-	TestCookieSecret      = "e2e_super_secret_cookie_signing_key_1234567890"
-	TestJWTAccessSecret   = "e2e_super_secret_jwt_access_key_1234567890"
-	TestJWTRefreshSecret  = "e2e_super_secret_jwt_refresh_key_1234567890"
-	TestVAPIDPublicKey    = "BHK-KDYnjw1Z0O844tmUWbz3m7OT8faBNZ8P0se6qjeqqnuIhtJa4zU-XyFfre29bHMUCQaW6hw5Ck4R20H6ziQ"
-	TestVAPIDPrivateKey   = "GWjhiHXmi8zODFg6GOGY4sN1SyAdkI8Kb-kalR15nfU"
-	TestFrontendURL       = "http://localhost:3000"
+	TestAdminEmail       = "admin@cadence.local"
+	TestAdminPassword    = "AdminPass123!"
+	TestAdminName        = "System Admin"
+	TestMetricsToken     = "test_metrics_scrape_token_e2e_999"
+	TestCookieSecret     = "e2e_super_secret_cookie_signing_key_1234567890"
+	TestJWTAccessSecret  = "e2e_super_secret_jwt_access_key_1234567890"
+	TestJWTRefreshSecret = "e2e_super_secret_jwt_refresh_key_1234567890"
+	TestVAPIDPublicKey   = "BHK-KDYnjw1Z0O844tmUWbz3m7OT8faBNZ8P0se6qjeqqnuIhtJa4zU-XyFfre29bHMUCQaW6hw5Ck4R20H6ziQ"
+	TestVAPIDPrivateKey  = "GWjhiHXmi8zODFg6GOGY4sN1SyAdkI8Kb-kalR15nfU"
+	TestFrontendURL      = "http://localhost:3000"
 )
 
 var (
-	testApp        *bootstrap.Application
-	testServer     *httptest.Server
-	mailpitAPIURL  string
-	rabbitAMQPURL  string
-	adminSeedHash  string
+	testApp       *bootstrap.Application
+	testServer    *httptest.Server
+	mailpitAPIURL string
+	rabbitAMQPURL string
+	adminSeedHash string
 )
 
 func TestMain(m *testing.M) {
@@ -240,36 +240,37 @@ func runTestMain(m *testing.M) int {
 
 	// 5. Configure environment variables for bootstrap.NewApplication
 	envVars := map[string]string{
-		"PORT":                  "0",
-		"APP_ENV":               "test",
-		"FRONTEND_URL":          TestFrontendURL,
-		"DATABASE_URL":          dbURL,
-		"REDIS_URL":             redisURL,
-		"RABBITMQ_URL":          rabbitAMQPURL,
-		"SMTP_HOST":             smtpHost,
-		"SMTP_PORT":             smtpMappedPort.Port(),
-		"SMTP_USERNAME":         "",
-		"SMTP_PASSWORD":         "",
-		"SMTP_FROM_EMAIL":       "no-reply@cadence.local",
-		"SMTP_FROM_NAME":        "Cadence E2E",
-		"SMTP_SSL":              "false",
-		"JWT_ACCESS_SECRET":     TestJWTAccessSecret,
-		"JWT_REFRESH_SECRET":    TestJWTRefreshSecret,
-		"JWT_ACCESS_EXPIRY":     "15m",
-		"JWT_REFRESH_EXPIRY":    "168h",
-		"COOKIE_SECRET":         TestCookieSecret,
-		"COOKIE_DOMAIN":         "",
-		"COOKIE_SECURE":         "false",
-		"COOKIE_SAMESITE":       "lax",
-		"ACCESS_COOKIE_EXPIRY":  "15m",
-		"REFRESH_COOKIE_EXPIRY": "168h",
-		"SEED_ADMIN_EMAIL":      TestAdminEmail,
-		"SEED_ADMIN_PASSWORD":   TestAdminPassword,
-		"SEED_ADMIN_NAME":       TestAdminName,
-		"VAPID_PUBLIC_KEY":      TestVAPIDPublicKey,
-		"VAPID_PRIVATE_KEY":     TestVAPIDPrivateKey,
-		"VAPID_SUBJECT":         "mailto:admin@cadence.local",
-		"METRICS_SCRAPE_TOKEN":  TestMetricsToken,
+		"PORT":                   "0",
+		"APP_ENV":                "test",
+		"FRONTEND_URL":           TestFrontendURL,
+		"DATABASE_URL":           dbURL,
+		"REDIS_URL":              redisURL,
+		"RABBITMQ_URL":           rabbitAMQPURL,
+		"SMTP_HOST":              smtpHost,
+		"SMTP_PORT":              smtpMappedPort.Port(),
+		"SMTP_USERNAME":          "",
+		"SMTP_PASSWORD":          "",
+		"SMTP_FROM_EMAIL":        "no-reply@cadence.local",
+		"SMTP_FROM_NAME":         "Cadence E2E",
+		"SMTP_SSL":               "false",
+		"JWT_ACCESS_SECRET":      TestJWTAccessSecret,
+		"JWT_REFRESH_SECRET":     TestJWTRefreshSecret,
+		"JWT_ACCESS_EXPIRY":      "15m",
+		"JWT_REFRESH_EXPIRY":     "168h",
+		"COOKIE_SECRET":          TestCookieSecret,
+		"COOKIE_DOMAIN":          "",
+		"COOKIE_SECURE":          "false",
+		"COOKIE_SAMESITE":        "lax",
+		"ACCESS_COOKIE_EXPIRY":   "15m",
+		"REFRESH_COOKIE_EXPIRY":  "168h",
+		"SEED_ADMIN_EMAIL":       TestAdminEmail,
+		"SEED_ADMIN_PASSWORD":    TestAdminPassword,
+		"SEED_ADMIN_NAME":        TestAdminName,
+		"VAPID_PUBLIC_KEY":       TestVAPIDPublicKey,
+		"VAPID_PRIVATE_KEY":      TestVAPIDPrivateKey,
+		"VAPID_SUBJECT":          "mailto:admin@cadence.local",
+		"METRICS_SCRAPE_TOKEN":   TestMetricsToken,
+		"INTERNAL_EMAIL_DOMAINS": "internal.example",
 	}
 	for k, v := range envVars {
 		if err := os.Setenv(k, v); err != nil {
@@ -362,6 +363,9 @@ func ResetState(t *testing.T) {
 			judging_panels,
 			judging_criteria,
 			judging_rounds,
+			app_settings,
+			scan_events,
+			scan_sessions,
 			tickets,
 			audit_logs,
 			password_reset_tokens,

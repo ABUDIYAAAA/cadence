@@ -9,11 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QrCode, Filter, CheckCircle2 } from "lucide-react";
 
+/** email: send the QR by mail. release: only show the pass on the participant dashboard. */
+export type DeliveryMode = "email" | "release";
+
 interface TicketBulkSendDialogProps {
   open: boolean;
   onClose: () => void;
   selectedUsers: UserDetailResponse[];
-  onSubmit: (req: BulkSendTicketsRequest) => Promise<BulkSendTicketsResponse>;
+  onSubmit: (req: BulkSendTicketsRequest, mode: DeliveryMode) => Promise<BulkSendTicketsResponse>;
   isLoading: boolean;
 }
 
@@ -32,11 +35,13 @@ export function TicketBulkSendDialog({
   const selectedUsers = sendToAll ? allUsers || [] : selectedProp;
   const [excludeDomain, setExcludeDomain] = useState("");
   const [skipCheckedIn, setSkipCheckedIn] = useState(true);
+  const [mode, setMode] = useState<DeliveryMode>("email");
   const [result, setResult] = useState<BulkSendTicketsResponse | null>(null);
 
   const resetDialog = () => {
     setExcludeDomain("");
     setSkipCheckedIn(true);
+    setMode("email");
     setResult(null);
   };
 
@@ -60,12 +65,15 @@ export function TicketBulkSendDialog({
 
   const handleSend = async () => {
     try {
-      const res = await onSubmit({
-        // Bulk mode lets the server resolve recipients; exclusion is enforced there too.
-        ...(sendToAll ? {} : { user_ids: eligibleUsers.map((u) => u.id) }),
-        ...(normalizedDomain ? { exclude_domains: [normalizedDomain] } : {}),
-        skip_checked_in: skipCheckedIn,
-      });
+      const res = await onSubmit(
+        {
+          // Bulk mode lets the server resolve recipients; exclusion is enforced there too.
+          ...(sendToAll ? {} : { user_ids: eligibleUsers.map((u) => u.id) }),
+          ...(normalizedDomain ? { exclude_domains: [normalizedDomain] } : {}),
+          skip_checked_in: skipCheckedIn,
+        },
+        mode
+      );
       setResult(res);
     } catch {
       // toast in parent
@@ -76,8 +84,12 @@ export function TicketBulkSendDialog({
     <Dialog
       open={open}
       onClose={handleClose}
-      title="Bulk Dispatch QR Entry Passes"
-      description="Generate cryptographic QR codes and email tickets to attendees."
+      title={mode === "email" ? "Bulk Dispatch QR Entry Passes" : "Release QR Passes to Dashboard"}
+      description={
+        mode === "email"
+          ? "Generate cryptographic QR codes and email tickets to attendees."
+          : "Generate passes and show them on each attendee's dashboard. No email is sent."
+      }
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -100,7 +112,8 @@ export function TicketBulkSendDialog({
             >
               <QrCode className="h-3.5 w-3.5" />
               <span>
-                Dispatch {eligibleUsers.length} QR Ticket{eligibleUsers.length === 1 ? "" : "s"}
+                {mode === "email" ? "Dispatch" : "Release"} {eligibleUsers.length} QR Ticket
+                {eligibleUsers.length === 1 ? "" : "s"}
               </span>
             </Button>
           )}
@@ -113,10 +126,12 @@ export function TicketBulkSendDialog({
             <CheckCircle2 className="h-5 w-5 text-[#2EB88A] shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p className="font-bold text-[#2EB88A] text-sm">
-                Ticket Generation & Email Queue Dispatched
+                {mode === "email" ? "Ticket Generation & Email Queue Dispatched" : "Passes Released to Dashboards"}
               </p>
               <p className="text-[var(--color-emerald)]">
-                {result.enqueued} ticket emails enqueued for delivery.
+                {mode === "email"
+                  ? `${result.enqueued} ticket emails enqueued for delivery.`
+                  : `${result.enqueued} new passes released (${result.total_processed - result.enqueued - result.skipped} already had one). No emails were sent.`}
               </p>
               {result.skipped > 0 && (
                 <p className="text-[var(--ink-tertiary)] text-[11px]">
@@ -136,6 +151,32 @@ export function TicketBulkSendDialog({
               </div>
             </div>
 
+            {/* Delivery */}
+            <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
+              <div className="text-[var(--ink-primary)] font-semibold uppercase text-[11px]">Delivery</div>
+              {(
+                [
+                  { id: "email", label: "Email the QR pass", hint: "For external attendees without dashboard access." },
+                  { id: "release", label: "Release to dashboard only", hint: "Attendees see their QR on their dashboard. No email." },
+                ] as const
+              ).map((o) => (
+                <label key={o.id} className="flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="radio"
+                    name="delivery"
+                    checked={mode === o.id}
+                    onChange={() => setMode(o.id)}
+                    disabled={isLoading}
+                    className="accent-[#83A2DB] mt-0.5"
+                  />
+                  <span>
+                    <span className="text-[var(--ink-primary)] font-medium">{o.label}</span>
+                    <span className="block text-[10px] text-[var(--ink-secondary)]">{o.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+
             {/* Excluded Domain Filter */}
             <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
               <div className="flex items-center gap-1.5 text-[var(--ink-primary)] font-semibold uppercase text-[11px]">
@@ -150,7 +191,7 @@ export function TicketBulkSendDialog({
                 className="text-xs"
               />
               <p className="text-[10px] text-[var(--ink-secondary)]">
-                Emails ending with this domain will be omitted so test accounts do not receive messages.
+                Attendees on this domain will be skipped (for example, test accounts).
               </p>
             </div>
 

@@ -149,7 +149,7 @@ func (h *Handler) HandleForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = h.service.ForgotPassword(r.Context(), req.Email)
+	_, _ = h.service.ForgotPassword(r.Context(), req.Email, ratelimit.GetDeviceID(r.Context()), r.UserAgent(), getClientIP(r))
 
 	// Always return generic success to prevent email enumeration
 	utils.JSON(w, http.StatusOK, MessageResponse{

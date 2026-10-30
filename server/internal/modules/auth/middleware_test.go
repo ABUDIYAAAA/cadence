@@ -12,10 +12,10 @@ import (
 
 func TestAuthMiddlewareAndRequireRoles(t *testing.T) {
 	cfg := &config.Config{
-		JWTAccessSecret:  "unit-test-jwt-secret-1234567890",
-		CookieSecret:     "unit-test-cookie-secret-1234567890",
-		CookieSameSite:   "lax",
-		JWTAccessExpiry:  15 * time.Minute,
+		JWTAccessSecret: "unit-test-jwt-secret-1234567890",
+		CookieSecret:    "unit-test-cookie-secret-1234567890",
+		CookieSameSite:  "lax",
+		JWTAccessExpiry: 15 * time.Minute,
 	}
 	cm := utils.NewCookieManager(cfg.CookieSecret, "", false, cfg.CookieSameSite)
 

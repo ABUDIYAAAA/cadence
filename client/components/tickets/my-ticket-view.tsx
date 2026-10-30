@@ -20,7 +20,7 @@ export function MyTicketView({ compact = false }: { compact?: boolean } = {}) {
     return (
       <EmptyState
         title="Your pass isn't ready yet"
-        description="Organizers will email your QR entry pass before check-in. It will appear here as soon as it's issued."
+        description="Organizers will release your QR entry pass before check-in. It will appear here as soon as it's ready."
       />
     );
   }

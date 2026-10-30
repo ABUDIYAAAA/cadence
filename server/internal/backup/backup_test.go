@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewDisabledWithoutR2Config(t *testing.T) {
-	svc, err := New(&config.Config{}, nil)
+	svc, err := New(&config.Config{}, nil, nil)
 	if err != nil || svc != nil {
 		t.Fatalf("expected nil service and nil error, got %v, %v", svc, err)
 	}
@@ -18,7 +18,7 @@ func TestNewEnabledDerivesEndpoint(t *testing.T) {
 		R2AccountID: "abc", R2AccessKeyID: "k", R2SecretAccessKey: "s", R2Bucket: "b",
 		BackupInterval: 1, BackupPrefix: "/p/",
 	}
-	svc, err := New(cfg, nil)
+	svc, err := New(cfg, nil, nil)
 	if err != nil || svc == nil {
 		t.Fatalf("expected service, got %v, %v", svc, err)
 	}

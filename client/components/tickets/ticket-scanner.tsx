@@ -11,8 +11,13 @@ import {
   QrCode,
   RotateCcw,
 } from "lucide-react";
-import { useCheckIn } from "@/hooks/use-tickets";
-import { CheckInResponse, DuplicateCheckInResponse } from "@/types/tickets";
+import { useCheckIn, useSessionScan } from "@/hooks/use-tickets";
+import {
+  CheckInResponse,
+  DuplicateCheckInResponse,
+  ScanSession,
+  TeamScanResult,
+} from "@/types/tickets";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -20,10 +25,22 @@ type ScanMode = "camera" | "manual";
 
 interface TicketScannerProps {
   onScanSuccess?: (resp: CheckInResponse) => void;
+  /** Scan into an attendance or exit session. Omit for the entry check-in. */
+  session?: ScanSession | null;
 }
 
-export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
+const COPY = {
+  entry: { title: "Gate Entry QR Scanner", approved: "Check-In Approved: Entry Granted", submit: "Verify & Check-In" },
+  attendance: { title: "Attendance Scanner", approved: "Attendance Recorded", submit: "Verify & Mark Present" },
+  exit: { title: "Exit Scanner", approved: "Exit Approved", submit: "Verify & Check-Out" },
+} as const;
+
+export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
   const checkInMutation = useCheckIn();
+  const sessionScanMutation = useSessionScan();
+  const copy = COPY[session?.kind ?? "entry"];
+  const isPending = checkInMutation.isPending || sessionScanMutation.isPending;
+  const [lastTeam, setLastTeam] = useState<TeamScanResult | null>(null);
   const [ticketInput, setTicketInput] = useState("");
   // The camera is the default way in; typing or a USB wedge scanner is the alternative.
   const [mode, setMode] = useState<ScanMode>("camera");
@@ -48,43 +65,57 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
     setLastSuccess(null);
     setLastDuplicate(null);
     setLastError(null);
+    setLastTeam(null);
 
     try {
-      const res = await checkInMutation.mutateAsync({ ticket_code: code });
-      setLastSuccess(res);
+      if (session) {
+        const res = await sessionScanMutation.mutateAsync({ sessionId: session.id, ticketCode: code });
+        setLastSuccess({
+          success: true,
+          message: res.message,
+          ticket_code: code,
+          checked_in_at: res.scanned_at,
+          attendee: res.attendee,
+        });
+        setLastTeam(res.team ?? null);
+      } else {
+        const res = await checkInMutation.mutateAsync({ ticket_code: code });
+        setLastSuccess(res);
+        onScanSuccess?.(res);
+      }
       setTicketInput("");
-      onScanSuccess?.(res);
     } catch (err: unknown) {
       if (err && typeof err === "object") {
-        const errorObj = err as {
-          status?: number;
-          error?: string;
+        const errorObj = err as { status?: number; error?: string; body?: Record<string, unknown> };
+        const body = (errorObj.body ?? {}) as {
+          code?: string;
           checked_in_at?: string;
           checked_in_by_name?: string;
+          scanned_at?: string;
+          scanned_by_name?: string;
           attendee?: CheckInResponse["attendee"];
         };
+        const attendee = body.attendee ?? { id: "", name: "Attendee", email: "", role: "participant" };
 
-        if (errorObj.status === 409 || errorObj.error?.includes("already")) {
+        // A repeat scan: the same banner for entry and session scans
+        if (body.code === "duplicate" || (!session && (errorObj.status === 409 || errorObj.error?.includes("already")))) {
           setLastDuplicate({
-            error: errorObj.error || "Ticket has already been checked in",
-            checked_in_at: errorObj.checked_in_at || new Date().toISOString(),
-            checked_in_by_name: errorObj.checked_in_by_name,
-            attendee: errorObj.attendee || {
-              id: "",
-              name: "Attendee",
-              email: "",
-              role: "participant",
-            },
+            error: errorObj.error || "Ticket has already been scanned",
+            checked_in_at: body.scanned_at || body.checked_in_at || new Date().toISOString(),
+            checked_in_by_name: body.scanned_by_name || body.checked_in_by_name,
+            attendee,
           });
           return;
         }
 
-        setLastError(errorObj.error || "Check-in failed. Please verify the ticket code.");
+        // Rule refusals name the person so the volunteer knows who was turned away
+        const who = attendee.name && attendee.name !== "Attendee" ? ` (${attendee.name})` : "";
+        setLastError((errorObj.error || "Scan failed. Please verify the ticket code.") + who);
       } else {
-        setLastError("Check-in failed. Please verify the ticket code.");
+        setLastError("Scan failed. Please verify the ticket code.");
       }
     }
-  }, [checkInMutation, onScanSuccess]);
+  }, [checkInMutation, sessionScanMutation, onScanSuccess, session]);
 
   // Stop camera stream cleanly
   const stopCamera = useCallback(() => {
@@ -255,10 +286,10 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
           </div>
           <div>
             <h3 className="font-bold text-base text-[var(--ink-primary)]">
-              Gate Entry QR Scanner
+              {copy.title}
             </h3>
             <p className="text-xs text-[var(--ink-secondary)]">
-              Scan an attendee&apos;s QR pass, or type the ticket code
+              {session ? `${session.name} · ` : ""}Scan an attendee&apos;s QR pass, or type the ticket code
             </p>
           </div>
         </div>
@@ -379,7 +410,7 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
             placeholder="Paste or scan ticket code (e.g. cadence:tkt:...)"
             value={ticketInput}
             onChange={(e) => setTicketInput(e.target.value)}
-            disabled={checkInMutation.isPending}
+            disabled={isPending}
             className="text-xs h-10 font-mono"
             autoFocus
           />
@@ -387,11 +418,11 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
             variant="primary"
             size="sm"
             type="submit"
-            disabled={!ticketInput.trim() || checkInMutation.isPending}
-            isLoading={checkInMutation.isPending}
+            disabled={!ticketInput.trim() || isPending}
+            isLoading={isPending}
             className="text-xs h-10 px-5 shrink-0 font-semibold"
           >
-            Verify & Check-In
+            {copy.submit}
           </Button>
         </form>
       )}
@@ -402,7 +433,7 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
           <div className="flex items-center gap-2 text-[var(--color-blue)]">
             <CheckCircle2 className="h-5 w-5 shrink-0" />
             <span className="font-bold uppercase tracking-wider text-xs">
-              Check-In Approved: Entry Granted
+              {copy.approved}
             </span>
           </div>
 
@@ -424,10 +455,27 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
               <span className="text-[var(--ink-primary)] font-medium">{lastSuccess.attendee.team_name || "— No Team"}</span>
             </div>
             <div className="sm:col-span-2 text-[10px] text-[var(--ink-tertiary)] font-mono pt-2 border-t border-[var(--card-line)]">
-              Ticket Code: {lastSuccess.ticket_code} • Checked In:{" "}
+              Ticket Code: {lastSuccess.ticket_code} • {session ? "Scanned" : "Checked In"}:{" "}
               {new Date(lastSuccess.checked_in_at).toLocaleTimeString()}
             </div>
           </div>
+
+          {lastTeam && (
+            <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 space-y-1.5 text-xs">
+              <div className="text-[var(--ink-primary)]">
+                Team <strong>{lastTeam.team_name}</strong>: {lastTeam.marked + 1} marked present
+                {lastTeam.already_scanned > 0 && ` (${lastTeam.already_scanned} already scanned)`}
+              </div>
+              {lastTeam.skipped.length > 0 && (
+                <div className="text-[var(--color-coral)]">
+                  Not marked:{" "}
+                  {lastTeam.skipped
+                    .map((m) => `${m.name} (${m.reason === "not_checked_in" ? "not checked in" : "no pass"})`)
+                    .join(", ")}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -437,13 +485,13 @@ export function TicketScanner({ onScanSuccess }: TicketScannerProps) {
           <div className="flex items-center gap-2 text-[var(--color-coral)]">
             <AlertTriangle className="h-5 w-5 shrink-0" />
             <span className="font-bold uppercase tracking-wider text-xs">
-              Duplicate Scan Detected: Ticket Already Used!
+              Duplicate Scan Detected: Already Scanned!
             </span>
           </div>
 
           <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 space-y-1.5 text-xs">
             <p className="text-[var(--color-coral)]">
-              This ticket was already checked in on{" "}
+              This ticket was already scanned on{" "}
               <strong className="text-[var(--ink-primary)]">{new Date(lastDuplicate.checked_in_at).toLocaleString()}</strong>
               {lastDuplicate.checked_in_by_name && (
                 <> by volunteer: <strong className="text-[var(--ink-primary)]">{lastDuplicate.checked_in_by_name}</strong></>

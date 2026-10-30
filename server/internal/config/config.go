@@ -55,6 +55,10 @@ type Config struct {
 	// Telemetry & Metrics Scrape Authentication
 	MetricsScrapeToken string `env:"METRICS_SCRAPE_TOKEN"`
 
+	// Email domains of internal attendees (e.g. the college). Anyone else is external:
+	// they receive their QR by email and are the only ones who exit-scan.
+	InternalEmailDomains []string `env:"INTERNAL_EMAIL_DOMAINS" envSeparator:","`
+
 	// Scheduled Database Backups to Cloudflare R2 (disabled unless R2_BUCKET is set)
 	R2AccountID       string        `env:"R2_ACCOUNT_ID"`
 	R2AccessKeyID     string        `env:"R2_ACCESS_KEY_ID"`

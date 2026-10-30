@@ -179,7 +179,7 @@ func (r *Repository) MarkCheckedIn(ctx context.Context, ticketID, volunteerID st
 
 // MarkEmailSent updates the email_sent_at timestamp.
 func (r *Repository) MarkEmailSent(ctx context.Context, ticketID string) error {
-	query := `UPDATE tickets SET email_sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`
+	query := `UPDATE tickets SET email_sent_at = CURRENT_TIMESTAMP, released_at = COALESCE(released_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = $1;`
 	_, err := r.db.Exec(ctx, query, ticketID)
 	if err != nil {
 		return fmt.Errorf("mark email sent: %w", err)

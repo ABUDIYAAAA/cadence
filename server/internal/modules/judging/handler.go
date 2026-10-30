@@ -299,7 +299,7 @@ func (h *Handler) HandleUpdateSlotLinks(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.service.UpdateSlotLinks(r.Context(), slotID, claims.UserID, claims.Role, req.SubmissionLinks); err != nil {
+	if err := h.service.UpdateSlotLinks(r.Context(), slotID, claims.UserID, claims.Email, claims.Role, req.SubmissionLinks, r.RemoteAddr, r.UserAgent()); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return

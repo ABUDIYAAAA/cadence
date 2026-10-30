@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"devclubxnst.com/cadence/pkg/audit"
@@ -158,7 +159,7 @@ func (s *Service) CreatePanel(
 
 	s.recordAudit(
 		ctx,
-		audit.ActionJudgingRoundCreate,
+		audit.ActionJudgingPanelCreate,
 		audit.TargetJudgingPanel,
 		&panelID,
 		fmt.Sprintf("Judging panel '%s' created in Room '%s' with %d judges", req.Name, req.Room, len(req.JudgeIDs)),
@@ -189,7 +190,7 @@ func (s *Service) ConfigureSlots(
 
 	s.recordAudit(
 		ctx,
-		audit.ActionJudgingRoundCreate,
+		audit.ActionJudgingSlotsConfigure,
 		audit.TargetJudgingPanel,
 		&panelID,
 		fmt.Sprintf("Configured %d team slots in panel by %s", len(req.Slots), actorEmail),
@@ -209,8 +210,9 @@ func (s *Service) ConfigureSlots(
 func (s *Service) UpdateSlotLinks(
 	ctx context.Context,
 	slotID string,
-	actorID, actorRole string,
+	actorID, actorEmail, actorRole string,
 	links map[string]string,
+	ip, userAgent string,
 ) error {
 	if actorRole != "admin" {
 		allowed, err := s.repo.CanUserUpdateSlotLinks(ctx, slotID, actorID)
@@ -228,7 +230,27 @@ func (s *Service) UpdateSlotLinks(
 			return ErrUnauthorizedSlot
 		}
 	}
-	return s.repo.UpdateSlotLinks(ctx, slotID, links)
+	if err := s.repo.UpdateSlotLinks(ctx, slotID, links); err != nil {
+		return err
+	}
+
+	// Record which links changed, not their URLs: they can carry private repo or deck addresses.
+	keys := make([]string, 0, len(links))
+	for k := range links {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingSlotLinksUpdate,
+		audit.TargetJudgingSlot,
+		&slotID,
+		fmt.Sprintf("Submission links updated by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"slot_id": slotID, "link_keys": keys},
+		&ip, &userAgent,
+	)
+	return nil
 }
 
 // GetJudgePanels returns panels and queues assigned to this judge.
@@ -546,7 +568,7 @@ func (s *Service) UnqueueSlot(
 
 	s.recordAudit(
 		ctx,
-		audit.ActionJudgingSlotMove,
+		audit.ActionJudgingSlotUnqueue,
 		audit.TargetJudgingSlot,
 		&slotID,
 		fmt.Sprintf("Team slot removed from queue by %s", actorEmail),

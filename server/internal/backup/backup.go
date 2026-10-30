@@ -17,6 +17,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"devclubxnst.com/cadence/internal/config"
+	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/metrics"
 )
 
@@ -34,12 +35,15 @@ type Service struct {
 	retention time.Duration
 	client    *minio.Client
 	logger    *slog.Logger
+	auditor   audit.Recorder
 
-	mu sync.Mutex // serialises runs so a slow backup never overlaps the next tick
+	mu         sync.Mutex // serialises runs so a slow backup never overlaps the next tick
+	lastFailed bool       // audit only transitions, so a healthy schedule adds no noise
+	_          struct{}   // serialises runs so a slow backup never overlaps the next tick
 }
 
 // New builds a backup service from config. It returns nil, nil when R2 is not configured.
-func New(cfg *config.Config, logger *slog.Logger) (*Service, error) {
+func New(cfg *config.Config, logger *slog.Logger, auditor audit.Recorder) (*Service, error) {
 	if !cfg.BackupEnabled() {
 		return nil, nil
 	}
@@ -64,6 +68,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		retention: cfg.BackupRetention,
 		client:    client,
 		logger:    logger,
+		auditor:   auditor,
 	}, nil
 }
 
@@ -90,9 +95,34 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) runLogged(ctx context.Context) {
-	if err := s.Run(ctx); err != nil && ctx.Err() == nil {
-		s.logger.Error("database backup failed", slog.Any("error", err))
+	err := s.Run(ctx)
+	if ctx.Err() != nil {
+		return // shutting down: not a backup failure
 	}
+	if err != nil {
+		s.logger.Error("database backup failed", slog.Any("error", err))
+		s.audit(ctx, audit.ActionSystemBackupFailed, "Scheduled database backup failed", map[string]any{"error": err.Error()})
+		s.lastFailed = true
+		return
+	}
+	if s.lastFailed {
+		s.audit(ctx, audit.ActionSystemBackupRecovered, "Scheduled database backup succeeded again after a failure", nil)
+		s.lastFailed = false
+	}
+}
+
+// audit records a system event; there is no human actor.
+func (s *Service) audit(ctx context.Context, action, desc string, meta map[string]any) {
+	if s.auditor == nil {
+		return
+	}
+	s.auditor.Record(ctx, audit.Event{
+		Action:      action,
+		TargetType:  audit.TargetSystem,
+		Description: desc,
+		Metadata:    meta,
+		Timestamp:   time.Now(),
+	})
 }
 
 // Run performs a single dump-and-upload cycle and records metrics.

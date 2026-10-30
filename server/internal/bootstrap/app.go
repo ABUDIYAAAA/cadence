@@ -178,7 +178,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	notifHandler := notifications.NewHandler(notifService)
 
 	// Scheduled PostgreSQL backups to Cloudflare R2 (no-op unless R2_* is configured)
-	backupService, err := backup.New(cfg, appLogger)
+	backupService, err := backup.New(cfg, appLogger, auditQueue)
 	if err != nil {
 		appLogger.Warn("database backup disabled", slog.Any("error", err))
 	} else if backupService != nil {

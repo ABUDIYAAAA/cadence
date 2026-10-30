@@ -2,6 +2,8 @@ export interface ApiError {
   error: string;
   details?: Record<string, string>;
   status?: number;
+  /** Raw JSON error body, for endpoints that return structured rejections (e.g. scans). */
+  body?: Record<string, unknown>;
 }
 
 export interface PaginationParams {

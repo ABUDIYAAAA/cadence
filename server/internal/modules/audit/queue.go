@@ -61,6 +61,11 @@ func NewQueue(rabbitURL string, repo *Repository, l *slog.Logger) (*Queue, error
 // Record captures an audit event asynchronously by publishing it to RabbitMQ.
 // It returns immediately (<1ms) to eliminate latency in HTTP request handlers.
 func (q *Queue) Record(ctx context.Context, event Event) {
+	// A nil queue means RabbitMQ was unreachable at startup. Services hold it behind an interface,
+	// where their own `== nil` guards cannot see it, so audit becomes a no-op instead of a panic.
+	if q == nil {
+		return
+	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}

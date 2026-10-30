@@ -8,11 +8,12 @@ import (
 // Standardized audit action constants
 const (
 	// Auth actions
-	ActionAuthLoginSuccess  = "auth.login_success"
-	ActionAuthLoginFailure  = "auth.login_failure"
-	ActionAuthLogout        = "auth.logout"
-	ActionAuthPasswordSetup = "auth.password_setup"
-	ActionAuthPasswordReset = "auth.password_reset"
+	ActionAuthLoginSuccess   = "auth.login_success"
+	ActionAuthLoginFailure   = "auth.login_failure"
+	ActionAuthLogout         = "auth.logout"
+	ActionAuthPasswordSetup  = "auth.password_setup"
+	ActionAuthPasswordReset  = "auth.password_reset"
+	ActionAuthPasswordForgot = "auth.password_forgot"
 
 	// User actions
 	ActionUserCreate       = "user.create"
@@ -30,28 +31,42 @@ const (
 	ActionTeamRemoveMember = "team.remove_member"
 
 	// Ticket actions
-	ActionTicketIssued        = "ticket.issued"
-	ActionTicketCheckIn       = "ticket.check_in"
-	ActionTicketDuplicateScan = "ticket.duplicate_scan"
+	ActionTicketIssued         = "ticket.issued"
+	ActionTicketCheckIn        = "ticket.check_in"
+	ActionTicketDuplicateScan  = "ticket.duplicate_scan"
+	ActionTicketReleased       = "ticket.released"
+	ActionTicketSettingsUpdate = "ticket.settings_update"
+	ActionScanSessionCreate    = "ticket.session_create"
+	ActionScanSessionToggle    = "ticket.session_toggle"
+	ActionTicketSessionScan    = "ticket.session_scan"
+	ActionTicketScanRejected   = "ticket.scan_rejected"
 
 	// Judging actions
-	ActionJudgingRoundCreate   = "judging.round_create"
-	ActionJudgingRoundActivate = "judging.round_activate"
-	ActionJudgingRoundEnd      = "judging.round_end"
-	ActionJudgingRoundDelete   = "judging.round_delete"
-	ActionJudgingSlotStart     = "judging.slot_start"
-	ActionJudgingTimerPause    = "judging.timer_pause"
-	ActionJudgingTimerResume   = "judging.timer_resume"
-	ActionJudgingTimerExtend   = "judging.timer_extend"
-	ActionJudgingScoreLock     = "judging.score_lock"
-	ActionJudgingSlotComplete  = "judging.slot_complete"
-	ActionJudgingSlotMove      = "judging.slot_move"
-	ActionJudgingSlotQueue     = "judging.slot_queue"
+	ActionJudgingRoundCreate     = "judging.round_create"
+	ActionJudgingRoundActivate   = "judging.round_activate"
+	ActionJudgingRoundEnd        = "judging.round_end"
+	ActionJudgingRoundDelete     = "judging.round_delete"
+	ActionJudgingSlotStart       = "judging.slot_start"
+	ActionJudgingTimerPause      = "judging.timer_pause"
+	ActionJudgingTimerResume     = "judging.timer_resume"
+	ActionJudgingTimerExtend     = "judging.timer_extend"
+	ActionJudgingScoreLock       = "judging.score_lock"
+	ActionJudgingSlotComplete    = "judging.slot_complete"
+	ActionJudgingSlotMove        = "judging.slot_move"
+	ActionJudgingSlotQueue       = "judging.slot_queue"
+	ActionJudgingSlotUnqueue     = "judging.slot_unqueue"
+	ActionJudgingPanelCreate     = "judging.panel_create"
+	ActionJudgingSlotsConfigure  = "judging.slots_configure"
+	ActionJudgingSlotLinksUpdate = "judging.slot_links_update"
 
 	// Notification actions
 	ActionNotificationBroadcast   = "notification.broadcast"
 	ActionNotificationSubscribe   = "notification.subscribe"
 	ActionNotificationUnsubscribe = "notification.unsubscribe"
+
+	// System actions (no human actor)
+	ActionSystemBackupFailed    = "system.backup_failed"
+	ActionSystemBackupRecovered = "system.backup_recovered"
 )
 
 // Standardized target type constants
@@ -61,10 +76,12 @@ const (
 	TargetSession      = "session"
 	TargetAuth         = "auth"
 	TargetTicket       = "ticket"
+	TargetScanSession  = "scan_session"
 	TargetJudgingRound = "judging_round"
 	TargetJudgingSlot  = "judging_slot"
 	TargetJudgingPanel = "judging_panel"
 	TargetNotification = "notification"
+	TargetSystem       = "system"
 )
 
 // Event encapsulates a structured domain action to be recorded in the audit trail.

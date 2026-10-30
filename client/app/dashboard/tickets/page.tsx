@@ -14,6 +14,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import {
   useBulkSendTickets,
+  useReleaseTickets,
   useSendSingleTicket,
   useTicketAnalytics,
 } from "@/hooks/use-tickets";
@@ -28,8 +29,10 @@ import { Input } from "@/components/ui/input";
 import { attendancePercent } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import {
-  TicketScanner,
+  SessionScanner,
+  ScanSessionsPanel,
   TicketBulkSendDialog,
+  type DeliveryMode,
   TicketUserTable,
   MyTicketView,
 } from "@/components/tickets";
@@ -40,7 +43,7 @@ export default function TicketsPage() {
   const { user, isAdmin, isVolunteer, isParticipant, isLoading: authLoading } = useAuth();
 
   // Active view tab for Admin
-  const [adminTab, setAdminTab] = useState<"users" | "scanner">("users");
+  const [adminTab, setAdminTab] = useState<"users" | "scanner" | "sessions">("users");
 
   // Filters for User Directory
   const [userFilters, setUserFilters] = useState<UserFilter>({
@@ -66,6 +69,7 @@ export default function TicketsPage() {
   const { data: analyticsData } = useTicketAnalytics();
 
   const bulkSendMutation = useBulkSendTickets();
+  const releaseMutation = useReleaseTickets();
   const sendSingleMutation = useSendSingleTicket();
 
   // Guards
@@ -118,8 +122,18 @@ export default function TicketsPage() {
   };
 
   // Bulk send handler
-  const handleBulkSendTickets = async (req: BulkSendTicketsRequest) => {
+  const handleBulkSendTickets = async (req: BulkSendTicketsRequest, mode: DeliveryMode) => {
     try {
+      if (mode === "release") {
+        const res = await releaseMutation.mutateAsync(req);
+        toast.success(
+          `Released ${res.released} new passes to dashboards. No emails sent.`,
+          "Passes released"
+        );
+        setSelectedUserIds([]);
+        // Same shape the dialog already renders: enqueued = newly released
+        return { total_processed: res.total_processed, enqueued: res.released, skipped: res.skipped };
+      }
       const res = await bulkSendMutation.mutateAsync(req);
       toast.success(
         `Dispatched ${res.enqueued} ticket emails. (${res.skipped} skipped)`,
@@ -238,6 +252,17 @@ export default function TicketsPage() {
               >
                 Scanner
               </button>
+              <button
+                type="button"
+                onClick={() => setAdminTab("sessions")}
+                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
+                  adminTab === "sessions"
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
+                }`}
+              >
+                Sessions
+              </button>
             </div>
           )}
 
@@ -264,7 +289,7 @@ export default function TicketsPage() {
               className="h-9 px-4 text-xs gap-1.5"
             >
               <QrCode className="h-3.5 w-3.5" />
-              <span>Bulk send tickets</span>
+              <span>Send or release passes</span>
             </Button>
           )}
           {isAdmin && adminTab === "users" && selectedUserIds.length > 0 && (
@@ -284,7 +309,7 @@ export default function TicketsPage() {
       {/* 2. VOLUNTEER VIEW: Show Scanner + Attendee Directory */}
       {isVolunteer && !isAdmin && (
         <div className="space-y-6">
-          <TicketScanner />
+          <SessionScanner />
 
           <div className="space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--card-line)]">
@@ -340,9 +365,11 @@ export default function TicketsPage() {
         <>
           {adminTab === "scanner" && (
             <div className="space-y-6">
-              <TicketScanner />
+              <SessionScanner />
             </div>
           )}
+
+          {adminTab === "sessions" && <ScanSessionsPanel />}
 
           {adminTab === "users" && (
             <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
@@ -449,7 +476,7 @@ export default function TicketsPage() {
         onClose={() => setIsBulkSendOpen(false)}
         selectedUsers={selectedUsers}
         onSubmit={handleBulkSendTickets}
-        isLoading={bulkSendMutation.isPending}
+        isLoading={bulkSendMutation.isPending || releaseMutation.isPending}
       />
     </div>
   );

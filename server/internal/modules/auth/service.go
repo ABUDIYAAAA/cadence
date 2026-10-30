@@ -134,17 +134,19 @@ func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, d
 	return toUserResponse(user), accessToken, refreshToken, nil
 }
 
-func (s *Service) ForgotPassword(ctx context.Context, email string) (string, error) {
+func (s *Service) ForgotPassword(ctx context.Context, email, deviceID, userAgent, ip string) (string, error) {
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			// Silently return to prevent user enumeration attacks
+			// The caller still gets the generic response (no enumeration); the audit trail records the attempt.
+			s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetAuth, nil, fmt.Sprintf("Password reset requested for unknown email %s", email), &email, nil, map[string]any{"account_found": false}, &deviceID, &userAgent, &ip)
 			return "", nil
 		}
 		return "", err
 	}
 
 	if !user.IsActive {
+		s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset requested for deactivated account %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": false}, &deviceID, &userAgent, &ip)
 		return "", nil
 	}
 
@@ -168,6 +170,8 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) (string, err
 		resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s", s.cfg.FrontendURL, rawToken)
 		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
 	}
+
+	s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset link requested for %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": true}, &deviceID, &userAgent, &ip)
 
 	return rawToken, nil
 }

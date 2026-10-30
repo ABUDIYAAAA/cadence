@@ -20,6 +20,7 @@ const ACTION_OPTIONS = [
   { value: "auth.login_failure", label: "[Auth] Login Failure" },
   { value: "auth.logout", label: "[Auth] Logout" },
   { value: "auth.password_setup", label: "[Auth] Password Setup" },
+  { value: "auth.password_forgot", label: "[Auth] Password Reset Requested" },
   { value: "auth.password_reset", label: "[Auth] Password Reset" },
   // User
   { value: "user.create", label: "[User] Account Created" },
@@ -35,19 +36,39 @@ const ACTION_OPTIONS = [
   { value: "team.add_member", label: "[Team] Member Added" },
   { value: "team.remove_member", label: "[Team] Member Removed" },
   // Ticket
-  { value: "ticket.issued", label: "[Ticket] Pass Issued" },
+  { value: "ticket.issued", label: "[Ticket] Pass Emailed" },
+  { value: "ticket.released", label: "[Ticket] Passes Released" },
   { value: "ticket.check_in", label: "[Ticket] Check-In Recorded" },
   { value: "ticket.duplicate_scan", label: "[Ticket] Duplicate Scan" },
+  { value: "ticket.scan_rejected", label: "[Ticket] Scan Refused" },
+  { value: "ticket.session_create", label: "[Ticket] Scan Session Created" },
+  { value: "ticket.session_toggle", label: "[Ticket] Scan Session Opened/Closed" },
+  { value: "ticket.session_scan", label: "[Ticket] Attendance/Exit Scan" },
+  { value: "ticket.settings_update", label: "[Ticket] Internal Domains Changed" },
   // Judging
   { value: "judging.round_create", label: "[Judging] Round Created" },
   { value: "judging.round_activate", label: "[Judging] Round Activated" },
+  { value: "judging.round_end", label: "[Judging] Round Ended" },
+  { value: "judging.round_delete", label: "[Judging] Round Deleted" },
+  { value: "judging.panel_create", label: "[Judging] Panel Created" },
+  { value: "judging.slots_configure", label: "[Judging] Slots Configured" },
   { value: "judging.slot_start", label: "[Judging] Slot Started" },
+  { value: "judging.timer_pause", label: "[Judging] Timer Paused" },
+  { value: "judging.timer_resume", label: "[Judging] Timer Resumed" },
+  { value: "judging.timer_extend", label: "[Judging] Timer Extended" },
   { value: "judging.score_lock", label: "[Judging] Score Locked" },
   { value: "judging.slot_complete", label: "[Judging] Slot Completed" },
+  { value: "judging.slot_move", label: "[Judging] Slot Moved" },
+  { value: "judging.slot_queue", label: "[Judging] Slot Queued" },
+  { value: "judging.slot_unqueue", label: "[Judging] Slot Unqueued" },
+  { value: "judging.slot_links_update", label: "[Judging] Submission Links Updated" },
   // Notification
   { value: "notification.broadcast", label: "[Notification] Broadcast Sent" },
   { value: "notification.subscribe", label: "[Notification] Push Subscribed" },
   { value: "notification.unsubscribe", label: "[Notification] Push Unsubscribed" },
+  // System
+  { value: "system.backup_failed", label: "[System] Backup Failed" },
+  { value: "system.backup_recovered", label: "[System] Backup Recovered" },
 ];
 
 const TARGET_TYPE_OPTIONS = [
@@ -55,12 +76,14 @@ const TARGET_TYPE_OPTIONS = [
   { value: "user", label: "User" },
   { value: "team", label: "Team" },
   { value: "ticket", label: "Ticket" },
+  { value: "scan_session", label: "Scan Session" },
   { value: "session", label: "Session" },
   { value: "auth", label: "Auth" },
   { value: "judging_round", label: "Judging Round" },
   { value: "judging_slot", label: "Judging Slot" },
   { value: "judging_panel", label: "Judging Panel" },
   { value: "notification", label: "Notification" },
+  { value: "system", label: "System" },
 ];
 
 export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) {

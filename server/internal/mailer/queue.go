@@ -14,6 +14,10 @@ import (
 
 const (
 	DefaultEmailQueue = "cadence_emails"
+
+	// maxDeliveryRetries is how many times a failed email is retried before being dropped.
+	maxDeliveryRetries = 3
+	retryCountHeader   = "x-retry-count"
 )
 
 var (
@@ -208,7 +212,7 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 
 					if err != nil {
 						log.Printf("[MAILER WORKER %d] Failed to deliver email to %s: %v", workerID, job.To, err)
-						_ = delivery.Nack(false, true) // requeue on delivery error
+						q.handleFailure(ch, delivery, err, workerID)
 					} else {
 						log.Printf("[MAILER WORKER %d] Email delivered successfully to %s (%s)", workerID, job.To, job.Subject)
 						_ = delivery.Ack(false)
@@ -247,4 +251,49 @@ func (q *Queue) Close() error {
 		return fmt.Errorf("close rabbitmq queue: %v", errs)
 	}
 	return nil
+}
+
+// handleFailure retries a failed job a bounded number of times with backoff, then drops it.
+func (q *Queue) handleFailure(ch *amqp.Channel, delivery amqp.Delivery, sendErr error, workerID int) {
+	attempts := 0
+	if v, ok := delivery.Headers[retryCountHeader]; ok {
+		switch n := v.(type) {
+		case int32:
+			attempts = int(n)
+		case int64:
+			attempts = int(n)
+		case int:
+			attempts = n
+		}
+	}
+
+	permanent := errors.Is(sendErr, ErrTemplateNotFound) || errors.Is(sendErr, ErrHeaderInjection)
+	if permanent || attempts >= maxDeliveryRetries {
+		log.Printf("[MAILER WORKER %d] Dropping email job after %d retries (permanent=%t): %v", workerID, attempts, permanent, sendErr)
+		_ = delivery.Nack(false, false)
+		return
+	}
+
+	// Republish with an incremented counter, then ack the original.
+	headers := amqp.Table{}
+	for k, v := range delivery.Headers {
+		headers[k] = v
+	}
+	headers[retryCountHeader] = int32(attempts + 1)
+
+	time.Sleep(time.Duration(attempts+1) * 2 * time.Second) // linear backoff: 2s, 4s, 6s
+
+	err := ch.PublishWithContext(context.Background(), "", q.queueName, false, false, amqp.Publishing{
+		DeliveryMode: amqp.Persistent,
+		ContentType:  "application/json",
+		Timestamp:    time.Now(),
+		Headers:      headers,
+		Body:         delivery.Body,
+	})
+	if err != nil {
+		log.Printf("[MAILER WORKER %d] Failed to republish email job, requeueing as-is: %v", workerID, err)
+		_ = delivery.Nack(false, true)
+		return
+	}
+	_ = delivery.Ack(false)
 }

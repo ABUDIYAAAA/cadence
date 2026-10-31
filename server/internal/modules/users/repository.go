@@ -34,15 +34,27 @@ func (r *Repository) CreateUserTx(
 	email, name, role string,
 	phone *string,
 ) (string, error) {
+	// Single statement so a duplicate never aborts the surrounding transaction:
+	// soft-deleted users are reactivated, already-active users yield no row.
 	query := `
 		INSERT INTO users (email, name, role, phone_number, is_password_configured, is_active)
 		VALUES (LOWER($1), $2, $3, $4, FALSE, TRUE)
+		ON CONFLICT (email) DO UPDATE
+		SET name = EXCLUDED.name,
+		    role = EXCLUDED.role,
+		    phone_number = EXCLUDED.phone_number,
+		    is_password_configured = FALSE,
+		    is_active = TRUE,
+		    deleted_at = NULL,
+		    token_version = users.token_version + 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE users.deleted_at IS NOT NULL
 		RETURNING id
 	`
 	var id string
 	err := tx.QueryRow(ctx, query, email, name, role, phone).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "users_email_key") {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrUserAlreadyExists
 		}
 		return "", fmt.Errorf("insert user: %w", err)

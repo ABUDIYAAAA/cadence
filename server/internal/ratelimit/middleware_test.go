@@ -353,3 +353,36 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 		}
 	})
 }
+
+func TestGlobalRateLimitHeaderAndConfig(t *testing.T) {
+	rdb := newTestRedis(t)
+	limiter := NewLimiter(rdb)
+
+	cfg := &config.Config{
+		JWTAccessSecret: "test-access-secret-32-bytes-long!",
+		GlobalRateLimit: 500,
+		UnauthRateLimit: 1000,
+	}
+	cookieManager := utils.NewCookieManager("test-cookie-secret-32-bytes-long", "", false, "lax")
+
+	r := chi.NewRouter()
+	r.Use(DeviceIDMiddleware(cookieManager))
+	r.Use(RateLimitMiddleware(limiter, cfg, cookieManager))
+	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+	if limitHeader := rec.Header().Get("X-RateLimit-Limit"); limitHeader != "1000" {
+		t.Fatalf("expected X-RateLimit-Limit 1000, got %s", limitHeader)
+	}
+	if remainingHeader := rec.Header().Get("X-RateLimit-Remaining"); remainingHeader != "999" {
+		t.Fatalf("expected X-RateLimit-Remaining 999, got %s", remainingHeader)
+	}
+}

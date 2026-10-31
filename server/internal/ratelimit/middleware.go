@@ -21,8 +21,10 @@ const (
 	DeviceIDContextKey         contextKey = "device_id"
 	DeviceIDVerifiedContextKey contextKey = "device_id_verified"
 
-	DefaultUserLimit     int64 = 240
-	DefaultDeviceLimit   int64 = 60
+	DefaultGlobalLimit   int64 = 500
+	DefaultUnauthLimit   int64 = 1000
+	DefaultUserLimit     int64 = 500
+	DefaultDeviceLimit   int64 = 500
 	DefaultCampusIPLimit int64 = 5000
 )
 
@@ -84,8 +86,17 @@ func RateLimitMiddleware(
 
 			ctx := r.Context()
 			var key string
-			var limit int64
 			limiterType := "device"
+
+			globalLimit := DefaultGlobalLimit
+			if cfg != nil && cfg.GlobalRateLimit > 0 {
+				globalLimit = cfg.GlobalRateLimit
+			}
+			limit := globalLimit
+			unauthLimit := DefaultUnauthLimit
+			if cfg != nil && cfg.UnauthRateLimit > 0 {
+				unauthLimit = cfg.UnauthRateLimit
+			}
 
 			// 1. Verify JWT before assigning a per-user bucket (signed access_token cookie or Bearer header)
 			tokenStr := ""
@@ -104,7 +115,7 @@ func RateLimitMiddleware(
 				if claims, valErr := utils.ValidateAccessToken(tokenStr, cfg.JWTAccessSecret); valErr == nil && claims != nil && claims.UserID != "" {
 					if !limiter.IsUserBlocked(ctx, claims.UserID) {
 						key = fmt.Sprintf("ratelimit:user:%s", claims.UserID)
-						limit = DefaultUserLimit
+						limit = globalLimit
 						limiterType = "user"
 					}
 				}
@@ -119,17 +130,17 @@ func RateLimitMiddleware(
 					deviceID := GetDeviceID(ctx)
 					if deviceID != "" && deviceID != "anonymous" {
 						sessionKey := fmt.Sprintf("ratelimit:refresh_session:%s", deviceID)
-						sessionRes, sessionErr := limiter.Allow(ctx, sessionKey, DefaultDeviceLimit, 1*time.Minute)
+						sessionRes, sessionErr := limiter.Allow(ctx, sessionKey, globalLimit, 1*time.Minute)
 						if sessionErr == nil {
 							metrics.InstrumentRateLimit("refresh_session", sessionRes.Allowed)
 							if !sessionRes.Allowed {
-								writeRateLimitExceeded(w, DefaultDeviceLimit, sessionRes, "too many requests: rate limit exceeded")
+								writeRateLimitExceeded(w, globalLimit, sessionRes, "too many requests: rate limit exceeded")
 								return
 							}
 						}
 
 						key = fmt.Sprintf("ratelimit:refresh_token:%s", utils.HashToken(refreshStr))
-						limit = DefaultDeviceLimit
+						limit = globalLimit
 						limiterType = "refresh"
 					}
 				}
@@ -137,12 +148,12 @@ func RateLimitMiddleware(
 
 			// 3. If unauthenticated, rate limit by verified signed device_id cookie (isolates devices behind NAT).
 			// When the client does NOT present a verified _did cookie (cookieless clients or cookie-dropping scripts),
-			// key the unauthenticated limit on client IP so dropping cookies cannot reset the 60/min quota.
+			// key the unauthenticated limit on client IP so dropping cookies cannot reset the quota.
 			if key == "" {
 				if IsDeviceIDVerified(ctx) {
 					deviceID := GetDeviceID(ctx)
 					key = fmt.Sprintf("ratelimit:device:%s", deviceID)
-					limit = DefaultDeviceLimit
+					limit = unauthLimit
 					limiterType = "device"
 				} else {
 					clientIP := extractRemoteIP(r.RemoteAddr)
@@ -150,7 +161,7 @@ func RateLimitMiddleware(
 						clientIP = "unknown"
 					}
 					key = fmt.Sprintf("ratelimit:unauth_ip:%s", clientIP)
-					limit = DefaultDeviceLimit
+					limit = unauthLimit
 					limiterType = "device"
 				}
 			}

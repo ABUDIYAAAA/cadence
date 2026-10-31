@@ -266,6 +266,18 @@ func TestVolunteerCanInviteOnlyParticipants(t *testing.T) {
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{"email": "v@x.com", "name": "V"}, http.StatusForbidden, nil)
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+participant.ID+"/trigger-reset-password", nil, http.StatusForbidden, nil)
 
+	// Invites are recorded per user: a count and the latest time.
+	var got users.UserDetailResponse
+	admin.DoJSON(t, http.MethodGet, "/api/v1/users/"+participant.ID, nil, http.StatusOK, &got)
+	if got.InviteCount != 1 || got.LastInvitedAt == nil {
+		t.Fatalf("expected 1 recorded invite, got count=%d last=%v", got.InviteCount, got.LastInvitedAt)
+	}
+	var never users.UserDetailResponse
+	admin.DoJSON(t, http.MethodGet, "/api/v1/users/"+other.ID, nil, http.StatusOK, &never)
+	if never.InviteCount != 0 || never.LastInvitedAt != nil {
+		t.Fatalf("expected never-invited user, got count=%d last=%v", never.InviteCount, never.LastInvitedAt)
+	}
+
 	// Bulk invite skips non-participants silently.
 	var resp struct {
 		Dispatched int `json:"invites_dispatched"`
@@ -274,5 +286,16 @@ func TestVolunteerCanInviteOnlyParticipants(t *testing.T) {
 		map[string]any{"user_ids": []string{judge.ID, other.ID}}, http.StatusOK, &resp)
 	if resp.Dispatched != 1 {
 		t.Fatalf("expected only the participant to be invited, dispatched=%d", resp.Dispatched)
+	}
+
+	// "Skip already invited" leaves out people who got an invite before: only `other` is still uninvited.
+	var skip struct {
+		Dispatched int `json:"invites_dispatched"`
+	}
+	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk-send-invite",
+		map[string]any{"all_uninvited": true, "skip_already_invited": true}, http.StatusOK, &skip)
+	// `other` was already invited by the bulk call above, so nobody is left.
+	if skip.Dispatched != 1 {
+		t.Fatalf("expected 1 uninvited user (the judge), dispatched=%d", skip.Dispatched)
 	}
 }

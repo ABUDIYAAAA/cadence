@@ -24,10 +24,12 @@ export function UserBulkInviteDialog({
 }: UserBulkInviteDialogProps) {
   const { data: allUsers, isLoading: usersLoading } = useAllUsers({ enabled: open });
   const [excludeDomain, setExcludeDomain] = useState("");
+  const [skipInvited, setSkipInvited] = useState(false);
   const [dispatchedCount, setDispatchedCount] = useState<number | null>(null);
 
   const resetDialog = () => {
     setExcludeDomain("");
+    setSkipInvited(false);
     setDispatchedCount(null);
   };
 
@@ -41,24 +43,29 @@ export function UserBulkInviteDialog({
     (u) => !u.is_password_configured && u.is_active
   );
 
+  const alreadyInvitedCount = unconfiguredUsers.filter((u) => u.invite_count > 0).length;
+  const neverInvitedCount = unconfiguredUsers.length - alreadyInvitedCount;
+
   const excludedDomains = parseEmailDomains(excludeDomain);
 
-  const eligibleUserIds =
-    excludedDomains.length > 0
-      ? unconfiguredUsers
-          .filter((u) => !isEmailExcluded(u.email, excludedDomains))
-          .map((u) => u.id)
-      : unconfiguredUsers.map((u) => u.id);
+  const eligibleUserIds = unconfiguredUsers
+    .filter((u) => !(skipInvited && u.invite_count > 0))
+    .filter((u) => excludedDomains.length === 0 || !isEmailExcluded(u.email, excludedDomains))
+    .map((u) => u.id);
 
-  const excludedCount = unconfiguredUsers.length - eligibleUserIds.length;
+  const excludedCount =
+    excludedDomains.length > 0
+      ? unconfiguredUsers.filter((u) => isEmailExcluded(u.email, excludedDomains)).length
+      : 0;
 
   const handleSend = async () => {
     try {
       // The server applies the exclusion too, so it holds beyond the loaded list.
-      const payload: BulkInviteRequest =
-        excludedDomains.length > 0
-          ? { all_uninvited: true, exclude_domains: excludedDomains }
-          : { all_uninvited: true };
+      const payload: BulkInviteRequest = {
+        all_uninvited: true,
+        ...(skipInvited && { skip_already_invited: true }),
+        ...(excludedDomains.length > 0 && { exclude_domains: excludedDomains }),
+      };
 
       const count = await onSubmit(payload);
       setDispatchedCount(count);
@@ -125,6 +132,32 @@ export function UserBulkInviteDialog({
                   is_password_configured = false
                 </code>.
               </p>
+            </div>
+
+            {/* Invite history */}
+            <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-[var(--ink-secondary)]">
+                  Never invited:{" "}
+                  <strong className="text-[var(--ink-primary)] font-mono">{neverInvitedCount}</strong>
+                </span>
+                <span className="text-[var(--ink-secondary)]">
+                  Invited at least once:{" "}
+                  <strong className="text-[var(--ink-primary)] font-mono">{alreadyInvitedCount}</strong>
+                </span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={skipInvited}
+                  onChange={(e) => setSkipInvited(e.target.checked)}
+                  disabled={isLoading}
+                  className="accent-[#83A2DB] h-4 w-4 rounded"
+                />
+                <span className="font-semibold text-[var(--ink-primary)]">
+                  Skip people who&apos;ve already been invited
+                </span>
+              </label>
             </div>
 
             {/* Excluded Domain Filter */}

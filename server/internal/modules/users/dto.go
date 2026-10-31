@@ -52,6 +52,8 @@ type UserFilter struct {
 type BulkInviteRequest struct {
 	UserIDs      []string `json:"user_ids"`
 	AllUninvited bool     `json:"all_uninvited"`
+	// SkipAlreadyInvited leaves out anyone who has been sent a setup invite before.
+	SkipAlreadyInvited bool `json:"skip_already_invited"`
 	// ExcludeDomains lists email domains that must not receive an invite.
 	ExcludeDomains []string `json:"exclude_domains"`
 }
@@ -70,6 +72,9 @@ type UserDetailResponse struct {
 	IsActive             bool      `json:"is_active"`
 	TokenVersion         int       `json:"token_version"`
 	CreatedAt            time.Time `json:"created_at"`
+	// InviteCount is how many setup invites have been issued to this user; LastInvitedAt is the latest.
+	InviteCount   int        `json:"invite_count"`
+	LastInvitedAt *time.Time `json:"last_invited_at,omitempty"`
 	// Set only by the list endpoint: "checked_in", "not_checked_in" or "no_pass".
 	CheckinStatus string     `json:"checkin_status,omitempty"`
 	CheckedInAt   *time.Time `json:"checked_in_at,omitempty"`

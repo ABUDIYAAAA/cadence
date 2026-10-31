@@ -175,10 +175,24 @@ export function UserTable({
                       Configured
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
-                      <Clock className="h-3 w-3" />
-                      Pending setup
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                        <Clock className="h-3 w-3" />
+                        Pending setup
+                      </span>
+                      <span
+                        className="text-[10px] text-[var(--ink-tertiary)]"
+                        title={
+                          user.last_invited_at
+                            ? `Last invite: ${new Date(user.last_invited_at).toLocaleString()}`
+                            : undefined
+                        }
+                      >
+                        {user.invite_count > 0
+                          ? `Invited ${user.invite_count}\u00d7 \u00b7 last ${new Date(user.last_invited_at!).toLocaleDateString()}`
+                          : "Not invited yet"}
+                      </span>
+                    </div>
                   )}
                 </TableCell>
 

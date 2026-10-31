@@ -374,7 +374,7 @@ func (s *Service) SendInvite(ctx context.Context, userID string) error {
 func (s *Service) BulkSendInvites(ctx context.Context, req BulkInviteRequest) (int, error) {
 	var targetIDs []string
 	if req.AllUninvited {
-		uninvited, err := s.repo.GetUninvitedUserIDs(ctx)
+		uninvited, err := s.repo.GetUninvitedUserIDs(ctx, req.SkipAlreadyInvited)
 		if err != nil {
 			return 0, err
 		}

@@ -5,24 +5,20 @@ import { useRouter } from "next/navigation";
 import {
   UserPlus,
   Upload,
-  Mail,
   RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import {
   useBulkCreateUsers,
-  useBulkSendInvite,
   useCreateUser,
   useDeleteUser,
-  useSendInvite,
   useTriggerResetPassword,
   useUpdateUser,
   useUsers,
 } from "@/hooks/use-users";
 import {
   BulkCreateUsersRequest,
-  BulkInviteRequest,
   CreateUserRequest,
   UpdateUserRequest,
   UserDetailResponse,
@@ -38,7 +34,6 @@ import {
   UserTable,
   UserCreateDialog,
   UserBulkCreateDialog,
-  UserBulkInviteDialog,
   UserEditDialog,
   UserDeleteDialog,
   UserDetailDialog,
@@ -71,14 +66,11 @@ export default function UsersPage() {
   const bulkCreateMutation = useBulkCreateUsers();
   const updateUserMutation = useUpdateUser();
   const deleteUserMutation = useDeleteUser();
-  const sendInviteMutation = useSendInvite();
-  const bulkInviteMutation = useBulkSendInvite();
   const resetPasswordMutation = useTriggerResetPassword();
 
   // Dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isBulkCreateOpen, setIsBulkCreateOpen] = useState(false);
-  const [isBulkInviteOpen, setIsBulkInviteOpen] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserDetailResponse | null>(null);
   const [editingUser, setEditingUser] = useState<UserDetailResponse | null>(null);
   const [deletingUser, setDeletingUser] = useState<UserDetailResponse | null>(null);
@@ -197,47 +189,6 @@ export default function UsersPage() {
     }
   };
 
-  const handleSendInvite = async (targetUser: UserDetailResponse) => {
-    setActionInProgressId(targetUser.id);
-    try {
-      await sendInviteMutation.mutateAsync(targetUser.id);
-      toast.success(
-        `Onboarding invite email dispatched to ${targetUser.email}`,
-        "Invite sent"
-      );
-    } catch (err: unknown) {
-      const errorMsg =
-        err && typeof err === "object" && "error" in err
-          ? (err as { error: string }).error
-          : "Failed to send invite";
-      toast.error(errorMsg, "Invite failed");
-    } finally {
-      setActionInProgressId(null);
-    }
-  };
-
-  const handleBulkInvite = async (payload: BulkInviteRequest) => {
-    try {
-      const res = await bulkInviteMutation.mutateAsync(payload);
-      const count =
-        typeof res === "object" && res && "invites_dispatched" in res
-          ? (res as { invites_dispatched: number }).invites_dispatched
-          : 0;
-      toast.success(
-        `Dispatched setup invites to unconfigured users.`,
-        "Invites queued"
-      );
-      return count;
-    } catch (err: unknown) {
-      const errorMsg =
-        err && typeof err === "object" && "error" in err
-          ? (err as { error: string }).error
-          : "Bulk invite dispatch failed";
-      toast.error(errorMsg, "Error");
-      throw err;
-    }
-  };
-
   const handleTriggerResetPassword = async (targetUser: UserDetailResponse) => {
     setActionInProgressId(targetUser.id);
     try {
@@ -275,7 +226,7 @@ export default function UsersPage() {
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
             {isAdmin
               ? "Directory of participants, judges, volunteers, and organizers."
-              : "Send setup invites to participants so they can join the event."}
+              : "Add participants who were left out or registered with a wrong email. They set their own password with Forgot password."}
           </p>
         </div>
 
@@ -295,39 +246,27 @@ export default function UsersPage() {
             <span className="hidden sm:inline">Refresh</span>
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsBulkInviteOpen(true)}
-            className="h-9 px-3 text-xs gap-1.5"
-          >
-            <Mail className="h-3.5 w-3.5" />
-            <span>Send invites</span>
-          </Button>
-
           {isAdmin && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsBulkCreateOpen(true)}
-                className="h-9 px-3 text-xs gap-1.5"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                <span>Import CSV</span>
-              </Button>
-
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setIsCreateOpen(true)}
-                className="h-9 px-4 text-xs gap-1.5 font-semibold"
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                <span>Add user</span>
-              </Button>
-            </>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsBulkCreateOpen(true)}
+              className="h-9 px-3 text-xs gap-1.5"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Import CSV</span>
+            </Button>
           )}
+
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setIsCreateOpen(true)}
+            className="h-9 px-4 text-xs gap-1.5 font-semibold"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            <span>{isAdmin ? "Add user" : "Add participant"}</span>
+          </Button>
         </div>
       </div>
 
@@ -346,7 +285,7 @@ export default function UsersPage() {
         </div>
         <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-[var(--ink-secondary)]">Pending setup</span>
+            <span className="text-[11px] font-medium text-[var(--ink-secondary)]">Password not set</span>
             <span className="h-2 w-2 rounded-full bg-amber-500" />
           </div>
           <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">{metrics.pendingSetup}</div>
@@ -382,7 +321,6 @@ export default function UsersPage() {
         onView={(user) => setViewingUser(user)}
         onEdit={(user) => setEditingUser(user)}
         onDelete={(user) => setDeletingUser(user)}
-        onSendInvite={handleSendInvite}
         onResetPassword={handleTriggerResetPassword}
         actionInProgressId={actionInProgressId}
         canManage={isAdmin}
@@ -408,6 +346,7 @@ export default function UsersPage() {
         onClose={() => setIsCreateOpen(false)}
         onSubmit={handleCreateUser}
         isLoading={createUserMutation.isPending}
+        participantOnly={!isAdmin}
       />
 
       <UserBulkCreateDialog
@@ -415,13 +354,6 @@ export default function UsersPage() {
         onClose={() => setIsBulkCreateOpen(false)}
         onSubmit={handleBulkCreate}
         isLoading={bulkCreateMutation.isPending}
-      />
-
-      <UserBulkInviteDialog
-        open={isBulkInviteOpen}
-        onClose={() => setIsBulkInviteOpen(false)}
-        onSubmit={handleBulkInvite}
-        isLoading={bulkInviteMutation.isPending}
       />
 
       <UserEditDialog
@@ -452,7 +384,6 @@ export default function UsersPage() {
           setViewingUser(null);
           setDeletingUser(user);
         }}
-        onSendInvite={handleSendInvite}
         onResetPassword={handleTriggerResetPassword}
         actionInProgress={Boolean(actionInProgressId)}
         canManage={isAdmin}

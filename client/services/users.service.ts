@@ -2,7 +2,6 @@ import { apiClient } from "@/lib/api-client";
 import {
   BulkCreateResponse,
   BulkCreateUsersRequest,
-  BulkInviteRequest,
   CreateUserRequest,
   PaginatedUsersResponse,
   UpdateUserRequest,
@@ -41,19 +40,6 @@ export const usersService = {
 
   async delete(id: string): Promise<MessageResponse> {
     const { data } = await apiClient.delete<MessageResponse>(`/users/${id}`);
-    return data;
-  },
-
-  async sendInvite(id: string): Promise<MessageResponse> {
-    const { data } = await apiClient.post<MessageResponse>(`/users/${id}/send-invite`);
-    return data;
-  },
-
-  async bulkSendInvite(payload: BulkInviteRequest): Promise<MessageResponse> {
-    const { data } = await apiClient.post<MessageResponse>(
-      "/users/bulk-send-invite",
-      payload
-    );
     return data;
   },
 

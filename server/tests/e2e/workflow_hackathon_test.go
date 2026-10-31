@@ -29,47 +29,40 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{
 			{
-				"email":       "judge1@cadence.local",
-				"name":        "Dr. Ada Lovelace",
-				"role":        "judge",
-				"send_invite": true,
+				"email": "judge1@cadence.local",
+				"name":  "Dr. Ada Lovelace",
+				"role":  "judge",
 			},
 			{
-				"email":       "judge2@cadence.local",
-				"name":        "Dr. Alan Turing",
-				"role":        "judge",
-				"send_invite": true,
+				"email": "judge2@cadence.local",
+				"name":  "Dr. Alan Turing",
+				"role":  "judge",
 			},
 			{
-				"email":       "volunteer1@cadence.local",
-				"name":        "Grace Hopper",
-				"role":        "volunteer",
-				"send_invite": true,
+				"email": "volunteer1@cadence.local",
+				"name":  "Grace Hopper",
+				"role":  "volunteer",
 			},
 			{
-				"email":       "alpha.leader@cadence.local",
-				"name":        "Alpha Leader",
-				"role":        "participant",
-				"send_invite": true,
+				"email": "alpha.leader@cadence.local",
+				"name":  "Alpha Leader",
+				"role":  "participant",
 			},
 			{
-				"email":       "alpha.member@cadence.local",
-				"name":        "Alpha Member",
-				"role":        "participant",
-				"send_invite": true,
+				"email": "alpha.member@cadence.local",
+				"name":  "Alpha Member",
+				"role":  "participant",
 			},
 			{
-				"email":       "beta.leader@cadence.local",
-				"name":        "Beta Leader",
-				"role":        "participant",
-				"send_invite": true,
+				"email": "beta.leader@cadence.local",
+				"name":  "Beta Leader",
+				"role":  "participant",
 			},
 		},
 	}, http.StatusCreated, &bulkResp)
 
-	if bulkResp.TotalCreated != 6 || bulkResp.InvitesDispatched != 6 {
-		t.Fatalf("expected 6 users created and 6 invites dispatched, got created=%d invites=%d (errors: %v)",
-			bulkResp.TotalCreated, bulkResp.InvitesDispatched, bulkResp.SkippedErrors)
+	if bulkResp.TotalCreated != 6 {
+		t.Fatalf("expected 6 users created, got created=%d (errors: %v)", bulkResp.TotalCreated, bulkResp.SkippedErrors)
 	}
 
 	// Onboard all 6 users by extracting their real setup tokens from Mailpit HTML emails
@@ -106,10 +99,9 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	// Admin creates a temporary user, adds them to Team Beta, verifies, then removes them
 	var tempUser users.UserDetailResponse
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email":       "temp.beta@cadence.local",
-		"name":        "Temp Beta Member",
-		"role":        "participant",
-		"send_invite": false,
+		"email": "temp.beta@cadence.local",
+		"name":  "Temp Beta Member",
+		"role":  "participant",
 	}, http.StatusCreated, &tempUser)
 
 	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v2/teams/%s/members", betaTeam.ID), map[string]string{

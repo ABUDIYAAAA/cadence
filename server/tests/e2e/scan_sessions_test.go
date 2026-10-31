@@ -23,8 +23,8 @@ func TestStage7_ScanSessions(t *testing.T) {
 	}
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{
-			{"email": "ins@internal.example", "name": "Inside Ina", "role": "participant", "send_invite": false},
-			{"email": "ext@outside.example", "name": "Outside Otto", "role": "participant", "send_invite": false},
+			{"email": "ins@internal.example", "name": "Inside Ina", "role": "participant"},
+			{"email": "ext@outside.example", "name": "Outside Otto", "role": "participant"},
 		},
 	}, http.StatusCreated, &created)
 
@@ -179,7 +179,7 @@ func TestStage7_InternalDomainSettings(t *testing.T) {
 		} `json:"users"`
 	}
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
-		"users": []map[string]any{{"email": "was@internal.example", "name": "Was Internal", "role": "participant", "send_invite": false}},
+		"users": []map[string]any{{"email": "was@internal.example", "name": "Was Internal", "role": "participant"}},
 	}, http.StatusCreated, &created)
 	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/release", map[string]any{"role": "participant"}, http.StatusOK, nil)
 	var c string

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/ratelimit"
@@ -20,6 +21,7 @@ type Handler struct {
 	cookieManager *utils.CookieManager
 	cfg           *config.Config
 	loginGuard    *ratelimit.LoginGuard
+	limiter       *ratelimit.Limiter
 }
 
 func NewHandler(
@@ -27,16 +29,26 @@ func NewHandler(
 	cookieManager *utils.CookieManager,
 	cfg *config.Config,
 	loginGuard *ratelimit.LoginGuard,
+	limiter *ratelimit.Limiter,
 ) *Handler {
 	return &Handler{
 		service:       service,
 		cookieManager: cookieManager,
 		cfg:           cfg,
 		loginGuard:    loginGuard,
+		limiter:       limiter,
 	}
 }
 
 const maxAuthBodyBytes = 16 << 10 // 16 KiB cap on authentication request payloads
+
+// Forgot-password sends an email, so it is throttled per target address (so nobody can mail-bomb a
+// mailbox) and per device. A thousand people each requesting one link stays far below both.
+const (
+	forgotPasswordWindow       = 15 * time.Minute
+	forgotPasswordMaxPerEmail  = 5
+	forgotPasswordMaxPerDevice = 10
+)
 
 // HandleLogin authenticates the user and sets signed access & refresh cookies bound to this device.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +87,7 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			}
 			utils.ErrorJSON(w, http.StatusUnauthorized, "invalid email or password")
 		case errors.Is(err, ErrPasswordNotSet):
-			utils.ErrorJSON(w, http.StatusForbidden, "password not set; please use the setup link sent by admin")
+			utils.ErrorJSON(w, http.StatusForbidden, "password not set yet; use \"Forgot password\" to set one")
 		case errors.Is(err, ErrInactiveUser):
 			utils.ErrorJSON(w, http.StatusForbidden, "user account is deactivated")
 		default:
@@ -139,6 +151,38 @@ func (h *Handler) HandleSetupPassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// allowForgotPassword enforces the per-email and per-device throttles. It answers 429 itself when a
+// limit is hit; the response is the same whether or not the account exists, so it reveals nothing.
+// Redis trouble fails open, like the global limiter.
+func (h *Handler) allowForgotPassword(w http.ResponseWriter, r *http.Request, email, deviceID string) bool {
+	if h.limiter == nil {
+		return true
+	}
+	type check struct {
+		key   string
+		limit int64
+	}
+	checks := []check{
+		{"ratelimit:forgot:email:" + utils.HashToken(strings.ToLower(strings.TrimSpace(email))), forgotPasswordMaxPerEmail},
+	}
+	// A device without a verified cookie gets a fresh random id on every request, so only
+	// verified devices are throttled individually; the per-email limit covers the rest.
+	if ratelimit.IsDeviceIDVerified(r.Context()) {
+		checks = append(checks, check{"ratelimit:forgot:device:" + deviceID, forgotPasswordMaxPerDevice})
+	}
+	for _, c := range checks {
+		res, err := h.limiter.Allow(r.Context(), c.key, c.limit, forgotPasswordWindow)
+		if err != nil || res.Allowed {
+			continue
+		}
+		retry := int(res.ResetAfter.Seconds()) + 1
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		utils.ErrorJSON(w, http.StatusTooManyRequests, "too many reset requests; check your inbox (and spam), or try again in a few minutes")
+		return false
+	}
+	return true
+}
+
 // HandleForgotPassword initiates password reset.
 func (h *Handler) HandleForgotPassword(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
@@ -153,7 +197,12 @@ func (h *Handler) HandleForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = h.service.ForgotPassword(r.Context(), req.Email, ratelimit.GetDeviceID(r.Context()), r.UserAgent(), getClientIP(r))
+	deviceID := ratelimit.GetDeviceID(r.Context())
+	if !h.allowForgotPassword(w, r, req.Email, deviceID) {
+		return
+	}
+
+	_, _ = h.service.ForgotPassword(r.Context(), req.Email, deviceID, r.UserAgent(), getClientIP(r))
 
 	// Always return generic success to prevent email enumeration
 	utils.JSON(w, http.StatusOK, MessageResponse{

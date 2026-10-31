@@ -25,7 +25,6 @@ var (
 )
 
 type EmailSender interface {
-	SendSetupPasswordEmail(ctx context.Context, to, name, setupURL string, expiryHours int) error
 	SendResetPasswordEmail(ctx context.Context, to, name, resetURL string, expiryHours int) error
 }
 

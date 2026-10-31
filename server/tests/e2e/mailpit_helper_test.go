@@ -51,6 +51,35 @@ type MailpitMessageDetail struct {
 	Inline      []MailpitAttachment `json:"Inline"`
 }
 
+// ClearMailpitFor deletes every message already addressed to email, so a following WaitForEmail
+// can only match mail sent after this point (for example a second password-reset link).
+func ClearMailpitFor(t *testing.T, email string) {
+	t.Helper()
+	list, err := fetchMailpitMessages()
+	if err != nil {
+		t.Fatalf("fetch mailpit: %v", err)
+	}
+	var ids []string
+	for _, m := range list.Messages {
+		for _, to := range m.To {
+			if strings.EqualFold(to.Address, email) {
+				ids = append(ids, m.ID)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	body, _ := json.Marshal(map[string]any{"IDs": ids})
+	req, _ := http.NewRequest(http.MethodDelete, mailpitAPIURL+"/api/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("delete mailpit messages: %v", err)
+	}
+	resp.Body.Close()
+}
+
 // WaitForEmail polls Mailpit until an email matching recipientEmail and subjectSubstring arrives,
 // then fetches and returns the full MailpitMessageDetail.
 func WaitForEmail(t *testing.T, recipientEmail, subjectSubstring string) *MailpitMessageDetail {
@@ -98,7 +127,7 @@ func WaitForEmail(t *testing.T, recipientEmail, subjectSubstring string) *Mailpi
 }
 
 func fetchMailpitMessages() (*MailpitMessagesListResponse, error) {
-	resp, err := http.Get(mailpitAPIURL + "/api/v1/messages")
+	resp, err := http.Get(mailpitAPIURL + "/api/v1/messages?limit=1000")
 	if err != nil {
 		return nil, err
 	}

@@ -13,9 +13,6 @@ export interface UserDetailResponse {
   is_password_configured: boolean;
   is_active: boolean;
   created_at: string;
-  /** Setup invites issued to this user so far, and when the latest went out. */
-  invite_count: number;
-  last_invited_at?: string | null;
   /** Present on the list endpoint only. */
   checkin_status?: CheckinStatus;
   checked_in_at?: string | null;
@@ -28,7 +25,6 @@ export interface CreateUserRequest {
   name: string;
   role?: UserRole;
   phone_number?: string;
-  send_invite?: boolean;
 }
 
 export interface BulkCreateUsersRequest {
@@ -40,7 +36,6 @@ export interface BulkCreateResponse {
   total_created: number;
   skipped_count: number;
   skipped_errors?: string[];
-  invites_dispatched: number;
   users: UserDetailResponse[];
 }
 
@@ -61,14 +56,6 @@ export interface UserFilter {
   search?: string;
   is_active?: boolean;
   checkin_status?: CheckinStatus;
-}
-
-export interface BulkInviteRequest {
-  user_ids?: string[];
-  all_uninvited?: boolean;
-  /** With all_uninvited: leave out anyone who has already been sent an invite. */
-  skip_already_invited?: boolean;
-  exclude_domains?: string[];
 }
 
 export type PaginatedUsersResponse = PaginatedResponse<UserDetailResponse>;

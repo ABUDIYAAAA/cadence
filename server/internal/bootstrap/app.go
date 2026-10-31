@@ -67,7 +67,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 
 	// Initialize rate limiter and login brute-force guard
 	limiter := ratelimit.NewLimiter(redisClient)
-	loginGuard := ratelimit.NewLoginGuard(redisClient)
+	loginGuard := ratelimit.NewLoginGuard(redisClient).WithMaxIPAttempts(cfg.LoginIPFailureLimit)
 
 	// Initialize audit trail repository and RabbitMQ queue
 	auditRepo := audit.NewRepository(dbPool)
@@ -95,8 +95,8 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	if err != nil {
 		appLogger.Warn("RabbitMQ mail queue connection failed; mail queue disabled", slog.Any("error", err))
 	} else {
-		// Launch 3 background consumer goroutines in separate threads of execution
-		mailQueue.StartConsumers(ctx, 3)
+		// Launch the background email consumer pool (size via MAIL_WORKERS)
+		mailQueue.StartConsumers(ctx, cfg.MailWorkers)
 	}
 
 	cookieManager := utils.NewCookieManager(
@@ -151,7 +151,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Auth module initialization with instant Redis blocklist verification and audit recording
 	authRepo := auth.NewRepository(dbPool)
 	authService := auth.NewService(authRepo, cfg, mailQueue, auditQueue)
-	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard)
+	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard, limiter)
 	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
 
 	// Users module initialization

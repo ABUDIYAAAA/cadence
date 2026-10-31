@@ -26,8 +26,8 @@ func mailpitHasRecipient(t *testing.T, email string) bool {
 	return false
 }
 
-// TestExcludeDomain_InvitesAndTickets verifies server-side exclude_domains on bulk invites and bulk tickets.
-func TestExcludeDomain_InvitesAndTickets(t *testing.T) {
+// TestExcludeDomain_Tickets verifies server-side exclude_domains on bulk tickets.
+func TestExcludeDomain_Tickets(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
 
@@ -39,8 +39,8 @@ func TestExcludeDomain_InvitesAndTickets(t *testing.T) {
 	}
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{
-			{"email": "keep@real.example", "name": "Keep Me", "role": "participant", "send_invite": false},
-			{"email": "skip@excluded.test", "name": "Skip Me", "role": "participant", "send_invite": false},
+			{"email": "keep@real.example", "name": "Keep Me", "role": "participant"},
+			{"email": "skip@excluded.test", "name": "Skip Me", "role": "participant"},
 		},
 	}, http.StatusCreated, &created)
 	ids := map[string]string{}
@@ -50,13 +50,6 @@ func TestExcludeDomain_InvitesAndTickets(t *testing.T) {
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 created users, got %+v", created)
 	}
-
-	// --- Invites: excluded domain is never mailed ---
-	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk-send-invite", map[string]any{
-		"all_uninvited":   true,
-		"exclude_domains": []string{"@Excluded.test"},
-	}, http.StatusOK, nil)
-	WaitForEmail(t, "keep@real.example", "Set Up Your Password")
 
 	// --- Tickets: excluded domain is never mailed ---
 	var resp tickets.BulkSendTicketsResponse

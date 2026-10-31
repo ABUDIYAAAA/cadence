@@ -5,7 +5,7 @@ import { UserDetailResponse } from "@/types/users";
 import { Dialog } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mail, KeyRound, Edit2, Trash2 } from "lucide-react";
+import { KeyRound, Edit2, Trash2 } from "lucide-react";
 
 interface UserDetailDialogProps {
   user: UserDetailResponse | null;
@@ -13,9 +13,8 @@ interface UserDetailDialogProps {
   onClose: () => void;
   onEdit: (user: UserDetailResponse) => void;
   onDelete: (user: UserDetailResponse) => void;
-  onSendInvite: (user: UserDetailResponse) => void;
   onResetPassword: (user: UserDetailResponse) => void;
-  /** Volunteers can only view and invite participants. */
+  /** Volunteers can only view. */
   canManage?: boolean;
   actionInProgress?: boolean;
 }
@@ -26,7 +25,6 @@ export function UserDetailDialog({
   onClose,
   onEdit,
   onDelete,
-  onSendInvite,
   onResetPassword,
   canManage = true,
   actionInProgress,
@@ -42,18 +40,6 @@ export function UserDetailDialog({
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2 w-full">
           <div className="flex items-center gap-1.5">
-            {!user.is_password_configured && (canManage || user.role === "participant") && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={actionInProgress}
-                onClick={() => onSendInvite(user)}
-                className="text-xs gap-1.5"
-              >
-                <Mail className="h-3.5 w-3.5" />
-                Send Setup Invite
-              </Button>
-            )}
             {canManage && (
               <Button
                 variant="outline"

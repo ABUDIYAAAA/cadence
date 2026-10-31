@@ -104,20 +104,6 @@ func (q *Queue) Enqueue(ctx context.Context, job Job) error {
 	return nil
 }
 
-// SendSetupPasswordEmail enqueues a welcome/setup password email job.
-func (q *Queue) SendSetupPasswordEmail(ctx context.Context, to, name, setupURL string, expiryHours int) error {
-	return q.Enqueue(ctx, Job{
-		To:       to,
-		Subject:  "Welcome to Cadence - Set Up Your Password",
-		Template: "setup_password",
-		Data: map[string]any{
-			"Name":        name,
-			"SetupURL":    setupURL,
-			"ExpiryHours": expiryHours,
-		},
-	})
-}
-
 // SendResetPasswordEmail enqueues a password reset email job.
 func (q *Queue) SendResetPasswordEmail(ctx context.Context, to, name, resetURL string, expiryHours int) error {
 	return q.Enqueue(ctx, Job{
@@ -155,6 +141,9 @@ func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName string,
 
 // StartConsumers spins up a pool of background goroutines to consume and dispatch email jobs.
 func (q *Queue) StartConsumers(ctx context.Context, workers int) {
+	if workers < 1 {
+		workers = 1
+	}
 	var wg sync.WaitGroup
 
 	for i := 1; i <= workers; i++ {

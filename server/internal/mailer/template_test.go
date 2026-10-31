@@ -12,20 +12,6 @@ func TestTemplateEngineRenderAllTemplates(t *testing.T) {
 		t.Fatalf("failed to initialize template engine: %v", err)
 	}
 
-	t.Run("setup_password template renders URL and expiry", func(t *testing.T) {
-		html, err := engine.Render("setup_password", map[string]any{
-			"Name":        "Ada Lovelace",
-			"SetupURL":    "https://cadence.devclubxnst.com/auth/setup-password?token=abc123",
-			"ExpiryHours": 48,
-		})
-		if err != nil {
-			t.Fatalf("unexpected render error: %v", err)
-		}
-		if !strings.Contains(html, "Ada Lovelace") || !strings.Contains(html, "token=abc123") || !strings.Contains(html, "48 hours") {
-			t.Fatalf("rendered setup_password HTML missing expected fields:\n%s", html)
-		}
-	})
-
 	t.Run("reset_password template renders with .html extension", func(t *testing.T) {
 		html, err := engine.Render("reset_password.html", map[string]any{
 			"Name":        "Alan Turing",
@@ -58,9 +44,9 @@ func TestTemplateEngineRenderAllTemplates(t *testing.T) {
 	})
 
 	t.Run("contextual HTML auto-escaping blocks XSS payloads", func(t *testing.T) {
-		html, err := engine.Render("setup_password", map[string]any{
+		html, err := engine.Render("reset_password", map[string]any{
 			"Name":        `<script>alert("xss")</script>`,
-			"SetupURL":    "https://cadence.devclubxnst.com/auth/setup-password?token=123",
+			"ResetURL":    "https://cadence.devclubxnst.com/auth/reset-password?token=123",
 			"ExpiryHours": 24,
 		})
 		if err != nil {

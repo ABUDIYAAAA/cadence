@@ -85,6 +85,15 @@ export default function LoginPage() {
 						<CardDescription className='text-xs text-[var(--ink-secondary)] mt-1'>
 							Enter your credentials to access Cadence.
 						</CardDescription>
+						<p className='text-xs text-[var(--ink-secondary)] mt-3 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-2.5'>
+							First time here? Your account is already created. Use{' '}
+							<Link
+								href='/forgot-password'
+								className='font-semibold text-[var(--color-blue)] hover:underline'>
+								Forgot password
+							</Link>{' '}
+							with your registration email to choose a password.
+						</p>
 					</CardHeader>
 
 					<form onSubmit={handleSubmit}>

@@ -17,10 +17,10 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 	var bulkResp users.BulkCreateResponse
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{
-			{"email": "rbac.judge1@cadence.local", "name": "RBAC Judge 1", "role": "judge", "send_invite": true},
-			{"email": "rbac.judge2@cadence.local", "name": "RBAC Judge 2", "role": "judge", "send_invite": true},
-			{"email": "rbac.volunteer@cadence.local", "name": "RBAC Volunteer", "role": "volunteer", "send_invite": true},
-			{"email": "rbac.participant@cadence.local", "name": "RBAC Participant", "role": "participant", "send_invite": true},
+			{"email": "rbac.judge1@cadence.local", "name": "RBAC Judge 1", "role": "judge"},
+			{"email": "rbac.judge2@cadence.local", "name": "RBAC Judge 2", "role": "judge"},
+			{"email": "rbac.volunteer@cadence.local", "name": "RBAC Volunteer", "role": "volunteer"},
+			{"email": "rbac.participant@cadence.local", "name": "RBAC Participant", "role": "participant"},
 		},
 	}, http.StatusCreated, &bulkResp)
 
@@ -96,7 +96,7 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 		{"Participant cannot view audit logs", participant, http.MethodGet, "/api/v1/audit-logs", nil},
 
 		// Volunteer forbidden routes (can read users/teams/rounds & scan tickets, but cannot mutate admin resources or judge)
-		{"Volunteer cannot create user", volunteer, http.MethodPost, "/api/v1/users", map[string]any{"email": "v@x.com", "name": "V"}},
+		{"Volunteer cannot create a non-participant user", volunteer, http.MethodPost, "/api/v1/users", map[string]any{"email": "v@x.com", "name": "V", "role": "judge"}},
 		{"Volunteer cannot delete user", volunteer, http.MethodDelete, fmt.Sprintf("/api/v1/users/%s", participant.UserID), nil},
 		{"Volunteer cannot create team", volunteer, http.MethodPost, "/api/v2/teams", map[string]any{"name": "Vol Team"}},
 		{"Volunteer cannot bulk send tickets", volunteer, http.MethodPost, "/api/v1/tickets/bulk-send", map[string]any{}},
@@ -130,10 +130,9 @@ func TestStage4_TokenReplayAndDeviceHijackProtection(t *testing.T) {
 
 	// Create and onboard user
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email":       "sec.user@cadence.local",
-		"name":        "Security User",
-		"role":        "participant",
-		"send_invite": true,
+		"email": "sec.user@cadence.local",
+		"name":  "Security User",
+		"role":  "participant",
 	}, http.StatusCreated, nil)
 
 	user := OnboardUserViaMailpit(t, "SecUser", "sec.user@cadence.local", "SecPass123!")
@@ -187,10 +186,9 @@ func TestStage4_InstantRedisBlocklistOnDelete(t *testing.T) {
 	admin := LoginAsAdmin(t)
 
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email":       "to.delete@cadence.local",
-		"name":        "Delete Target",
-		"role":        "participant",
-		"send_invite": true,
+		"email": "to.delete@cadence.local",
+		"name":  "Delete Target",
+		"role":  "participant",
 	}, http.StatusCreated, nil)
 
 	target := OnboardUserViaMailpit(t, "DeleteTarget", "to.delete@cadence.local", "TargetPass123!")

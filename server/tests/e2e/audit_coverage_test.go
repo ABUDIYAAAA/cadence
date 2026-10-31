@@ -32,7 +32,7 @@ func TestStage7_AuditTrailForTicketingAndAuth(t *testing.T) {
 		} `json:"users"`
 	}
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
-		"users": []map[string]any{{"email": "aud@internal.example", "name": "Audit Ann", "role": "participant", "send_invite": false}},
+		"users": []map[string]any{{"email": "aud@internal.example", "name": "Audit Ann", "role": "participant"}},
 	}, http.StatusCreated, &created)
 	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/release", map[string]any{"role": "participant"}, http.StatusOK, nil)
 	var code string

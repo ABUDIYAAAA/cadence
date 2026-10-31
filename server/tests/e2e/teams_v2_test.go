@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"devclubxnst.com/cadence/internal/modules/teams"
 	"devclubxnst.com/cadence/internal/modules/users"
@@ -121,7 +122,7 @@ func TestTeamsV2_FreezeAndStaffOverrides(t *testing.T) {
 	admin := LoginAsAdmin(t)
 
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email": "tv2.vol@cadence.local", "name": "TV2 Volunteer", "role": "volunteer", "send_invite": true,
+		"email": "tv2.vol@cadence.local", "name": "TV2 Volunteer", "role": "volunteer",
 	}, http.StatusCreated, nil)
 	volunteer := OnboardUserViaMailpit(t, "TV2Vol", "tv2.vol@cadence.local", "VolPass123!")
 
@@ -239,63 +240,77 @@ func TestTeamsV2_BulkImportIgnoresTeamFields(t *testing.T) {
 	}
 }
 
-func TestVolunteerCanInviteOnlyParticipants(t *testing.T) {
+// A participant who registered with a wrong email contacts a volunteer, who adds them with the right one.
+// The new participant then sets their own password via "forgot password"; no invite email is ever sent.
+func TestVolunteerAddsParticipantsOnly(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
 
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email": "inv.vol@cadence.local", "name": "Inv Volunteer", "role": "volunteer", "send_invite": true,
+		"email": "add.vol@cadence.local", "name": "Add Volunteer", "role": "volunteer",
 	}, http.StatusCreated, nil)
-	volunteer := OnboardUserViaMailpit(t, "InvVol", "inv.vol@cadence.local", "VolPass123!")
+	volunteer := OnboardUserViaMailpit(t, "AddVol", "add.vol@cadence.local", "VolPass123!")
 
-	var participant, judge, other users.UserDetailResponse
+	// Role is forced to participant when omitted; anything else is refused.
+	var created users.UserDetailResponse
+	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
+		"email": "add.fixed@cadence.local", "name": "Fixed Email",
+	}, http.StatusCreated, &created)
+	if created.Role != "participant" || created.IsPasswordConfigured {
+		t.Fatalf("expected a password-less participant, got %+v", created)
+	}
+	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
+		"email": "add.judge@cadence.local", "name": "Sneaky", "role": "judge",
+	}, http.StatusForbidden, nil)
+	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
+		"email": "add.admin@cadence.local", "name": "Sneakier", "role": "admin",
+	}, http.StatusForbidden, nil)
+
+	// Everything else about user management stays admin-only.
+	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
+		"users": []map[string]any{{"email": "add.bulk@cadence.local", "name": "Bulk"}},
+	}, http.StatusForbidden, nil)
+	volunteer.DoJSON(t, http.MethodPatch, "/api/v1/users/"+created.ID, map[string]any{"role": "admin"}, http.StatusForbidden, nil)
+	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+created.ID+"/trigger-reset-password", nil, http.StatusForbidden, nil)
+
+	// The invite endpoints are gone.
+	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+created.ID+"/send-invite", nil, http.StatusNotFound, nil)
+	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk-send-invite", map[string]any{"all_uninvited": true}, http.StatusMethodNotAllowed, nil)
+
+	// No email until the participant asks for one, then they can sign in.
+	time.Sleep(300 * time.Millisecond)
+	if mailpitHasRecipient(t, "add.fixed@cadence.local") {
+		t.Fatal("adding a participant must not send an email")
+	}
+	p := OnboardUserViaMailpit(t, "FixedEmail", "add.fixed@cadence.local", "PartPass123!")
+	if p.UserID != created.ID {
+		t.Fatalf("signed in as %s, expected %s", p.UserID, created.ID)
+	}
+}
+
+// Forgot-password sends email, so a mailbox can only be asked about a handful of times per window,
+// and the answer does not depend on whether the account exists.
+func TestForgotPasswordIsThrottledPerEmail(t *testing.T) {
+	ResetState(t)
+	admin := LoginAsAdmin(t)
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email": "inv.part@cadence.local", "name": "Inv Participant", "role": "participant",
-	}, http.StatusCreated, &participant)
-	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email": "inv.judge@cadence.local", "name": "Inv Judge", "role": "judge",
-	}, http.StatusCreated, &judge)
-	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email": "inv.part2@cadence.local", "name": "Inv Participant 2", "role": "participant",
-	}, http.StatusCreated, &other)
+		"email": "throttle.me@cadence.local", "name": "Throttle Me", "role": "participant",
+	}, http.StatusCreated, nil)
 
-	// A volunteer can invite a participant but not a judge, and still cannot create users or reset passwords.
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+participant.ID+"/send-invite", nil, http.StatusOK, nil)
-	WaitForEmail(t, "inv.part@cadence.local", "Welcome to Cadence - Set Up Your Password")
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+judge.ID+"/send-invite", nil, http.StatusForbidden, nil)
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{"email": "v@x.com", "name": "V"}, http.StatusForbidden, nil)
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+participant.ID+"/trigger-reset-password", nil, http.StatusForbidden, nil)
-
-	// Invites are recorded per user: a count and the latest time.
-	var got users.UserDetailResponse
-	admin.DoJSON(t, http.MethodGet, "/api/v1/users/"+participant.ID, nil, http.StatusOK, &got)
-	if got.InviteCount != 1 || got.LastInvitedAt == nil {
-		t.Fatalf("expected 1 recorded invite, got count=%d last=%v", got.InviteCount, got.LastInvitedAt)
-	}
-	var never users.UserDetailResponse
-	admin.DoJSON(t, http.MethodGet, "/api/v1/users/"+other.ID, nil, http.StatusOK, &never)
-	if never.InviteCount != 0 || never.LastInvitedAt != nil {
-		t.Fatalf("expected never-invited user, got count=%d last=%v", never.InviteCount, never.LastInvitedAt)
+	for _, email := range []string{"throttle.me@cadence.local", "nobody.here@cadence.local"} {
+		// Fresh devices each time, so only the per-email limit can trigger.
+		for i := 1; i <= 5; i++ {
+			NewActor(t, "T", email).DoJSON(t, http.MethodPost, "/api/v1/auth/forgot-password",
+				map[string]string{"email": email}, http.StatusOK, nil)
+		}
+		resp, _ := NewActor(t, "T", email).DoRaw(t, http.MethodPost, "/api/v1/auth/forgot-password",
+			map[string]string{"email": email}, nil)
+		if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {
+			t.Fatalf("%s: expected 429 with Retry-After on the 6th request, got %d", email, resp.StatusCode)
+		}
 	}
 
-	// Bulk invite skips non-participants silently.
-	var resp struct {
-		Dispatched int `json:"invites_dispatched"`
-	}
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/bulk-send-invite",
-		map[string]any{"user_ids": []string{judge.ID, other.ID}}, http.StatusOK, &resp)
-	if resp.Dispatched != 1 {
-		t.Fatalf("expected only the participant to be invited, dispatched=%d", resp.Dispatched)
-	}
-
-	// "Skip already invited" leaves out people who got an invite before: only `other` is still uninvited.
-	var skip struct {
-		Dispatched int `json:"invites_dispatched"`
-	}
-	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk-send-invite",
-		map[string]any{"all_uninvited": true, "skip_already_invited": true}, http.StatusOK, &skip)
-	// `other` was already invited by the bulk call above, so nobody is left.
-	if skip.Dispatched != 1 {
-		t.Fatalf("expected 1 uninvited user (the judge), dispatched=%d", skip.Dispatched)
-	}
+	// Another mailbox is unaffected.
+	NewActor(t, "T", "other@cadence.local").DoJSON(t, http.MethodPost, "/api/v1/auth/forgot-password",
+		map[string]string{"email": "other@cadence.local"}, http.StatusOK, nil)
 }

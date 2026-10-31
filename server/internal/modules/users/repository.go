@@ -53,15 +53,9 @@ func (r *Repository) CreateUserTx(
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailResponse, error) {
 	query := `
 		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at,
-		       inv.cnt, inv.last_at
+		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
 		FROM users u
 		LEFT JOIN teams t ON u.team_id = t.id
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*)::int AS cnt, MAX(created_at) AS last_at
-			FROM password_reset_tokens
-			WHERE user_id = u.id AND purpose = 'initial_setup'
-		) inv ON TRUE
 		WHERE u.id = $1 AND u.deleted_at IS NULL
 	`
 	var u UserDetailResponse
@@ -70,7 +64,6 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
 		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
-		&u.InviteCount, &u.LastInvitedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -88,15 +81,9 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDetailResponse, error) {
 	query := `
 		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at,
-		       inv.cnt, inv.last_at
+		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
 		FROM users u
 		LEFT JOIN teams t ON u.team_id = t.id
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*)::int AS cnt, MAX(created_at) AS last_at
-			FROM password_reset_tokens
-			WHERE user_id = u.id AND purpose = 'initial_setup'
-		) inv ON TRUE
 		WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL
 	`
 	var u UserDetailResponse
@@ -105,7 +92,6 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDet
 	err := r.db.QueryRow(ctx, query, email).Scan(
 		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
 		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
-		&u.InviteCount, &u.LastInvitedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -195,17 +181,11 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	query := fmt.Sprintf(`
 		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
 		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at,
-		       inv.cnt, inv.last_at,
 		       CASE WHEN tk.id IS NULL THEN 'no_pass' WHEN tk.is_checked_in THEN 'checked_in' ELSE 'not_checked_in' END,
 		       tk.checked_in_at
 		FROM users u
 		LEFT JOIN teams t ON u.team_id = t.id
 		LEFT JOIN tickets tk ON tk.user_id = u.id
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*)::int AS cnt, MAX(created_at) AS last_at
-			FROM password_reset_tokens
-			WHERE user_id = u.id AND purpose = 'initial_setup'
-		) inv ON TRUE
 		WHERE %s
 		ORDER BY %s
 		LIMIT $%d OFFSET $%d
@@ -227,7 +207,6 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
 			&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.CreatedAt,
-			&u.InviteCount, &u.LastInvitedAt,
 			&u.CheckinStatus, &u.CheckedInAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan user row: %w", err)
@@ -371,31 +350,4 @@ func (r *Repository) CreateResetOrSetupToken(ctx context.Context, userID, tokenH
 		return fmt.Errorf("insert reset/setup token: %w", err)
 	}
 	return nil
-}
-
-// GetUninvitedUserIDs returns active accounts that have not set a password yet.
-// With skipInvited, anyone who has already been sent a setup invite is left out.
-func (r *Repository) GetUninvitedUserIDs(ctx context.Context, skipInvited bool) ([]string, error) {
-	query := `
-		SELECT u.id
-		FROM users u
-		WHERE u.is_password_configured = FALSE AND u.is_active = TRUE AND u.deleted_at IS NULL
-		  AND (NOT $1 OR NOT EXISTS (
-		      SELECT 1 FROM password_reset_tokens p WHERE p.user_id = u.id AND p.purpose = 'initial_setup'))
-	`
-	rows, err := r.db.Query(ctx, query, skipInvited)
-	if err != nil {
-		return nil, fmt.Errorf("query uninvited user ids: %w", err)
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
 }

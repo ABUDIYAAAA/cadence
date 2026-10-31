@@ -16,7 +16,7 @@ import (
 
 var (
 	ErrPasswordAlreadyConfigured = errors.New("user has already configured their password")
-	ErrInviteNotPermitted        = errors.New("volunteers can only invite participants")
+	ErrRoleNotPermitted          = errors.New("volunteers can only add participants")
 )
 
 type Service struct {
@@ -55,13 +55,6 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 	}
 	defer tx.Rollback(ctx)
 
-	type pendingInvite struct {
-		userID string
-		email  string
-		name   string
-	}
-	var invites []pendingInvite
-
 	for i, u := range req.Users {
 		role := u.Role
 		if role == "" {
@@ -86,25 +79,10 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 			IsActive:             true,
 			CreatedAt:            time.Now(),
 		})
-
-		if u.SendInvite {
-			invites = append(invites, pendingInvite{
-				userID: userID,
-				email:  u.Email,
-				name:   u.Name,
-			})
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit bulk import transaction: %w", err)
-	}
-
-	// Dispatch onboarding setup emails for users marked with SendInvite
-	for _, inv := range invites {
-		if err := s.dispatchSetupInvite(ctx, inv.userID, inv.email, inv.name); err == nil {
-			resp.InvitesDispatched++
-		}
 	}
 
 	if s.auditor != nil {
@@ -122,12 +100,11 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 			ActorRole:   actorRole,
 			Action:      audit.ActionUserBulkImport,
 			TargetType:  audit.TargetUser,
-			Description: fmt.Sprintf("Bulk import completed: %d created, %d skipped, %d invites sent", resp.TotalCreated, resp.SkippedCount, resp.InvitesDispatched),
+			Description: fmt.Sprintf("Bulk import completed: %d created, %d skipped", resp.TotalCreated, resp.SkippedCount),
 			Metadata: map[string]any{
-				"total_processed":    resp.TotalProcessed,
-				"total_created":      resp.TotalCreated,
-				"skipped_count":      resp.SkippedCount,
-				"invites_dispatched": resp.InvitesDispatched,
+				"total_processed": resp.TotalProcessed,
+				"total_created":   resp.TotalCreated,
+				"skipped_count":   resp.SkippedCount,
 			},
 		})
 	}
@@ -136,6 +113,13 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 }
 
 func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserDetailResponse, error) {
+	// Volunteers add participants (for example, someone who registered with a wrong email); nothing else.
+	if volunteerCaller(ctx) {
+		if req.Role != "" && req.Role != "participant" {
+			return nil, ErrRoleNotPermitted
+		}
+		req.Role = "participant"
+	}
 	bulkResp, err := s.BulkCreateUsers(ctx, BulkCreateUsersRequest{
 		Users: []CreateUserRequest{req},
 	})
@@ -327,99 +311,10 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	return nil
 }
 
-// volunteerCaller reports whether the caller in ctx is a volunteer, who may only invite participants.
+// volunteerCaller reports whether the caller in ctx is a volunteer, who may only add participants.
 func volunteerCaller(ctx context.Context) bool {
 	claims, ok := auth.GetUserClaims(ctx)
 	return ok && claims.Role == "volunteer"
-}
-
-func (s *Service) SendInvite(ctx context.Context, userID string) error {
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if volunteerCaller(ctx) && user.Role != "participant" {
-		return ErrInviteNotPermitted
-	}
-	if user.IsPasswordConfigured {
-		return ErrPasswordAlreadyConfigured
-	}
-
-	if err := s.dispatchSetupInvite(ctx, user.ID, user.Email, user.Name); err != nil {
-		return err
-	}
-
-	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserSendInvite,
-			TargetType:  audit.TargetUser,
-			TargetID:    &user.ID,
-			Description: fmt.Sprintf("Dispatched setup invite email to %s", user.Email),
-		})
-	}
-
-	return nil
-}
-
-func (s *Service) BulkSendInvites(ctx context.Context, req BulkInviteRequest) (int, error) {
-	var targetIDs []string
-	if req.AllUninvited {
-		uninvited, err := s.repo.GetUninvitedUserIDs(ctx, req.SkipAlreadyInvited)
-		if err != nil {
-			return 0, err
-		}
-		targetIDs = uninvited
-	} else {
-		targetIDs = req.UserIDs
-	}
-
-	volunteerOnly := volunteerCaller(ctx)
-	dispatched := 0
-	for _, id := range targetIDs {
-		user, err := s.repo.GetUserByID(ctx, id)
-		if err != nil || user.IsPasswordConfigured || !user.IsActive {
-			continue
-		}
-		if volunteerOnly && user.Role != "participant" {
-			continue
-		}
-		if utils.IsEmailExcluded(user.Email, req.ExcludeDomains) {
-			continue
-		}
-		if err := s.dispatchSetupInvite(ctx, user.ID, user.Email, user.Name); err == nil {
-			dispatched++
-		}
-	}
-
-	if s.auditor != nil && dispatched > 0 {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserSendInvite,
-			TargetType:  audit.TargetUser,
-			Description: fmt.Sprintf("Dispatched %d setup invite emails in bulk", dispatched),
-		})
-	}
-
-	return dispatched, nil
 }
 
 func (s *Service) TriggerResetPassword(ctx context.Context, userID string) error {
@@ -462,27 +357,6 @@ func (s *Service) TriggerResetPassword(ctx context.Context, userID string) error
 			TargetID:    &user.ID,
 			Description: fmt.Sprintf("Administrator triggered password recovery email for %s", user.Email),
 		})
-	}
-
-	return nil
-}
-
-func (s *Service) dispatchSetupInvite(ctx context.Context, userID, email, name string) error {
-	rawToken, err := utils.GenerateRandomToken(32)
-	if err != nil {
-		return fmt.Errorf("generate setup token: %w", err)
-	}
-
-	tokenHash := utils.HashToken(rawToken)
-	expiresAt := time.Now().Add(48 * time.Hour) // 48 hour setup link validity
-
-	if err := s.repo.CreateResetOrSetupToken(ctx, userID, tokenHash, "initial_setup", expiresAt); err != nil {
-		return err
-	}
-
-	if s.emailSender != nil {
-		setupURL := fmt.Sprintf("%s/auth/setup-password?token=%s", s.cfg.FrontendURL, rawToken)
-		_ = s.emailSender.SendSetupPasswordEmail(ctx, email, name, setupURL, 48)
 	}
 
 	return nil

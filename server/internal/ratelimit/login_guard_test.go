@@ -83,8 +83,10 @@ func TestLoginGuard_MultiDimensionalBruteForceProtection(t *testing.T) {
 
 	t.Run("password spraying across many accounts from one IP is locked out at DefaultMaxIPFailedLogins and cannot be reset by logging into attacker account", func(t *testing.T) {
 		sprayIP := "198.51.100.99"
+		const sprayLimit = 150
+		guard := NewLoginGuard(rdb).WithMaxIPAttempts(sprayLimit)
 
-		for i := 1; i <= DefaultMaxIPFailedLogins; i++ {
+		for i := 1; i <= sprayLimit; i++ {
 			deviceID := fmt.Sprintf("spray-dev-%d", i)
 			email := fmt.Sprintf("target-%d@cadence.local", i)
 			if err := guard.RecordFailure(ctx, deviceID, email, sprayIP); err != nil {

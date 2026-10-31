@@ -98,6 +98,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 		FrontendURL:        "http://localhost:3000",
 		JWTAccessSecret:    "test-jwt-access-secret-32-bytes-minimum",
 		MetricsScrapeToken: "test-metrics-scrape-token",
+		CampusIPRateLimit:  600,
 	}
 	cookieManager := utils.NewCookieManager("test-cookie-secret-32-bytes-minimum", "", false, "lax")
 
@@ -137,7 +138,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 	ipKey := "ratelimit:ip:203.0.113.10"
 	nowMicro := time.Now().UnixMicro()
 	pipe := rdb.Pipeline()
-	for i := int64(0); i < DefaultCampusIPLimit; i++ {
+	for i := int64(0); i < cfg.CampusIPRateLimit; i++ {
 		pipe.ZAdd(ctx, ipKey, redis.Z{
 			Score:  float64(nowMicro),
 			Member: fmt.Sprintf("flood-%d", i),
@@ -304,9 +305,9 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 		}
 	})
 
-	t.Run("cookieless unauthenticated requests (dropping _did cookie) are throttled at DefaultUnauthLimit via IP bucket", func(t *testing.T) {
+	t.Run("cookieless unauthenticated requests (dropping _did cookie) are throttled at the campus ceiling via the IP bucket", func(t *testing.T) {
 		const cookielessPeer = "198.51.100.88:44321"
-		for i := int64(1); i <= DefaultUnauthLimit; i++ {
+		for i := int64(1); i <= cfg.CampusIPRateLimit; i++ {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
 			req.RemoteAddr = cookielessPeer
 			rec := httptest.NewRecorder()
@@ -322,7 +323,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 		overRec := httptest.NewRecorder()
 		r.ServeHTTP(overRec, overReq)
 		if overRec.Code != http.StatusTooManyRequests {
-			t.Fatalf("expected 429 on cookieless request #%d, got %d", DefaultUnauthLimit+1, overRec.Code)
+			t.Fatalf("expected 429 on cookieless request #%d, got %d", cfg.CampusIPRateLimit+1, overRec.Code)
 		}
 	})
 
@@ -359,9 +360,10 @@ func TestGlobalRateLimitHeaderAndConfig(t *testing.T) {
 	limiter := NewLimiter(rdb)
 
 	cfg := &config.Config{
-		JWTAccessSecret: "test-access-secret-32-bytes-long!",
-		GlobalRateLimit: 500,
-		UnauthRateLimit: 1000,
+		JWTAccessSecret:   "test-access-secret-32-bytes-long!",
+		GlobalRateLimit:   500,
+		UnauthRateLimit:   1000,
+		CampusIPRateLimit: 2500,
 	}
 	cookieManager := utils.NewCookieManager("test-cookie-secret-32-bytes-long", "", false, "lax")
 
@@ -379,10 +381,67 @@ func TestGlobalRateLimitHeaderAndConfig(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK, got %d", rec.Code)
 	}
-	if limitHeader := rec.Header().Get("X-RateLimit-Limit"); limitHeader != "1000" {
-		t.Fatalf("expected X-RateLimit-Limit 1000, got %s", limitHeader)
+	// A first visit has no verified _did cookie yet, so it is counted against the campus ceiling.
+	if limitHeader := rec.Header().Get("X-RateLimit-Limit"); limitHeader != "2500" {
+		t.Fatalf("expected first visit to use the campus ceiling 2500, got %s", limitHeader)
 	}
-	if remainingHeader := rec.Header().Get("X-RateLimit-Remaining"); remainingHeader != "999" {
+
+	// Once the device cookie is set, requests use the per-device unauthenticated quota.
+	req2 := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	for _, c := range rec.Result().Cookies() {
+		req2.AddCookie(c)
+	}
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, req2)
+	if limitHeader := rec2.Header().Get("X-RateLimit-Limit"); limitHeader != "1000" {
+		t.Fatalf("expected X-RateLimit-Limit 1000 for a known device, got %s", limitHeader)
+	}
+	if remainingHeader := rec2.Header().Get("X-RateLimit-Remaining"); remainingHeader != "999" {
 		t.Fatalf("expected X-RateLimit-Remaining 999, got %s", remainingHeader)
+	}
+}
+
+// Everyone's first request arrives before their _did cookie exists, and a whole campus shares one IP.
+// Those first visits must be limited by the (high) campus ceiling, not the per-device unauthenticated cap.
+func TestRateLimitMiddleware_FirstVisitsShareCampusBucket(t *testing.T) {
+	rdb := newTestRedis(t)
+	limiter := NewLimiter(rdb)
+
+	cfg := &config.Config{
+		JWTAccessSecret:   "test-jwt-access-secret-32-bytes-minimum",
+		UnauthRateLimit:   5,
+		CampusIPRateLimit: 40,
+	}
+	cookieManager := utils.NewCookieManager("test-cookie-secret-32-bytes-minimum", "", false, "lax")
+
+	r := chi.NewRouter()
+	r.Use(DeviceIDMiddleware(cookieManager))
+	r.Use(RateLimitMiddleware(limiter, cfg, cookieManager))
+	r.Get("/api/v1/auth/me", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	const peer = "203.0.113.50:40000"
+	// 30 distinct first-time visitors behind one IP: far above the per-device cap of 5, below the campus ceiling.
+	for i := 1; i <= 30; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+		req.RemoteAddr = peer
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("first-time visitor #%d should pass under the campus ceiling, got %d", i, rec.Code)
+		}
+	}
+	// The ceiling still protects against a flood.
+	over := 0
+	for i := 0; i < 20; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+		req.RemoteAddr = peer
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code == http.StatusTooManyRequests {
+			over++
+		}
+	}
+	if over == 0 {
+		t.Fatal("expected the campus ceiling to start rejecting once exceeded")
 	}
 }

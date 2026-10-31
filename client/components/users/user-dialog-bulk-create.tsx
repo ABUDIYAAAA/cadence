@@ -19,10 +19,10 @@ interface UserBulkCreateDialogProps {
   isLoading: boolean;
 }
 
-const SAMPLE_CSV = `email,name,role,phone_number,send_invite
-alice@example.com,Alice Smith,participant,+15550101,true
-bob@example.com,Bob Jones,participant,+15550102,true
-charlie@example.com,Charlie Brown,judge,,false`;
+const SAMPLE_CSV = `email,name,role,phone_number
+alice@example.com,Alice Smith,participant,+15550101
+bob@example.com,Bob Jones,participant,+15550102
+charlie@example.com,Charlie Brown,judge,`;
 
 export function UserBulkCreateDialog({
   open,
@@ -69,7 +69,6 @@ export function UserBulkCreateDialog({
 
       const roleIdx = header.indexOf("role");
       const phoneIdx = header.indexOf("phone_number");
-      const inviteIdx = header.indexOf("send_invite");
 
       const users: CreateUserRequest[] = [];
 
@@ -84,17 +83,12 @@ export function UserBulkCreateDialog({
 
         const role = (roleIdx !== -1 && row[roleIdx] ? row[roleIdx] : "participant") as UserRole;
         const phone = phoneIdx !== -1 && row[phoneIdx] ? row[phoneIdx] : undefined;
-        const sendInvite =
-          inviteIdx !== -1
-            ? row[inviteIdx] === "true" || row[inviteIdx] === "1"
-            : true;
 
         users.push({
           email,
           name,
           role,
           phone_number: phone,
-          send_invite: sendInvite,
         });
       }
 
@@ -134,7 +128,7 @@ export function UserBulkCreateDialog({
       open={open}
       onClose={handleClose}
       title="Bulk Import Users (CSV)"
-      description="Batch provision accounts with invitations."
+      description="Seed accounts from a CSV. No emails are sent; people set their own password with Forgot password."
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -171,10 +165,6 @@ export function UserBulkCreateDialog({
               <div className="flex justify-between p-3">
                 <span className="text-[var(--ink-secondary)]">Total Created</span>
                 <strong className="text-[var(--ink-primary)] font-mono">{result.total_created}</strong>
-              </div>
-              <div className="flex justify-between p-3">
-                <span className="text-[var(--ink-secondary)]">Invites Dispatched</span>
-                <strong className="text-[var(--ink-primary)] font-mono">{result.invites_dispatched}</strong>
               </div>
               <div className="flex justify-between p-3">
                 <span className="text-[var(--ink-secondary)]">Skipped Records</span>

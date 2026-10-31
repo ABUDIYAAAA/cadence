@@ -70,7 +70,7 @@ export default function ForgotPasswordPage() {
               Reset password
             </CardTitle>
             <CardDescription className="text-xs text-[var(--ink-secondary)] mt-1">
-              Enter your registered email address to receive recovery instructions.
+              Enter the email you registered with. New here? This is also how you set your first password.
             </CardDescription>
           </CardHeader>
 
@@ -79,7 +79,8 @@ export default function ForgotPasswordPage() {
               <CardContent className="space-y-4">
                 <Alert variant="success" title="Recovery email sent">
                   If an account exists for <strong>{email}</strong>, a password
-                  reset link has been sent. Please check your inbox and follow the instructions.
+                  reset link has been sent. Check your inbox and spam folder; it can take a minute or two when many
+                  people sign in at once. If nothing arrives, ask a volunteer to check that your email is registered correctly.
                 </Alert>
               </CardContent>
 

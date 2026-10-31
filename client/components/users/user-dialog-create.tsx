@@ -13,6 +13,8 @@ interface UserCreateDialogProps {
   onClose: () => void;
   onSubmit: (data: CreateUserRequest) => Promise<void>;
   isLoading: boolean;
+  /** Volunteers can only add participants, so the role picker is hidden for them. */
+  participantOnly?: boolean;
 }
 
 export function UserCreateDialog({
@@ -20,12 +22,12 @@ export function UserCreateDialog({
   onClose,
   onSubmit,
   isLoading,
+  participantOnly = false,
 }: UserCreateDialogProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("participant");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [sendInvite, setSendInvite] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const resetForm = () => {
@@ -33,7 +35,6 @@ export function UserCreateDialog({
     setEmail("");
     setRole("participant");
     setPhoneNumber("");
-    setSendInvite(true);
     setErrors({});
   };
 
@@ -64,9 +65,8 @@ export function UserCreateDialog({
       await onSubmit({
         name: name.trim(),
         email: email.trim(),
-        role,
+        role: participantOnly ? "participant" : role,
         phone_number: phoneNumber.trim() || undefined,
-        send_invite: sendInvite,
       });
       handleClose();
     } catch (err: unknown) {
@@ -81,7 +81,11 @@ export function UserCreateDialog({
       open={open}
       onClose={handleClose}
       title="Create User Account"
-      description="Add a single user record to Cadence."
+      description={
+        participantOnly
+          ? "Add a participant, for example someone who registered with a wrong email."
+          : "Add a single user record to Cadence."
+      }
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -134,17 +138,19 @@ export function UserCreateDialog({
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Select
-            label="System Role"
-            value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
-            disabled={isLoading}
-          >
-            <option value="participant">Participant</option>
-            <option value="judge">Judge</option>
-            <option value="volunteer">Volunteer</option>
-            <option value="admin">Admin</option>
-          </Select>
+          {!participantOnly && (
+            <Select
+              label="System Role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as UserRole)}
+              disabled={isLoading}
+            >
+              <option value="participant">Participant</option>
+              <option value="judge">Judge</option>
+              <option value="volunteer">Volunteer</option>
+              <option value="admin">Admin</option>
+            </Select>
+          )}
 
           <Input
             label="Phone Number"
@@ -156,20 +162,9 @@ export function UserCreateDialog({
           />
         </div>
 
-        <div className="pt-2 border-t border-[var(--card-line)] space-y-2 text-xs">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={sendInvite}
-              onChange={(e) => setSendInvite(e.target.checked)}
-              disabled={isLoading}
-              className="accent-[#83A2DB] h-4 w-4 rounded"
-            />
-            <span className="text-[var(--ink-secondary)]">
-              Immediately dispatch password setup onboarding email
-            </span>
-          </label>
-        </div>
+        <p className="text-xs text-[var(--ink-secondary)]">
+          No email is sent. They set their own password from the sign-in page using &quot;Forgot password&quot;.
+        </p>
       </form>
     </Dialog>
   );

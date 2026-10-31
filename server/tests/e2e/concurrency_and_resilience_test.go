@@ -19,18 +19,16 @@ func TestStage5_ConcurrentTicketScanRaceCondition(t *testing.T) {
 	const numScanners = 10
 	bulkUsers := []map[string]any{
 		{
-			"email":       "race.attendee@cadence.local",
-			"name":        "Race Attendee",
-			"role":        "participant",
-			"send_invite": true,
+			"email": "race.attendee@cadence.local",
+			"name":  "Race Attendee",
+			"role":  "participant",
 		},
 	}
 	for i := 1; i <= numScanners; i++ {
 		bulkUsers = append(bulkUsers, map[string]any{
-			"email":       fmt.Sprintf("scanner.%d@cadence.local", i),
-			"name":        fmt.Sprintf("Scanner Volunteer %d", i),
-			"role":        "volunteer",
-			"send_invite": true,
+			"email": fmt.Sprintf("scanner.%d@cadence.local", i),
+			"name":  fmt.Sprintf("Scanner Volunteer %d", i),
+			"role":  "volunteer",
 		})
 	}
 
@@ -102,10 +100,9 @@ func TestStage5_BruteForceLoginGuardAndDeviceIsolation(t *testing.T) {
 	admin := LoginAsAdmin(t)
 
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email":       "bruteforce.target@cadence.local",
-		"name":        "BruteForce Target",
-		"role":        "participant",
-		"send_invite": true,
+		"email": "bruteforce.target@cadence.local",
+		"name":  "BruteForce Target",
+		"role":  "participant",
 	}, http.StatusCreated, nil)
 
 	_ = OnboardUserViaMailpit(t, "BFTarget", "bruteforce.target@cadence.local", "CorrectPassword123!")

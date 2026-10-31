@@ -59,6 +59,14 @@ type Config struct {
 	GlobalRateLimit int64 `env:"GLOBAL_RATE_LIMIT" envDefault:"500"`
 	UnauthRateLimit int64 `env:"UNAUTH_RATE_LIMIT" envDefault:"1000"`
 
+	// Event-day sign-in traffic: roughly a thousand people on one campus network hit /login, /auth/me,
+	// forgot/reset-password together. These raise the shared per-IP ceilings accordingly.
+	CampusIPRateLimit   int64 `env:"CAMPUS_IP_RATE_LIMIT" envDefault:"30000"`  // unauthenticated requests per minute, per IP
+	LoginIPFailureLimit int64 `env:"LOGIN_IP_FAILURE_LIMIT" envDefault:"3000"` // failed logins per 5 minutes, per IP
+
+	// Background workers that send queued emails (password resets, passes). Raise if SMTP allows.
+	MailWorkers int `env:"MAIL_WORKERS" envDefault:"8"`
+
 	// Default maximum members per team; admins can override it in the UI or per team.
 	DefaultMaxTeamSize int `env:"DEFAULT_MAX_TEAM_SIZE" envDefault:"4"`
 

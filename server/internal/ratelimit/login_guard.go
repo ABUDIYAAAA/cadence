@@ -28,9 +28,9 @@ const (
 	DefaultMaxAccountAttempts  = 20
 
 	// Campus NAT spray protection:
-	// Instead of a tight 25/5m cutoff that could impact an entire campus NAT during morning sign-ins,
-	// default threshold is 150 failed attempts per 5 minutes per IP before IP-wide spray throttle engages.
-	DefaultMaxIPFailedLogins = 150
+	// A thousand people can sign in at once from one campus IP, and some will mistype, so the per-IP
+	// cutoff is high (3000 failures per 5 minutes). Per-account and per-device limits still apply.
+	DefaultMaxIPFailedLogins = 3000
 
 	DefaultLoginBlockTTL = 5 * time.Minute
 )
@@ -54,6 +54,14 @@ func NewLoginGuard(client *redis.Client) *LoginGuard {
 		maxIPAttempts:      DefaultMaxIPFailedLogins,
 		blockDuration:      DefaultLoginBlockTTL,
 	}
+}
+
+// WithMaxIPAttempts overrides the failed-login threshold per client IP (values <= 0 are ignored).
+func (lg *LoginGuard) WithMaxIPAttempts(n int64) *LoginGuard {
+	if n > 0 {
+		lg.maxIPAttempts = n
+	}
+	return lg
 }
 
 type checkTarget struct {

@@ -214,7 +214,7 @@ func WaitForCondition(
 func CreateParticipant(t *testing.T, admin *Actor, email, name string) *Actor {
 	t.Helper()
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email": email, "name": name, "role": "participant", "send_invite": true,
+		"email": email, "name": name, "role": "participant",
 	}, http.StatusCreated, nil)
 	return OnboardUserViaMailpit(t, name, email, "PartPass123!")
 }

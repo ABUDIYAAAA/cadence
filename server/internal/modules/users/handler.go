@@ -19,7 +19,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// HandleBulkCreate imports multiple users and handles invites.
+// HandleBulkCreate imports multiple users. They set their own password through "forgot password".
 func (h *Handler) HandleBulkCreate(w http.ResponseWriter, r *http.Request) {
 	var req BulkCreateUsersRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -56,6 +56,10 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.service.CreateUser(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, ErrRoleNotPermitted) {
+			utils.ErrorJSON(w, http.StatusForbidden, "volunteers can only add participants")
+			return
+		}
 		if errors.Is(err, ErrUserAlreadyExists) {
 			utils.ErrorJSON(w, http.StatusConflict, "user with this email already exists")
 			return
@@ -172,48 +176,6 @@ func (h *Handler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 
 	utils.JSON(w, http.StatusOK, map[string]string{
 		"message": "user removed and sessions invalidated instantly",
-	})
-}
-
-// HandleSendInvite dispatches onboarding setup email to a single user.
-func (h *Handler) HandleSendInvite(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := h.service.SendInvite(r.Context(), id); err != nil {
-		switch {
-		case errors.Is(err, ErrUserNotFound):
-			utils.ErrorJSON(w, http.StatusNotFound, "user not found")
-		case errors.Is(err, ErrPasswordAlreadyConfigured):
-			utils.ErrorJSON(w, http.StatusBadRequest, "user has already configured their password")
-		case errors.Is(err, ErrInviteNotPermitted):
-			utils.ErrorJSON(w, http.StatusForbidden, "volunteers can only invite participants")
-		default:
-			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to dispatch setup invite")
-		}
-		return
-	}
-
-	utils.JSON(w, http.StatusOK, map[string]string{
-		"message": "setup invite email dispatched successfully",
-	})
-}
-
-// HandleBulkSendInvite dispatches setup invites to multiple users or all unconfigured accounts.
-func (h *Handler) HandleBulkSendInvite(w http.ResponseWriter, r *http.Request) {
-	var req BulkInviteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	count, err := h.service.BulkSendInvites(r.Context(), req)
-	if err != nil {
-		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to dispatch bulk setup invites")
-		return
-	}
-
-	utils.JSON(w, http.StatusOK, map[string]any{
-		"message":            "bulk setup invites dispatched",
-		"invites_dispatched": count,
 	})
 }
 

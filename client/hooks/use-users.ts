@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usersService } from "@/services/users.service";
 import {
   BulkCreateUsersRequest,
-  BulkInviteRequest,
   CreateUserRequest,
   UpdateUserRequest,
   UserDetailResponse,
@@ -92,29 +91,6 @@ export function useDeleteUser() {
 
   return useMutation({
     mutationFn: (id: string) => usersService.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
-    },
-  });
-}
-
-export function useSendInvite() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (id: string) => usersService.sendInvite(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
-    },
-  });
-}
-
-export function useBulkSendInvite() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (payload: BulkInviteRequest) =>
-      usersService.bulkSendInvite(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
     },

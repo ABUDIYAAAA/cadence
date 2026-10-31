@@ -2,7 +2,6 @@
 
 import React from "react";
 import {
-  Mail,
   KeyRound,
   Edit2,
   Trash2,
@@ -31,9 +30,8 @@ interface UserTableProps {
   onView: (user: UserDetailResponse) => void;
   onEdit: (user: UserDetailResponse) => void;
   onDelete: (user: UserDetailResponse) => void;
-  onSendInvite: (user: UserDetailResponse) => void;
   onResetPassword: (user: UserDetailResponse) => void;
-  /** Admins get every action; volunteers can only view and invite participants. */
+  /** Admins get every action; volunteers can only view. */
   canManage?: boolean;
   actionInProgressId?: string | null;
 }
@@ -44,7 +42,6 @@ export function UserTable({
   onView,
   onEdit,
   onDelete,
-  onSendInvite,
   onResetPassword,
   canManage = true,
   actionInProgressId,
@@ -175,24 +172,10 @@ export function UserTable({
                       Configured
                     </span>
                   ) : (
-                    <div className="flex flex-col">
-                      <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
-                        <Clock className="h-3 w-3" />
-                        Pending setup
-                      </span>
-                      <span
-                        className="text-[10px] text-[var(--ink-tertiary)]"
-                        title={
-                          user.last_invited_at
-                            ? `Last invite: ${new Date(user.last_invited_at).toLocaleString()}`
-                            : undefined
-                        }
-                      >
-                        {user.invite_count > 0
-                          ? `Invited ${user.invite_count}\u00d7 \u00b7 last ${new Date(user.last_invited_at!).toLocaleDateString()}`
-                          : "Not invited yet"}
-                      </span>
-                    </div>
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                      <Clock className="h-3 w-3" />
+                      Password not set
+                    </span>
                   )}
                 </TableCell>
 
@@ -237,20 +220,6 @@ export function UserTable({
                     >
                       <Edit2 className="h-3.5 w-3.5" />
                     </Button>
-                    )}
-
-                    {/* Send Invite (if pending setup) */}
-                    {!user.is_password_configured && (canManage || user.role === "participant") && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={isProcessing}
-                        onClick={() => onSendInvite(user)}
-                        title="Send onboarding invite"
-                        className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--color-blue)]"
-                      >
-                        <Mail className="h-3.5 w-3.5" />
-                      </Button>
                     )}
 
                     {/* Trigger Password Reset */}

@@ -166,8 +166,8 @@ func TestStage6_ForceEndRoundWithLivePitch(t *testing.T) {
 
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{
-			{"email": "force.judge@cadence.local", "name": "Force Judge", "role": "judge", "send_invite": true},
-			{"email": "force.team@cadence.local", "name": "Force Lead", "role": "participant", "send_invite": true},
+			{"email": "force.judge@cadence.local", "name": "Force Judge", "role": "judge"},
+			{"email": "force.team@cadence.local", "name": "Force Lead", "role": "participant"},
 		},
 	}, http.StatusCreated, nil)
 	judge := OnboardUserViaMailpit(t, "ForceJudge", "force.judge@cadence.local", "JudgePass123!")

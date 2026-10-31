@@ -25,7 +25,7 @@ const (
 	DefaultUnauthLimit   int64 = 1000
 	DefaultUserLimit     int64 = 500
 	DefaultDeviceLimit   int64 = 500
-	DefaultCampusIPLimit int64 = 5000
+	DefaultCampusIPLimit int64 = 30000
 )
 
 // DeviceIDMiddleware ensures every incoming client possesses a cryptographically signed device_id cookie.
@@ -97,6 +97,10 @@ func RateLimitMiddleware(
 			if cfg != nil && cfg.UnauthRateLimit > 0 {
 				unauthLimit = cfg.UnauthRateLimit
 			}
+			campusLimit := DefaultCampusIPLimit
+			if cfg != nil && cfg.CampusIPRateLimit > 0 {
+				campusLimit = cfg.CampusIPRateLimit
+			}
 
 			// 1. Verify JWT before assigning a per-user bucket (signed access_token cookie or Bearer header)
 			tokenStr := ""
@@ -161,7 +165,9 @@ func RateLimitMiddleware(
 						clientIP = "unknown"
 					}
 					key = fmt.Sprintf("ratelimit:unauth_ip:%s", clientIP)
-					limit = unauthLimit
+					// Everyone's first request (before their _did cookie exists) lands here, and a whole
+					// campus shares one IP, so this bucket is the campus ceiling rather than a per-device cap.
+					limit = campusLimit
 					limiterType = "device"
 				}
 			}
@@ -187,7 +193,7 @@ func RateLimitMiddleware(
 				clientIP := extractRemoteIP(r.RemoteAddr)
 				if clientIP != "" {
 					ipKey := fmt.Sprintf("ratelimit:ip:%s", clientIP)
-					ipRes, ipErr := limiter.Allow(ctx, ipKey, DefaultCampusIPLimit, 1*time.Minute)
+					ipRes, ipErr := limiter.Allow(ctx, ipKey, campusLimit, 1*time.Minute)
 					if ipErr == nil {
 						metrics.InstrumentRateLimit("campus_ip", ipRes.Allowed)
 						if !ipRes.Allowed {

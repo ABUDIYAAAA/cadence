@@ -127,6 +127,7 @@ export interface SessionPerson {
   team_name?: string | null;
   is_external: boolean;
   scanned_at?: string | null;
+  present: boolean;
 }
 
 export interface SessionReport {
@@ -135,6 +136,8 @@ export interface SessionReport {
   scanned: number;
   missing: SessionPerson[];
   recent: SessionPerson[];
+  /** Everyone expected, present and absent. */
+  people: SessionPerson[];
 }
 
 export interface TicketSettings {

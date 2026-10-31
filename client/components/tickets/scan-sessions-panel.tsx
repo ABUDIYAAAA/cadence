@@ -95,16 +95,30 @@ function InternalDomainsCard() {
   );
 }
 
+type ReportView = "all" | "present" | "absent";
+
 function SessionReportDialog({ session, onClose }: { session: ScanSession | null; onClose: () => void }) {
   const { data, isLoading } = useSessionReport(session?.id ?? null);
+  const [view, setView] = useState<ReportView>("all");
 
-  const exportMissing = () => {
+  const people = data?.people ?? [];
+  const visible = people.filter((p) => (view === "all" ? true : view === "present" ? p.present : !p.present));
+
+  const exportReport = () => {
     if (!data || !session) return;
     const csv = toCsv(
-      ["Name", "Email", "Phone", "Team", "Type"],
-      data.missing.map((p) => [p.name, p.email, p.phone_number, p.team_name, p.is_external ? "External" : "Internal"])
+      ["Name", "Email", "Phone", "Team", "Type", "Status", "Scanned at"],
+      people.map((p) => [
+        p.name,
+        p.email,
+        p.phone_number,
+        p.team_name,
+        p.is_external ? "External" : "Internal",
+        p.present ? "Present" : "Absent",
+        p.scanned_at,
+      ])
     );
-    downloadCsv(`${slugify(session.name)}-not-scanned.csv`, csv);
+    downloadCsv(`${slugify(session.name)}-attendance.csv`, csv);
   };
 
   return (
@@ -114,20 +128,20 @@ function SessionReportDialog({ session, onClose }: { session: ScanSession | null
       title={session ? `${session.name} · report` : "Report"}
       description={
         session?.kind === "exit"
-          ? "External attendees who entered. Those not scanned out are likely still inside."
-          : "Everyone who entered. Missing means not yet scanned in this round."
+          ? "External attendees who entered. Absent means not yet scanned out, so likely still inside."
+          : "Everyone with a pass. Teams and members update live, so changes made during the session show on refresh."
       }
       footer={
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={exportMissing}
-            disabled={!data || data.missing.length === 0}
+            onClick={exportReport}
+            disabled={!data || people.length === 0}
             className="gap-1.5 text-xs"
           >
             <Download className="h-3.5 w-3.5" />
-            Export missing
+            Export report
           </Button>
           <Button variant="outline" size="sm" onClick={onClose}>
             Close
@@ -142,8 +156,8 @@ function SessionReportDialog({ session, onClose }: { session: ScanSession | null
           <div className="grid grid-cols-3 gap-2">
             {[
               ["Expected", data.eligible],
-              ["Scanned", data.scanned],
-              ["Missing", data.missing.length],
+              ["Present", data.scanned],
+              ["Absent", data.missing.length],
             ].map(([label, value]) => (
               <div key={label} className="rounded-[12px] border border-[var(--card-line)] p-3">
                 <div className="text-[var(--ink-secondary)]">{label}</div>
@@ -152,24 +166,44 @@ function SessionReportDialog({ session, onClose }: { session: ScanSession | null
             ))}
           </div>
 
-          {data.missing.length === 0 ? (
-            <div className="text-[var(--ink-secondary)]">Everyone expected has been scanned.</div>
+          <div className="flex gap-1.5">
+            {(["all", "present", "absent"] as const).map((v) => (
+              <Button
+                key={v}
+                variant={view === v ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setView(v)}
+                className="h-7 px-3 text-xs capitalize"
+              >
+                {v}
+              </Button>
+            ))}
+          </div>
+
+          {visible.length === 0 ? (
+            <div className="text-[var(--ink-secondary)]">Nobody here.</div>
           ) : (
             <div className="max-h-72 overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Not scanned</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Team</TableHead>
                     <TableHead>Phone</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.missing.map((p) => (
+                  {visible.map((p) => (
                     <TableRow key={p.user_id}>
                       <TableCell className="font-semibold text-[var(--ink-primary)]">
                         {p.name}
                         <div className="text-[11px] font-normal text-[var(--ink-tertiary)]">{p.email}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={p.present ? "emerald" : "subtle"} dot size="sm">
+                          {p.present ? "Present" : "Absent"}
+                        </Badge>
                       </TableCell>
                       <TableCell>{p.team_name || "—"}</TableCell>
                       <TableCell className="font-mono">{p.phone_number || "—"}</TableCell>

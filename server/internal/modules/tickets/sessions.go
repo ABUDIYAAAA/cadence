@@ -100,6 +100,8 @@ type SessionPerson struct {
 	TeamName  *string `json:"team_name,omitempty"`
 	External  bool    `json:"is_external"`
 	ScannedAt *string `json:"scanned_at,omitempty"`
+	// Present is true once the person has been scanned in this session.
+	Present bool `json:"present"`
 }
 
 type SessionReport struct {
@@ -108,6 +110,8 @@ type SessionReport struct {
 	Scanned  int             `json:"scanned"`
 	Missing  []SessionPerson `json:"missing"`
 	Recent   []SessionPerson `json:"recent"`
+	// People lists every expected attendee (present and absent), live from current teams and tickets.
+	People []SessionPerson `json:"people"`
 }
 
 // ---- Repository -------------------------------------------------------------------------------
@@ -301,6 +305,7 @@ func (r *Repository) sessionPeople(ctx context.Context, sessionID, kind string) 
 		if at != nil {
 			s := at.Format(time.RFC3339)
 			p.ScannedAt = &s
+			p.Present = true
 		}
 		out = append(out, p)
 	}
@@ -480,13 +485,14 @@ func (s *Service) GetSessionReport(ctx context.Context, sessionID string) (*Sess
 	if err != nil {
 		return nil, err
 	}
-	report := &SessionReport{Session: *sess, Missing: []SessionPerson{}, Recent: []SessionPerson{}}
+	report := &SessionReport{Session: *sess, Missing: []SessionPerson{}, Recent: []SessionPerson{}, People: []SessionPerson{}}
 	for _, p := range people {
 		p.External = !utils.IsEmailExcluded(p.Email, domains)
 		if sess.Kind == KindExit && !p.External {
 			continue // internal attendees are not expected to exit-scan
 		}
 		report.Eligible++
+		report.People = append(report.People, p)
 		if p.ScannedAt != nil {
 			report.Scanned++
 			report.Recent = append(report.Recent, p)

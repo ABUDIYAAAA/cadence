@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import { UpdateUserRequest, UserDetailResponse } from "@/types/users";
 import { UserRole } from "@/types/auth";
-import { useTeams } from "@/hooks/use-teams";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -28,11 +27,9 @@ function UserEditForm({
   onSubmit: (id: string, data: UpdateUserRequest) => Promise<void>;
   isLoading: boolean;
 }) {
-  const { data: teamsData, isLoading: teamsLoading } = useTeams({ limit: 100 });
   const [name, setName] = useState(user.name);
   const [phoneNumber, setPhoneNumber] = useState(user.phone_number || "");
   const [role, setRole] = useState<UserRole>(user.role);
-  const [teamId, setTeamId] = useState(user.team_id || "");
   const [isActive, setIsActive] = useState(user.is_active);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -54,7 +51,6 @@ function UserEditForm({
         name: name.trim(),
         phone_number: phoneNumber.trim() || undefined,
         role,
-        team_id: teamId ? teamId : null,
         is_active: isActive,
       });
       onClose();
@@ -100,21 +96,6 @@ function UserEditForm({
           disabled={isLoading}
         />
       </div>
-
-      <Select
-        label="Assigned Squad / Team"
-        value={teamId}
-        onChange={(e) => setTeamId(e.target.value)}
-        disabled={isLoading || teamsLoading}
-        helperText={user.team_name ? `Current team: ${user.team_name}` : "Participant is unassigned"}
-      >
-        <option value="">None (Unassigned)</option>
-        {(teamsData?.data || []).map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name} ({t.member_count} {t.member_count === 1 ? "member" : "members"})
-          </option>
-        ))}
-      </Select>
 
       <div className="pt-2 border-t border-[var(--card-line)] text-xs">
         <label className="flex items-center gap-2 cursor-pointer select-none">

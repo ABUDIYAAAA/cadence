@@ -160,9 +160,9 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	usersHandler := users.NewHandler(usersService)
 
 	// Teams module initialization
-	teamsRepo := teams.NewRepository(dbPool)
+	teamsRepo := teams.NewRepository(dbPool, cfg.DefaultMaxTeamSize)
 	teamsService := teams.NewService(teamsRepo, auditQueue)
-	teamsHandler := teams.NewHandler(teamsService)
+	teamsHandler := teams.NewHandler(teamsService, limiter)
 
 	// Audit module initialization
 	auditHandler := audit.NewHandler(auditRepo)
@@ -203,11 +203,15 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	router.Route("/api/v1", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
 		users.RegisterRoutes(r, usersHandler, authMiddleware)
-		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
 		tickets.RegisterRoutes(r, ticketsHandler, authMiddleware)
 		judging.RegisterRoutes(r, judgingHandler, authMiddleware)
 		notifications.RegisterRoutes(r, notifHandler, authMiddleware)
 		audit.RegisterRoutes(r, auditHandler, authMiddleware)
+	})
+
+	// Mount API v2 (self-serve teams with join codes and freezing)
+	router.Route("/api/v2", func(r chi.Router) {
+		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
 	})
 
 	// Health check endpoint - returns system and dependency health status.

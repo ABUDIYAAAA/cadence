@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Users, Edit2, Trash2 } from "lucide-react";
+import { Users, Edit2, Trash2, Lock, LockOpen } from "lucide-react";
 import { TeamResponse } from "@/types/teams";
 import {
   Table,
@@ -22,7 +22,15 @@ interface TeamTableProps {
   onView: (team: TeamResponse) => void;
   onEdit: (team: TeamResponse) => void;
   onDelete: (team: TeamResponse) => void;
+  onToggleFreeze?: (team: TeamResponse) => void;
+  /** Edit teams (admin, volunteer). */
   canManage?: boolean;
+  /** Freeze/unfreeze single teams (admin, volunteer). */
+  canFreeze?: boolean;
+  /** Delete teams (admin only). */
+  canDelete?: boolean;
+  /** Join codes are hidden from judges. */
+  showCodes?: boolean;
 }
 
 export function TeamTable({
@@ -31,7 +39,11 @@ export function TeamTable({
   onView,
   onEdit,
   onDelete,
+  onToggleFreeze,
   canManage = true,
+  canFreeze = false,
+  canDelete = false,
+  showCodes = true,
 }: TeamTableProps) {
   if (isLoading) {
     return (
@@ -54,7 +66,7 @@ export function TeamTable({
     return (
       <EmptyState
         title="No Teams Found"
-        description="No teams matched your query. Create a new team or adjust search terms."
+        description="No teams matched your query. Teams appear here once participants create them."
       />
     );
   }
@@ -66,9 +78,10 @@ export function TeamTable({
           <TableRow>
             <TableHead>Team Name</TableHead>
             <TableHead>Team Leader</TableHead>
+            {showCodes && <TableHead>Join Code</TableHead>}
             <TableHead>Roster Size</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead>Registered</TableHead>
-            <TableHead>Last Updated</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -107,21 +120,37 @@ export function TeamTable({
                 )}
               </TableCell>
 
+              {/* Join code */}
+              {showCodes && (
+                <TableCell className="text-xs font-mono tracking-widest text-[var(--ink-primary)]">
+                  {team.join_code ?? "—"}
+                </TableCell>
+              )}
+
               {/* Member Count */}
               <TableCell>
                 <Badge variant="subtle" size="sm">
-                  {team.member_count} {team.member_count === 1 ? "member" : "members"}
+                  {team.member_count}/{team.effective_max_size}
                 </Badge>
+              </TableCell>
+
+              {/* Freeze status */}
+              <TableCell>
+                {team.effective_frozen ? (
+                  <Badge variant="amber" size="sm" className="gap-1">
+                    <Lock className="h-2.5 w-2.5" />
+                    {team.is_frozen ? "Frozen" : "Frozen (all)"}
+                  </Badge>
+                ) : (
+                  <Badge variant="subtle" size="sm">
+                    Open
+                  </Badge>
+                )}
               </TableCell>
 
               {/* Created */}
               <TableCell className="text-xs text-[var(--ink-secondary)] font-mono">
                 {new Date(team.created_at).toLocaleDateString()}
-              </TableCell>
-
-              {/* Updated */}
-              <TableCell className="text-xs text-[var(--ink-secondary)] font-mono">
-                {new Date(team.updated_at).toLocaleDateString()}
               </TableCell>
 
               {/* Actions */}
@@ -138,28 +167,41 @@ export function TeamTable({
                     <span>Roster</span>
                   </Button>
 
-                  {canManage && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onEdit(team)}
-                        title="Edit Team Details"
-                        className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </Button>
+                  {canFreeze && onToggleFreeze && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onToggleFreeze(team)}
+                      title={team.is_frozen ? "Unfreeze this team" : "Freeze this team"}
+                      aria-label={team.is_frozen ? "Unfreeze team" : "Freeze team"}
+                      className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                    >
+                      {team.is_frozen ? <LockOpen className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                    </Button>
+                  )}
 
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDelete(team)}
-                        title="Delete Team"
-                        className="h-7 w-7 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </>
+                  {canManage && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onEdit(team)}
+                      title="Edit Team Details"
+                      className="h-7 w-7 p-0 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+
+                  {canDelete && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onDelete(team)}
+                      title="Delete Team"
+                      className="h-7 w-7 p-0 text-[var(--color-coral)] hover:bg-[#CE6969]/10"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   )}
                 </div>
               </TableCell>

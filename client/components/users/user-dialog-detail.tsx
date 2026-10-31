@@ -15,6 +15,8 @@ interface UserDetailDialogProps {
   onDelete: (user: UserDetailResponse) => void;
   onSendInvite: (user: UserDetailResponse) => void;
   onResetPassword: (user: UserDetailResponse) => void;
+  /** Volunteers can only view and invite participants. */
+  canManage?: boolean;
   actionInProgress?: boolean;
 }
 
@@ -26,6 +28,7 @@ export function UserDetailDialog({
   onDelete,
   onSendInvite,
   onResetPassword,
+  canManage = true,
   actionInProgress,
 }: UserDetailDialogProps) {
   if (!user) return null;
@@ -39,7 +42,7 @@ export function UserDetailDialog({
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2 w-full">
           <div className="flex items-center gap-1.5">
-            {!user.is_password_configured && (
+            {!user.is_password_configured && (canManage || user.role === "participant") && (
               <Button
                 variant="outline"
                 size="sm"
@@ -51,18 +54,21 @@ export function UserDetailDialog({
                 Send Setup Invite
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={actionInProgress}
-              onClick={() => onResetPassword(user)}
-              className="text-xs gap-1.5"
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-              Reset Password
-            </Button>
+            {canManage && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={actionInProgress}
+                onClick={() => onResetPassword(user)}
+                className="text-xs gap-1.5"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Reset Password
+              </Button>
+            )}
           </div>
 
+          {canManage && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -89,6 +95,7 @@ export function UserDetailDialog({
               Delete
             </Button>
           </div>
+          )}
         </div>
       }
     >

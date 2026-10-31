@@ -11,11 +11,11 @@ import {
   Layers,
 } from "lucide-react";
 import { useTeam } from "@/hooks/use-teams";
-import { useUsers } from "@/hooks/use-users";
+import { UserDetailResponse } from "@/types/users";
+import { ParticipantPicker } from "./participant-picker";
 import { Dialog } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -46,34 +46,25 @@ export function TeamDetailDialog({
   canManage = true,
 }: TeamDetailDialogProps) {
   const { data: team, isLoading } = useTeam(teamId || "");
-  // Only admins enroll members, so only fetch candidates for them while the roster is open.
-  const { data: usersData, isLoading: usersLoading } = useUsers(
-    { role: "participant", limit: 100 },
-    { enabled: canManage && open }
-  );
-  const [newUserId, setNewUserId] = useState("");
+  const [selectedUser, setSelectedUser] = useState<UserDetailResponse | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [actionInProgressUserId, setActionInProgressUserId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
 
   if (!open || !teamId) return null;
 
-  const availableUsers = (usersData?.data || []).filter(
-    (u) => !team?.members.some((m) => m.id === u.id)
-  );
-
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserId.trim()) {
-      setAddError("Please select a participant from the list");
+    if (!selectedUser) {
+      setAddError("Search for a participant and pick one from the list");
       return;
     }
 
     setIsAdding(true);
     setAddError(null);
     try {
-      await onAddMember(teamId, newUserId.trim());
-      setNewUserId("");
+      await onAddMember(teamId, selectedUser.id);
+      setSelectedUser(null);
     } catch (err: unknown) {
       setAddError(
         err && typeof err === "object" && "error" in err
@@ -137,8 +128,18 @@ export function TeamDetailDialog({
                 <Layers className="h-4 w-4 text-[var(--color-blue)]" />
                 <span className="font-bold text-[var(--ink-primary)] text-sm">{team.name}</span>
                 <Badge variant="solid" size="sm">
-                  {team.members.length} {team.members.length === 1 ? "Member" : "Members"}
+                  {team.members.length}/{team.effective_max_size} Members
                 </Badge>
+                {team.effective_frozen && (
+                  <Badge variant="amber" size="sm">
+                    Frozen
+                  </Badge>
+                )}
+                {team.join_code && (
+                  <span className="font-mono tracking-widest text-[11px] text-[var(--ink-secondary)]">
+                    {team.join_code}
+                  </span>
+                )}
               </div>
 
               {team.leader ? (
@@ -154,7 +155,7 @@ export function TeamDetailDialog({
               )}
             </div>
 
-            {/* Add Member Form (Admin only) */}
+            {/* Add Member Form (staff only) */}
             {canManage && (
               <form
                 onSubmit={handleAddSubmit}
@@ -169,30 +170,21 @@ export function TeamDetailDialog({
 
                 <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
                   <div className="flex-1">
-                    <Select
-                      value={newUserId}
-                      onChange={(e) => {
-                        setNewUserId(e.target.value);
+                    <ParticipantPicker
+                      value={selectedUser}
+                      onChange={(u) => {
+                        setSelectedUser(u);
                         if (addError) setAddError(null);
                       }}
-                      disabled={isAdding || usersLoading}
+                      disabled={isAdding}
                       error={addError || undefined}
-                      className="h-9 text-xs font-mono bg-[var(--card-solid-subtle)] border-[var(--card-line)]"
-                    >
-                      <option value="">Select a user to enroll in this squad...</option>
-                      {availableUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name} ({u.email}) — [{u.role.toUpperCase()}]
-                          {u.team_name ? ` (Current Team: ${u.team_name})` : " (No Team)"}
-                        </option>
-                      ))}
-                    </Select>
+                    />
                   </div>
                   <Button
                     variant="primary"
                     size="sm"
                     type="submit"
-                    disabled={!newUserId || isAdding}
+                    disabled={!selectedUser || isAdding}
                     isLoading={isAdding}
                     className="h-9 text-xs shrink-0"
                   >

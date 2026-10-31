@@ -8,9 +8,6 @@ type CreateUserRequest struct {
 	Name        string  `json:"name" validate:"required,max=255"`
 	Role        string  `json:"role" validate:"omitempty,oneof=admin judge volunteer participant"`
 	PhoneNumber *string `json:"phone_number,omitempty"`
-	TeamName    *string `json:"team_name,omitempty"`
-	TeamID      *string `json:"team_id,omitempty"`
-	IsLeader    bool    `json:"is_leader"`
 	SendInvite  bool    `json:"send_invite"`
 }
 
@@ -34,16 +31,17 @@ type UpdateUserRequest struct {
 	Name        *string `json:"name,omitempty"`
 	PhoneNumber *string `json:"phone_number,omitempty"`
 	Role        *string `json:"role,omitempty" validate:"omitempty,oneof=admin judge volunteer participant"`
-	TeamID      *string `json:"team_id,omitempty"`
 	IsActive    *bool   `json:"is_active,omitempty"`
 }
 
 // UserFilter defines query parameters for paginated user listing.
 type UserFilter struct {
-	Page     int    `json:"page"`
-	Limit    int    `json:"limit"`
-	Role     string `json:"role"`
-	TeamID   string `json:"team_id"`
+	Page   int    `json:"page"`
+	Limit  int    `json:"limit"`
+	Role   string `json:"role"`
+	TeamID string `json:"team_id"`
+	// NoTeam narrows to users who are not on any team.
+	NoTeam   bool   `json:"no_team"`
 	Search   string `json:"search"`
 	IsActive *bool  `json:"is_active"`
 	// CheckinStatus narrows to "checked_in", "not_checked_in" (has a pass, not yet arrived) or "no_pass".

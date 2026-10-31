@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"devclubxnst.com/cadence/internal/modules/teams"
 )
 
 // Actor represents a distinct user/device session with its own isolated HTTP CookieJar.
@@ -206,4 +208,29 @@ func WaitForCondition(
 		diag = "\nDiagnostics:\n" + diagFn()
 	}
 	t.Fatalf("Timed out after %s waiting for condition: %s (lastErr: %v)%s", timeout, description, lastErr, diag)
+}
+
+// CreateParticipant creates a participant through the admin API and onboards them via Mailpit.
+func CreateParticipant(t *testing.T, admin *Actor, email, name string) *Actor {
+	t.Helper()
+	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
+		"email": email, "name": name, "role": "participant", "send_invite": true,
+	}, http.StatusCreated, nil)
+	return OnboardUserViaMailpit(t, name, email, "PartPass123!")
+}
+
+// CreateTeamAs creates a team through the v2 API as the given participant (who becomes leader).
+func CreateTeamAs(t *testing.T, p *Actor, name string) teams.TeamDetailResponse {
+	t.Helper()
+	var team teams.TeamDetailResponse
+	p.DoJSON(t, http.MethodPost, "/api/v2/teams", map[string]any{"name": name}, http.StatusCreated, &team)
+	return team
+}
+
+// JoinTeamAs joins a team through the v2 API using its join code.
+func JoinTeamAs(t *testing.T, p *Actor, code string) teams.TeamDetailResponse {
+	t.Helper()
+	var team teams.TeamDetailResponse
+	p.DoJSON(t, http.MethodPost, "/api/v2/teams/join", map[string]any{"code": code}, http.StatusOK, &team)
+	return team
 }

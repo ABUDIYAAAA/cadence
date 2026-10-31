@@ -47,14 +47,15 @@ import {
 export default function UsersPage() {
   const router = useRouter();
   const toast = useToast();
-  const { user: currentUser, isAdmin, isLoading: authLoading } = useAuth();
+  const { user: currentUser, isAdmin, isVolunteer, isLoading: authLoading } = useAuth();
 
   // Filters state with dense page size for sensible viewport usage
   const [filters, setFilters] = useState<UserFilter>({
     page: 1,
     limit: 25,
     search: "",
-    role: undefined,
+    // Volunteers work with participants, so start there.
+    role: isVolunteer && !isAdmin ? "participant" : undefined,
     is_active: undefined,
   });
 
@@ -108,12 +109,12 @@ export default function UsersPage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!isAdmin && !isVolunteer) {
     return (
       <div className="font-sans space-y-4">
         <Alert variant="error" title="Access restricted">
           <div>
-            You do not have administrative privileges to manage user accounts.
+            You do not have permission to manage user accounts.
           </div>
           <div className="mt-3">
             <Button
@@ -272,7 +273,9 @@ export default function UsersPage() {
             )}
           </div>
           <p className="text-xs text-[var(--ink-secondary)] mt-1">
-            Directory of participants, judges, volunteers, and organizers.
+            {isAdmin
+              ? "Directory of participants, judges, volunteers, and organizers."
+              : "Send setup invites to participants so they can join the event."}
           </p>
         </div>
 
@@ -302,25 +305,29 @@ export default function UsersPage() {
             <span>Send invites</span>
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsBulkCreateOpen(true)}
-            className="h-9 px-3 text-xs gap-1.5"
-          >
-            <Upload className="h-3.5 w-3.5" />
-            <span>Import CSV</span>
-          </Button>
+          {isAdmin && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsBulkCreateOpen(true)}
+                className="h-9 px-3 text-xs gap-1.5"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                <span>Import CSV</span>
+              </Button>
 
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setIsCreateOpen(true)}
-            className="h-9 px-4 text-xs gap-1.5 font-semibold"
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-            <span>Add user</span>
-          </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsCreateOpen(true)}
+                className="h-9 px-4 text-xs gap-1.5 font-semibold"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                <span>Add user</span>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -378,6 +385,7 @@ export default function UsersPage() {
         onSendInvite={handleSendInvite}
         onResetPassword={handleTriggerResetPassword}
         actionInProgressId={actionInProgressId}
+        canManage={isAdmin}
       />
 
       {/* Level 3: Pagination Controls */}
@@ -447,6 +455,7 @@ export default function UsersPage() {
         onSendInvite={handleSendInvite}
         onResetPassword={handleTriggerResetPassword}
         actionInProgress={Boolean(actionInProgressId)}
+        canManage={isAdmin}
       />
     </div>
   );

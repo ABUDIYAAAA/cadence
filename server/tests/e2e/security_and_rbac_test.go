@@ -20,7 +20,7 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 			{"email": "rbac.judge1@cadence.local", "name": "RBAC Judge 1", "role": "judge", "send_invite": true},
 			{"email": "rbac.judge2@cadence.local", "name": "RBAC Judge 2", "role": "judge", "send_invite": true},
 			{"email": "rbac.volunteer@cadence.local", "name": "RBAC Volunteer", "role": "volunteer", "send_invite": true},
-			{"email": "rbac.participant@cadence.local", "name": "RBAC Participant", "role": "participant", "team_name": "RBAC Team", "is_leader": true, "send_invite": true},
+			{"email": "rbac.participant@cadence.local", "name": "RBAC Participant", "role": "participant", "send_invite": true},
 		},
 	}, http.StatusCreated, &bulkResp)
 
@@ -33,7 +33,7 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 	var teamResp struct {
 		ID string `json:"id"`
 	}
-	participant.DoJSON(t, http.MethodGet, "/api/v1/teams/my-team", nil, http.StatusOK, &teamResp)
+	participant.DoJSON(t, http.MethodPost, "/api/v2/teams", map[string]any{"name": "RBAC Team"}, http.StatusCreated, &teamResp)
 
 	var roundResp struct {
 		RoundID string `json:"round_id"`
@@ -82,8 +82,9 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 		// Participant forbidden routes
 		{"Participant cannot list users", participant, http.MethodGet, "/api/v1/users", nil},
 		{"Participant cannot create user", participant, http.MethodPost, "/api/v1/users", map[string]any{"email": "x@x.com", "name": "X"}},
-		{"Participant cannot list all teams", participant, http.MethodGet, "/api/v1/teams", nil},
-		{"Participant cannot create team", participant, http.MethodPost, "/api/v1/teams", map[string]any{"name": "Illegal Team"}},
+		{"Participant cannot list all teams", participant, http.MethodGet, "/api/v2/teams", nil},
+		{"Participant cannot freeze all teams", participant, http.MethodPost, "/api/v2/teams/freeze-all", nil},
+		{"Participant cannot freeze a team", participant, http.MethodPost, "/api/v2/teams/" + teamResp.ID + "/freeze", nil},
 		{"Participant cannot scan tickets", participant, http.MethodPost, "/api/v1/tickets/check-in", map[string]string{"ticket_code": "cadence:tkt:123:456"}},
 		{"Participant cannot view ticket analytics", participant, http.MethodGet, "/api/v1/tickets/analytics", nil},
 		{"Participant cannot bulk send tickets", participant, http.MethodPost, "/api/v1/tickets/bulk-send", map[string]any{}},
@@ -97,7 +98,7 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 		// Volunteer forbidden routes (can read users/teams/rounds & scan tickets, but cannot mutate admin resources or judge)
 		{"Volunteer cannot create user", volunteer, http.MethodPost, "/api/v1/users", map[string]any{"email": "v@x.com", "name": "V"}},
 		{"Volunteer cannot delete user", volunteer, http.MethodDelete, fmt.Sprintf("/api/v1/users/%s", participant.UserID), nil},
-		{"Volunteer cannot create team", volunteer, http.MethodPost, "/api/v1/teams", map[string]any{"name": "Vol Team"}},
+		{"Volunteer cannot create team", volunteer, http.MethodPost, "/api/v2/teams", map[string]any{"name": "Vol Team"}},
 		{"Volunteer cannot bulk send tickets", volunteer, http.MethodPost, "/api/v1/tickets/bulk-send", map[string]any{}},
 		{"Volunteer cannot start judging slot", volunteer, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/start", slotID), nil},
 		{"Volunteer cannot submit judging scores", volunteer, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/scores", slotID), map[string]any{"scores": []map[string]any{{"criterion_id": critID, "score": 5}}}},

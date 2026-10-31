@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Plus,
   RefreshCw,
   Users,
   ShieldCheck,
@@ -14,14 +13,13 @@ import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import {
   useAddTeamMember,
-  useCreateTeam,
   useDeleteTeam,
   useRemoveTeamMember,
+  useSetTeamFrozen,
   useTeams,
   useUpdateTeam,
 } from "@/hooks/use-teams";
 import {
-  CreateTeamRequest,
   TeamFilter,
   TeamResponse,
   UpdateTeamRequest,
@@ -34,7 +32,7 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import {
   TeamFilters,
   TeamTable,
-  TeamCreateDialog,
+  TeamSettingsCard,
   TeamEditDialog,
   TeamDetailDialog,
   TeamDeleteDialog,
@@ -60,14 +58,13 @@ export default function TeamsPage() {
     refetch,
   } = useTeams(filters);
 
-  const createTeamMutation = useCreateTeam();
   const updateTeamMutation = useUpdateTeam();
   const deleteTeamMutation = useDeleteTeam();
   const addMemberMutation = useAddTeamMember();
   const removeMemberMutation = useRemoveTeamMember();
+  const setFrozenMutation = useSetTeamFrozen();
 
   // Dialog states
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<TeamResponse | null>(null);
   const [deletingTeam, setDeletingTeam] = useState<TeamResponse | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -87,13 +84,13 @@ export default function TeamsPage() {
     );
   }
 
-  // Participants role guard (backend /teams endpoint requires admin, volunteer, or judge)
+  // Participants role guard (the directory endpoints require admin, volunteer, or judge)
   if (isParticipant && !isAdmin && !isVolunteer && !isJudge) {
     return (
       <div className="font-sans space-y-4">
         <Alert variant="info" title="Team directory">
           <div>
-            The full event squad directory is managed by organizers, volunteers, and judges. You can check your team roster directly in the participant portal.
+            The full event squad directory is managed by organizers, volunteers, and judges. You can create, join and manage your own team in the participant portal.
           </div>
           <div className="mt-3">
             <Button
@@ -110,17 +107,22 @@ export default function TeamsPage() {
   }
 
   // Handlers
-  const handleCreateTeam = async (payload: CreateTeamRequest) => {
+  const handleToggleFreeze = async (team: TeamResponse) => {
+    const frozen = !team.is_frozen;
     try {
-      const created = await createTeamMutation.mutateAsync(payload);
-      toast.success(`Team "${created.name}" created successfully.`, "Team created");
+      await setFrozenMutation.mutateAsync({ id: team.id, frozen });
+      toast[frozen ? "warning" : "success"](
+        frozen
+          ? `"${team.name}" is frozen. Members can't join, leave or be removed.`
+          : `"${team.name}" is open again.`,
+        frozen ? "Team frozen" : "Team unfrozen"
+      );
     } catch (err: unknown) {
       const errorMsg =
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
-          : "Failed to create team";
-      toast.error(errorMsg, "Could not create team");
-      throw err;
+          : "Failed to update freeze state";
+      toast.error(errorMsg, "Error");
     }
   };
 
@@ -197,6 +199,9 @@ export default function TeamsPage() {
     }
   };
 
+  // Admins and volunteers manage teams; only admins delete them. Judges are read-only.
+  const canManage = isAdmin || isVolunteer;
+
   const totalTeams = teamsResponse?.total_count ?? 0;
   const teamsInView = teamsResponse?.data ?? [];
   const teamsWithLead = teamsInView.filter((t) => Boolean(t.leader_id)).length;
@@ -221,7 +226,7 @@ export default function TeamsPage() {
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
             {isJudge && !isAdmin
               ? "Teams assigned to the panels you evaluate."
-              : "Manage event squads, participant rosters, and squad leaders."}
+              : "Participants create their own teams and share a join code. Freeze, edit or review them here."}
           </p>
         </div>
 
@@ -241,19 +246,10 @@ export default function TeamsPage() {
             <span className="hidden sm:inline">Refresh</span>
           </Button>
 
-          {isAdmin && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setIsCreateOpen(true)}
-              className="h-9 px-4 text-xs gap-1.5 font-semibold"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Create team</span>
-            </Button>
-          )}
         </div>
       </div>
+
+      {canManage && <TeamSettingsCard canEditSize={isAdmin} />}
 
       {/* Metrics Row (Canvas Level) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -332,7 +328,11 @@ export default function TeamsPage() {
           onView={(team) => setSelectedTeamId(team.id)}
           onEdit={(team) => setEditingTeam(team)}
           onDelete={(team) => setDeletingTeam(team)}
-          canManage={isAdmin}
+          onToggleFreeze={handleToggleFreeze}
+          canManage={canManage}
+          canFreeze={canManage}
+          canDelete={isAdmin}
+          showCodes={canManage}
         />
 
         {/* Pagination */}
@@ -351,13 +351,6 @@ export default function TeamsPage() {
       </div>
 
       {/* Dialogs */}
-      <TeamCreateDialog
-        open={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        onSubmit={handleCreateTeam}
-        isLoading={createTeamMutation.isPending}
-      />
-
       <TeamEditDialog
         team={editingTeam}
         open={Boolean(editingTeam)}
@@ -382,7 +375,7 @@ export default function TeamsPage() {
         onAddMember={handleAddMember}
         onRemoveMember={handleRemoveMember}
         onSetLeader={handleSetLeader}
-        canManage={isAdmin}
+        canManage={canManage}
       />
     </div>
   );

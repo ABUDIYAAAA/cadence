@@ -50,24 +50,18 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 				"email":       "alpha.leader@cadence.local",
 				"name":        "Alpha Leader",
 				"role":        "participant",
-				"team_name":   "Team Alpha",
-				"is_leader":   true,
 				"send_invite": true,
 			},
 			{
 				"email":       "alpha.member@cadence.local",
 				"name":        "Alpha Member",
 				"role":        "participant",
-				"team_name":   "Team Alpha",
-				"is_leader":   false,
 				"send_invite": true,
 			},
 			{
 				"email":       "beta.leader@cadence.local",
 				"name":        "Beta Leader",
 				"role":        "participant",
-				"team_name":   "Team Beta",
-				"is_leader":   true,
 				"send_invite": true,
 			},
 		},
@@ -86,11 +80,16 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	alphaMember := OnboardUserViaMailpit(t, "AlphaMember", "alpha.member@cadence.local", "AlphaMem123!")
 	betaLeader := OnboardUserViaMailpit(t, "BetaLeader", "beta.leader@cadence.local", "BetaLead123!")
 
+	// Participants form their own teams: leaders create, teammates join with the code.
+	alphaCreated := CreateTeamAs(t, alphaLeader, "Team Alpha")
+	JoinTeamAs(t, alphaMember, alphaCreated.JoinCode)
+	CreateTeamAs(t, betaLeader, "Team Beta")
+
 	// =========================================================================
 	// PHASE 2: Team Discovery, Roster Management & Self-Lookup
 	// =========================================================================
 	var alphaTeam teams.TeamDetailResponse
-	alphaLeader.DoJSON(t, http.MethodGet, "/api/v1/teams/my-team", nil, http.StatusOK, &alphaTeam)
+	alphaLeader.DoJSON(t, http.MethodGet, "/api/v2/teams/my-team", nil, http.StatusOK, &alphaTeam)
 	if alphaTeam.Name != "Team Alpha" || len(alphaTeam.Members) != 2 {
 		t.Fatalf("expected Team Alpha with 2 members, got %+v", alphaTeam)
 	}
@@ -99,7 +98,7 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	}
 
 	var betaTeam teams.TeamDetailResponse
-	betaLeader.DoJSON(t, http.MethodGet, "/api/v1/teams/my-team", nil, http.StatusOK, &betaTeam)
+	betaLeader.DoJSON(t, http.MethodGet, "/api/v2/teams/my-team", nil, http.StatusOK, &betaTeam)
 	if betaTeam.Name != "Team Beta" || len(betaTeam.Members) != 1 {
 		t.Fatalf("expected Team Beta with 1 member, got %+v", betaTeam)
 	}
@@ -113,16 +112,16 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 		"send_invite": false,
 	}, http.StatusCreated, &tempUser)
 
-	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/teams/%s/members", betaTeam.ID), map[string]string{
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v2/teams/%s/members", betaTeam.ID), map[string]string{
 		"user_id": tempUser.ID,
 	}, http.StatusOK, nil)
 
-	admin.DoJSON(t, http.MethodGet, fmt.Sprintf("/api/v1/teams/%s", betaTeam.ID), nil, http.StatusOK, &betaTeam)
+	admin.DoJSON(t, http.MethodGet, fmt.Sprintf("/api/v2/teams/%s", betaTeam.ID), nil, http.StatusOK, &betaTeam)
 	if len(betaTeam.Members) != 2 {
 		t.Fatalf("expected 2 members on Team Beta after adding member, got %d", len(betaTeam.Members))
 	}
 
-	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/teams/%s/members/%s", betaTeam.ID, tempUser.ID), nil, http.StatusOK, nil)
+	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v2/teams/%s/members/%s", betaTeam.ID, tempUser.ID), nil, http.StatusOK, nil)
 	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/users/%s", tempUser.ID), nil, http.StatusOK, nil)
 
 	// =========================================================================

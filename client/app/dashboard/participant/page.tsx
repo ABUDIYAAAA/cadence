@@ -42,7 +42,7 @@ export default function ParticipantDashboardPage() {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start">
-        {/* Primary: what's happening with my team right now */}
+        {/* Primary: my team (create/join/manage) and what's happening with it right now */}
         <div className="space-y-8 min-w-0">
           <ParticipantJudgingStatusView compact />
           <MyTeamView />

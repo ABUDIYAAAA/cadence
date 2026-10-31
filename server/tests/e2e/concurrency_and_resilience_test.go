@@ -22,8 +22,6 @@ func TestStage5_ConcurrentTicketScanRaceCondition(t *testing.T) {
 			"email":       "race.attendee@cadence.local",
 			"name":        "Race Attendee",
 			"role":        "participant",
-			"team_name":   "Race Team",
-			"is_leader":   true,
 			"send_invite": true,
 		},
 	}

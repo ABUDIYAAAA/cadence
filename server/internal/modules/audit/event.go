@@ -30,6 +30,15 @@ const (
 	ActionTeamDelete       = audit.ActionTeamDelete
 	ActionTeamAddMember    = audit.ActionTeamAddMember
 	ActionTeamRemoveMember = audit.ActionTeamRemoveMember
+	ActionTeamJoin         = audit.ActionTeamJoin
+	ActionTeamLeave        = audit.ActionTeamLeave
+	ActionTeamKick         = audit.ActionTeamKick
+	ActionTeamFreeze       = audit.ActionTeamFreeze
+	ActionTeamUnfreeze     = audit.ActionTeamUnfreeze
+	ActionTeamFreezeAll    = audit.ActionTeamFreezeAll
+	ActionTeamUnfreezeAll  = audit.ActionTeamUnfreezeAll
+	ActionTeamRegenCode    = audit.ActionTeamRegenCode
+	ActionTeamSettings     = audit.ActionTeamSettings
 
 	TargetUser    = audit.TargetUser
 	TargetTeam    = audit.TargetTeam

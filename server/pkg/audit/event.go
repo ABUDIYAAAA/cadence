@@ -47,6 +47,15 @@ const (
 	ActionTeamDelete       = "team.delete"
 	ActionTeamAddMember    = "team.add_member"
 	ActionTeamRemoveMember = "team.remove_member"
+	ActionTeamJoin         = "team.join"
+	ActionTeamLeave        = "team.leave"
+	ActionTeamKick         = "team.kick"
+	ActionTeamFreeze       = "team.freeze"
+	ActionTeamUnfreeze     = "team.unfreeze"
+	ActionTeamFreezeAll    = "team.freeze_all"
+	ActionTeamUnfreezeAll  = "team.unfreeze_all"
+	ActionTeamRegenCode    = "team.regenerate_code"
+	ActionTeamSettings     = "team.settings_update"
 
 	// Ticket actions
 	ActionTicketIssued         = "ticket.issued"

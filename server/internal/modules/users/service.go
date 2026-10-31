@@ -16,6 +16,7 @@ import (
 
 var (
 	ErrPasswordAlreadyConfigured = errors.New("user has already configured their password")
+	ErrInviteNotPermitted        = errors.New("volunteers can only invite participants")
 )
 
 type Service struct {
@@ -67,30 +68,11 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 			role = "participant"
 		}
 
-		var teamID *string
-		if u.TeamName != nil && *u.TeamName != "" {
-			resolvedID, tErr := s.repo.GetOrCreateTeamByNameTx(ctx, tx, *u.TeamName)
-			if tErr != nil {
-				resp.SkippedCount++
-				resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): team resolve error: %v", i+1, u.Email, tErr))
-				continue
-			}
-			teamID = &resolvedID
-		} else if u.TeamID != nil && *u.TeamID != "" {
-			teamID = u.TeamID
-		}
-
-		userID, createErr := s.repo.CreateUserTx(ctx, tx, u.Email, u.Name, role, u.PhoneNumber, teamID)
+		userID, createErr := s.repo.CreateUserTx(ctx, tx, u.Email, u.Name, role, u.PhoneNumber)
 		if createErr != nil {
 			resp.SkippedCount++
 			resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): %v", i+1, u.Email, createErr))
 			continue
-		}
-
-		if u.IsLeader && teamID != nil {
-			if leaderErr := s.repo.SetTeamLeaderTx(ctx, tx, *teamID, userID); leaderErr != nil {
-				resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): failed to set as leader: %v", i+1, u.Email, leaderErr))
-			}
 		}
 
 		resp.TotalCreated++
@@ -100,9 +82,6 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 			Name:                 u.Name,
 			PhoneNumber:          u.PhoneNumber,
 			Role:                 role,
-			TeamID:               teamID,
-			TeamName:             u.TeamName,
-			IsLeader:             u.IsLeader,
 			IsPasswordConfigured: false,
 			IsActive:             true,
 			CreatedAt:            time.Now(),
@@ -188,9 +167,8 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserD
 			TargetID:    &user.ID,
 			Description: fmt.Sprintf("Created user %s (%s)", user.Email, user.Role),
 			Metadata: map[string]any{
-				"email":     user.Email,
-				"role":      user.Role,
-				"team_name": user.TeamName,
+				"email": user.Email,
+				"role":  user.Role,
 			},
 		})
 	}
@@ -349,10 +327,19 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	return nil
 }
 
+// volunteerCaller reports whether the caller in ctx is a volunteer, who may only invite participants.
+func volunteerCaller(ctx context.Context) bool {
+	claims, ok := auth.GetUserClaims(ctx)
+	return ok && claims.Role == "volunteer"
+}
+
 func (s *Service) SendInvite(ctx context.Context, userID string) error {
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
+	}
+	if volunteerCaller(ctx) && user.Role != "participant" {
+		return ErrInviteNotPermitted
 	}
 	if user.IsPasswordConfigured {
 		return ErrPasswordAlreadyConfigured
@@ -396,10 +383,14 @@ func (s *Service) BulkSendInvites(ctx context.Context, req BulkInviteRequest) (i
 		targetIDs = req.UserIDs
 	}
 
+	volunteerOnly := volunteerCaller(ctx)
 	dispatched := 0
 	for _, id := range targetIDs {
 		user, err := s.repo.GetUserByID(ctx, id)
 		if err != nil || user.IsPasswordConfigured || !user.IsActive {
+			continue
+		}
+		if volunteerOnly && user.Role != "participant" {
 			continue
 		}
 		if utils.IsEmailExcluded(user.Email, req.ExcludeDomains) {

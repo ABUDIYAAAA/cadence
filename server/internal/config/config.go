@@ -59,6 +59,9 @@ type Config struct {
 	GlobalRateLimit int64 `env:"GLOBAL_RATE_LIMIT" envDefault:"500"`
 	UnauthRateLimit int64 `env:"UNAUTH_RATE_LIMIT" envDefault:"1000"`
 
+	// Default maximum members per team; admins can override it in the UI or per team.
+	DefaultMaxTeamSize int `env:"DEFAULT_MAX_TEAM_SIZE" envDefault:"4"`
+
 	// Email domains of internal attendees (e.g. the college). Anyone else is external:
 	// they receive their QR by email and are the only ones who exit-scan.
 	InternalEmailDomains []string `env:"INTERNAL_EMAIL_DOMAINS" envSeparator:","`

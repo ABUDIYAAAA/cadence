@@ -106,28 +106,12 @@ func TestStage7_TeamLeaderScanMarksTeam(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
 
-	var created struct {
-		Users []struct {
-			ID    string `json:"id"`
-			Email string `json:"email"`
-		} `json:"users"`
-	}
-	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
-		"users": []map[string]any{
-			{"email": "lead@internal.example", "name": "Lead Lia", "role": "participant", "send_invite": false},
-			{"email": "m1@internal.example", "name": "Member One", "role": "participant", "send_invite": false},
-			{"email": "m2@internal.example", "name": "Member Two", "role": "participant", "send_invite": false},
-		},
-	}, http.StatusCreated, &created)
-	id := map[string]string{}
-	for _, u := range created.Users {
-		id[u.Email] = u.ID
-	}
-	lead := id["lead@internal.example"]
-	admin.DoJSON(t, http.MethodPost, "/api/v1/teams", map[string]any{
-		"name": "Squad", "leader_id": lead,
-		"initial_member_ids": []string{id["m1@internal.example"], id["m2@internal.example"]},
-	}, http.StatusCreated, nil)
+	lead := CreateParticipant(t, admin, "lead@internal.example", "Lead Lia")
+	m1 := CreateParticipant(t, admin, "m1@internal.example", "Member One")
+	m2 := CreateParticipant(t, admin, "m2@internal.example", "Member Two")
+	squad := CreateTeamAs(t, lead, "Squad")
+	JoinTeamAs(t, m1, squad.JoinCode)
+	JoinTeamAs(t, m2, squad.JoinCode)
 
 	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/release", map[string]any{"role": "participant"}, http.StatusOK, nil)
 	code := func(email string) string {

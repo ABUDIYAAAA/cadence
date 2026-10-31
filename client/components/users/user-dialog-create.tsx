@@ -25,8 +25,6 @@ export function UserCreateDialog({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("participant");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [teamName, setTeamName] = useState("");
-  const [isLeader, setIsLeader] = useState(false);
   const [sendInvite, setSendInvite] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -35,8 +33,6 @@ export function UserCreateDialog({
     setEmail("");
     setRole("participant");
     setPhoneNumber("");
-    setTeamName("");
-    setIsLeader(false);
     setSendInvite(true);
     setErrors({});
   };
@@ -70,8 +66,6 @@ export function UserCreateDialog({
         email: email.trim(),
         role,
         phone_number: phoneNumber.trim() || undefined,
-        team_name: teamName.trim() || undefined,
-        is_leader: isLeader,
         send_invite: sendInvite,
       });
       handleClose();
@@ -87,7 +81,7 @@ export function UserCreateDialog({
       open={open}
       onClose={handleClose}
       title="Create User Account"
-      description="Add a single user record to Cadence with automatic team association."
+      description="Add a single user record to Cadence."
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -162,29 +156,7 @@ export function UserCreateDialog({
           />
         </div>
 
-        <Input
-          label="Team Name (Optional)"
-          placeholder="e.g. CyberVanguard (auto-links or creates)"
-          value={teamName}
-          onChange={(e) => setTeamName(e.target.value)}
-          disabled={isLoading}
-          helperText="If the team does not exist, it will be automatically provisioned."
-        />
-
         <div className="pt-2 border-t border-[var(--card-line)] space-y-2 text-xs">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={isLeader}
-              onChange={(e) => setIsLeader(e.target.checked)}
-              disabled={isLoading}
-              className="accent-[#83A2DB] h-4 w-4 rounded"
-            />
-            <span className="font-semibold text-[var(--ink-primary)]">
-              Designate as Team Leader
-            </span>
-          </label>
-
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"

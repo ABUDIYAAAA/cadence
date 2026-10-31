@@ -19,7 +19,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// HandleBulkCreate imports multiple users, automatically creates missing teams, sets leaders, and handles invites.
+// HandleBulkCreate imports multiple users and handles invites.
 func (h *Handler) HandleBulkCreate(w http.ResponseWriter, r *http.Request) {
 	var req BulkCreateUsersRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -41,7 +41,7 @@ func (h *Handler) HandleBulkCreate(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusCreated, resp)
 }
 
-// HandleCreate creates a single user with optional team association.
+// HandleCreate creates a single user.
 func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -84,6 +84,7 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 		Role:   query.Get("role"),
 		TeamID: query.Get("team_id"),
 		Search: query.Get("search"),
+		NoTeam: query.Get("no_team") == "true" || query.Get("no_team") == "1",
 	}
 
 	switch cs := query.Get("checkin_status"); cs {
@@ -183,6 +184,8 @@ func (h *Handler) HandleSendInvite(w http.ResponseWriter, r *http.Request) {
 			utils.ErrorJSON(w, http.StatusNotFound, "user not found")
 		case errors.Is(err, ErrPasswordAlreadyConfigured):
 			utils.ErrorJSON(w, http.StatusBadRequest, "user has already configured their password")
+		case errors.Is(err, ErrInviteNotPermitted):
+			utils.ErrorJSON(w, http.StatusForbidden, "volunteers can only invite participants")
 		default:
 			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to dispatch setup invite")
 		}

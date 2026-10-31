@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { TeamResponse, UpdateTeamRequest } from "@/types/teams";
-import { useUsers } from "@/hooks/use-users";
+import { useTeam } from "@/hooks/use-teams";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -27,9 +27,11 @@ function TeamEditForm({
   onSubmit: (id: string, payload: UpdateTeamRequest) => Promise<void>;
   isLoading: boolean;
 }) {
-  const { data: usersData, isLoading: usersLoading } = useUsers({ limit: 100 });
+  // The leader must already be on the team, so offer its current members.
+  const { data: detail, isLoading: membersLoading } = useTeam(team.id);
   const [name, setName] = useState(team.name);
   const [leaderId, setLeaderId] = useState(team.leader_id || "");
+  const [maxSize, setMaxSize] = useState(team.max_size ? String(team.max_size) : "");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,6 +44,11 @@ function TeamEditForm({
       newErrors.name = "Team name must be between 2 and 100 characters";
     }
 
+    const sizeNumber = Number(maxSize);
+    if (maxSize.trim() && (!Number.isInteger(sizeNumber) || sizeNumber < 1 || sizeNumber > 100)) {
+      newErrors.max_size = "Enter a whole number from 1 to 100, or leave blank to use the default";
+    }
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
@@ -50,7 +57,9 @@ function TeamEditForm({
     try {
       await onSubmit(team.id, {
         name: name.trim(),
-        leader_id: leaderId ? leaderId : undefined,
+        leader_id: leaderId && leaderId !== team.leader_id ? leaderId : undefined,
+        // 0 clears the per-team override on the server.
+        max_size: maxSize.trim() ? sizeNumber : team.max_size ? 0 : undefined,
       });
       onClose();
     } catch (err: unknown) {
@@ -75,24 +84,38 @@ function TeamEditForm({
       />
 
       <Select
-        label="Designated Squad Leader"
+        label="Team Leader"
         value={leaderId}
         onChange={(e) => setLeaderId(e.target.value)}
-        disabled={isLoading || usersLoading}
+        disabled={isLoading || membersLoading}
         helperText={
           team.leader_name
             ? `Current leader: ${team.leader_name}`
             : "No leader currently assigned"
         }
       >
-        <option value="">None (No leader assigned)</option>
-        {(usersData?.data || []).map((u) => (
-          <option key={u.id} value={u.id}>
-            {u.name} ({u.email}) — [{u.role.toUpperCase()}]
-            {u.team_id === team.id ? " (Team Member)" : ""}
+        {!team.leader_id && <option value="">No leader assigned</option>}
+        {(detail?.members || []).map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name} ({m.email})
           </option>
         ))}
       </Select>
+
+      <Input
+        label="Max members (override)"
+        type="number"
+        min={1}
+        max={100}
+        value={maxSize}
+        onChange={(e) => {
+          setMaxSize(e.target.value);
+          if (errors.max_size) setErrors((prev) => ({ ...prev, max_size: "" }));
+        }}
+        error={errors.max_size}
+        disabled={isLoading}
+        helperText={`Leave blank to use the default (${team.effective_max_size} currently applies).`}
+      />
 
       <div className="flex justify-end gap-2 pt-3 border-t border-[var(--card-line)]">
         <Button

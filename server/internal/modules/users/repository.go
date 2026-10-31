@@ -28,46 +28,19 @@ func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
 	return r.db.Begin(ctx)
 }
 
-func (r *Repository) GetOrCreateTeamByNameTx(ctx context.Context, tx pgx.Tx, name string) (string, error) {
-	cleanName := strings.TrimSpace(name)
-	var teamID string
-	err := tx.QueryRow(ctx, "SELECT id FROM teams WHERE LOWER(name) = LOWER($1)", cleanName).Scan(&teamID)
-	if err == nil {
-		return teamID, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("lookup team by name: %w", err)
-	}
-
-	insertErr := tx.QueryRow(ctx, "INSERT INTO teams (name) VALUES ($1) RETURNING id", cleanName).Scan(&teamID)
-	if insertErr != nil {
-		return "", fmt.Errorf("create team: %w", insertErr)
-	}
-	return teamID, nil
-}
-
-func (r *Repository) SetTeamLeaderTx(ctx context.Context, tx pgx.Tx, teamID, leaderID string) error {
-	_, err := tx.Exec(ctx, "UPDATE teams SET leader_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", leaderID, teamID)
-	if err != nil {
-		return fmt.Errorf("set team leader: %w", err)
-	}
-	return nil
-}
-
 func (r *Repository) CreateUserTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	email, name, role string,
 	phone *string,
-	teamID *string,
 ) (string, error) {
 	query := `
-		INSERT INTO users (email, name, role, phone_number, team_id, is_password_configured, is_active)
-		VALUES (LOWER($1), $2, $3, $4, $5, FALSE, TRUE)
+		INSERT INTO users (email, name, role, phone_number, is_password_configured, is_active)
+		VALUES (LOWER($1), $2, $3, $4, FALSE, TRUE)
 		RETURNING id
 	`
 	var id string
-	err := tx.QueryRow(ctx, query, email, name, role, phone, teamID).Scan(&id)
+	err := tx.QueryRow(ctx, query, email, name, role, phone).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "users_email_key") {
 			return "", ErrUserAlreadyExists
@@ -150,6 +123,10 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 		conditions = append(conditions, fmt.Sprintf("u.team_id = $%d", argIndex))
 		args = append(args, filter.TeamID)
 		argIndex++
+	}
+
+	if filter.NoTeam {
+		conditions = append(conditions, "u.team_id IS NULL")
 	}
 
 	if filter.IsActive != nil {
@@ -264,12 +241,6 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 	if req.Role != nil {
 		sets = append(sets, fmt.Sprintf("role = $%d", argIndex))
 		args = append(args, *req.Role)
-		argIndex++
-	}
-
-	if req.TeamID != nil {
-		sets = append(sets, fmt.Sprintf("team_id = $%d", argIndex))
-		args = append(args, *req.TeamID)
 		argIndex++
 	}
 

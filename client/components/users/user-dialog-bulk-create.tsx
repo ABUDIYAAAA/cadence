@@ -19,10 +19,10 @@ interface UserBulkCreateDialogProps {
   isLoading: boolean;
 }
 
-const SAMPLE_CSV = `email,name,role,phone_number,team_name,is_leader,send_invite
-alice@example.com,Alice Smith,participant,+15550101,BinaryHackers,true,true
-bob@example.com,Bob Jones,participant,+15550102,BinaryHackers,false,true
-charlie@example.com,Charlie Brown,judge,,Panel-A,false,false`;
+const SAMPLE_CSV = `email,name,role,phone_number,send_invite
+alice@example.com,Alice Smith,participant,+15550101,true
+bob@example.com,Bob Jones,participant,+15550102,true
+charlie@example.com,Charlie Brown,judge,,false`;
 
 export function UserBulkCreateDialog({
   open,
@@ -69,8 +69,6 @@ export function UserBulkCreateDialog({
 
       const roleIdx = header.indexOf("role");
       const phoneIdx = header.indexOf("phone_number");
-      const teamIdx = header.indexOf("team_name");
-      const leaderIdx = header.indexOf("is_leader");
       const inviteIdx = header.indexOf("send_invite");
 
       const users: CreateUserRequest[] = [];
@@ -86,11 +84,6 @@ export function UserBulkCreateDialog({
 
         const role = (roleIdx !== -1 && row[roleIdx] ? row[roleIdx] : "participant") as UserRole;
         const phone = phoneIdx !== -1 && row[phoneIdx] ? row[phoneIdx] : undefined;
-        const teamName = teamIdx !== -1 && row[teamIdx] ? row[teamIdx] : undefined;
-        const isLeader =
-          leaderIdx !== -1
-            ? row[leaderIdx] === "true" || row[leaderIdx] === "1"
-            : false;
         const sendInvite =
           inviteIdx !== -1
             ? row[inviteIdx] === "true" || row[inviteIdx] === "1"
@@ -101,8 +94,6 @@ export function UserBulkCreateDialog({
           name,
           role,
           phone_number: phone,
-          team_name: teamName,
-          is_leader: isLeader,
           send_invite: sendInvite,
         });
       }
@@ -143,7 +134,7 @@ export function UserBulkCreateDialog({
       open={open}
       onClose={handleClose}
       title="Bulk Import Users (CSV)"
-      description="Batch provision accounts with automatic team generation and invitations."
+      description="Batch provision accounts with invitations."
       footer={
         <div className="flex justify-end gap-2">
           <Button

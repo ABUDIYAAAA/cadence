@@ -126,8 +126,6 @@ func TestStage2_AuthAndMailpitJourney(t *testing.T) {
 				"email":       "participant.stage2@cadence.local",
 				"name":        "Participant Stage2",
 				"role":        "participant",
-				"team_name":   "Stage2 Explorers",
-				"is_leader":   true,
 				"send_invite": false,
 			},
 		},

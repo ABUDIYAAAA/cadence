@@ -27,12 +27,11 @@ func TestStage6_AdminRoundControls(t *testing.T) {
 	}
 	judge1ID, judge2ID := bulk.Users[0].ID, bulk.Users[1].ID
 
+	leaders := 0
 	newTeam := func(name string) string {
-		var team struct {
-			ID string `json:"id"`
-		}
-		admin.DoJSON(t, http.MethodPost, "/api/v1/teams", map[string]any{"name": name}, http.StatusCreated, &team)
-		return team.ID
+		leaders++
+		leader := CreateParticipant(t, admin, fmt.Sprintf("ctl.lead%d@cadence.local", leaders), fmt.Sprintf("Ctl Lead %d", leaders))
+		return CreateTeamAs(t, leader, name).ID
 	}
 	teamA, teamB, teamC := newTeam("Ctl Team A"), newTeam("Ctl Team B"), newTeam("Ctl Team C")
 
@@ -168,17 +167,19 @@ func TestStage6_ForceEndRoundWithLivePitch(t *testing.T) {
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{
 			{"email": "force.judge@cadence.local", "name": "Force Judge", "role": "judge", "send_invite": true},
-			{"email": "force.team@cadence.local", "name": "Force Lead", "role": "participant", "team_name": "Force Team", "is_leader": true},
+			{"email": "force.team@cadence.local", "name": "Force Lead", "role": "participant", "send_invite": true},
 		},
 	}, http.StatusCreated, nil)
 	judge := OnboardUserViaMailpit(t, "ForceJudge", "force.judge@cadence.local", "JudgePass123!")
+	forceLead := OnboardUserViaMailpit(t, "ForceLead", "force.team@cadence.local", "PartPass123!")
+	CreateTeamAs(t, forceLead, "Force Team")
 
 	var teams struct {
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	admin.DoJSON(t, http.MethodGet, "/api/v1/teams", nil, http.StatusOK, &teams)
+	admin.DoJSON(t, http.MethodGet, "/api/v2/teams", nil, http.StatusOK, &teams)
 	if len(teams.Data) != 1 {
 		t.Fatalf("expected 1 team, got %d", len(teams.Data))
 	}

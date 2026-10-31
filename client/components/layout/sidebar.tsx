@@ -208,7 +208,7 @@ export function Sidebar() {
 			label: 'Users',
 			href: '/dashboard/users',
 			icon: Users,
-			roles: ['admin'],
+			roles: ['admin', 'volunteer'],
 		},
 		{
 			label: 'Teams',

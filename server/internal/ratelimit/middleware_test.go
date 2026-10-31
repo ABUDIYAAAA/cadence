@@ -304,9 +304,9 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 		}
 	})
 
-	t.Run("cookieless unauthenticated requests (dropping _did cookie) are throttled at DefaultDeviceLimit via IP bucket", func(t *testing.T) {
+	t.Run("cookieless unauthenticated requests (dropping _did cookie) are throttled at DefaultUnauthLimit via IP bucket", func(t *testing.T) {
 		const cookielessPeer = "198.51.100.88:44321"
-		for i := int64(1); i <= DefaultDeviceLimit; i++ {
+		for i := int64(1); i <= DefaultUnauthLimit; i++ {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
 			req.RemoteAddr = cookielessPeer
 			rec := httptest.NewRecorder()
@@ -316,13 +316,13 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 			}
 		}
 
-		// 61st cookieless request from the same IP must be 429'd even though no _did cookie was sent
+		// The next cookieless request from the same IP must be 429'd even though no _did cookie was sent
 		overReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
 		overReq.RemoteAddr = cookielessPeer
 		overRec := httptest.NewRecorder()
 		r.ServeHTTP(overRec, overReq)
 		if overRec.Code != http.StatusTooManyRequests {
-			t.Fatalf("expected 429 on cookieless request #%d, got %d", DefaultDeviceLimit+1, overRec.Code)
+			t.Fatalf("expected 429 on cookieless request #%d, got %d", DefaultUnauthLimit+1, overRec.Code)
 		}
 	})
 

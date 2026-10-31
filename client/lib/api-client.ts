@@ -5,14 +5,23 @@ import { getQueryClient } from "@/lib/query-client";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
 
-export const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-  headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  },
-});
+// Teams moved to API v2; everything else still lives on v1.
+const API_V2_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL_V2 || API_BASE_URL.replace(/\/v1\/?$/, "/v2");
+
+function createClient(baseURL: string): AxiosInstance {
+  return axios.create({
+    baseURL,
+    withCredentials: true,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+  });
+}
+
+export const apiClient: AxiosInstance = createClient(API_BASE_URL);
+export const apiClientV2: AxiosInstance = createClient(API_V2_BASE_URL);
 
 let isRefreshing = false;
 let failedQueue: Array<{
@@ -62,16 +71,15 @@ function isPublicAuthPage(pathname: string): boolean {
   );
 }
 
-// Response interceptor: handle automatic token refresh and format errors
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (
-    error: AxiosError<{
-      error?: string;
-      message?: string;
-      details?: Record<string, string>;
-    }>
-  ) => {
+// Response interceptor: handle automatic token refresh and format errors.
+// Shared by the v1 and v2 clients; a retried request keeps its own baseURL.
+const handleResponseError = async (
+  error: AxiosError<{
+    error?: string;
+    message?: string;
+    details?: Record<string, string>;
+  }>
+) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
     };
@@ -134,8 +142,10 @@ apiClient.interceptors.response.use(
     }
 
     return Promise.reject(formatApiError(error));
-  }
-);
+};
+
+apiClient.interceptors.response.use((response) => response, handleResponseError);
+apiClientV2.interceptors.response.use((response) => response, handleResponseError);
 
 export function formatApiError(
   error: AxiosError<{

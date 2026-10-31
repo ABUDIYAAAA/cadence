@@ -25,9 +25,6 @@ export interface CreateUserRequest {
   name: string;
   role?: UserRole;
   phone_number?: string;
-  team_name?: string;
-  team_id?: string;
-  is_leader?: boolean;
   send_invite?: boolean;
 }
 
@@ -48,7 +45,6 @@ export interface UpdateUserRequest {
   name?: string;
   phone_number?: string;
   role?: UserRole;
-  team_id?: string | null;
   is_active?: boolean;
 }
 
@@ -57,6 +53,8 @@ export interface UserFilter {
   limit?: number;
   role?: string;
   team_id?: string;
+  /** Only users who are not on any team. */
+  no_team?: boolean;
   search?: string;
   is_active?: boolean;
   checkin_status?: CheckinStatus;

@@ -33,6 +33,8 @@ interface UserTableProps {
   onDelete: (user: UserDetailResponse) => void;
   onSendInvite: (user: UserDetailResponse) => void;
   onResetPassword: (user: UserDetailResponse) => void;
+  /** Admins get every action; volunteers can only view and invite participants. */
+  canManage?: boolean;
   actionInProgressId?: string | null;
 }
 
@@ -44,6 +46,7 @@ export function UserTable({
   onDelete,
   onSendInvite,
   onResetPassword,
+  canManage = true,
   actionInProgressId,
 }: UserTableProps) {
   if (isLoading) {
@@ -210,6 +213,7 @@ export function UserTable({
                     </Button>
 
                     {/* Edit User */}
+                    {canManage && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -219,9 +223,10 @@ export function UserTable({
                     >
                       <Edit2 className="h-3.5 w-3.5" />
                     </Button>
+                    )}
 
                     {/* Send Invite (if pending setup) */}
-                    {!user.is_password_configured && (
+                    {!user.is_password_configured && (canManage || user.role === "participant") && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -235,6 +240,7 @@ export function UserTable({
                     )}
 
                     {/* Trigger Password Reset */}
+                    {canManage && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -245,8 +251,10 @@ export function UserTable({
                     >
                       <KeyRound className="h-3.5 w-3.5" />
                     </Button>
+                    )}
 
                     {/* Delete User */}
+                    {canManage && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -257,6 +265,7 @@ export function UserTable({
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>

@@ -217,7 +217,7 @@ func (r *Repository) CountScans(ctx context.Context, sessionID string) (int, err
 	return n, err
 }
 
-// MarkTeamOfLeader marks every entered member of the team led by leaderID in the session.
+// MarkTeamOfLeader marks every member holding a pass of the team led by leaderID in the session.
 // Returns nil when the scanned user does not lead a team. The leader's own scan is excluded from the counts.
 func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, scannerID string) (*TeamScanResult, error) {
 	var teamID, teamName string
@@ -230,7 +230,7 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT u.name, t.id, COALESCE(t.is_checked_in, false)
+		SELECT u.name, t.id
 		FROM users u
 		LEFT JOIN tickets t ON t.user_id = u.id
 		WHERE u.team_id = $1 AND u.id <> $2 AND u.deleted_at IS NULL
@@ -239,14 +239,13 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 		return nil, fmt.Errorf("list team members: %w", err)
 	}
 	type member struct {
-		name      string
-		ticketID  *string
-		checkedIn bool
+		name     string
+		ticketID *string
 	}
 	var members []member
 	for rows.Next() {
 		var m member
-		if err := rows.Scan(&m.name, &m.ticketID, &m.checkedIn); err != nil {
+		if err := rows.Scan(&m.name, &m.ticketID); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan team member: %w", err)
 		}
@@ -262,8 +261,6 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 		switch {
 		case m.ticketID == nil:
 			res.Skipped = append(res.Skipped, TeamScanSkip{Name: m.name, Reason: "no_pass"})
-		case !m.checkedIn:
-			res.Skipped = append(res.Skipped, TeamScanSkip{Name: m.name, Reason: "not_checked_in"})
 		default:
 			_, recorded, err := r.RecordScan(ctx, sessionID, *m.ticketID, scannerID)
 			if err != nil {
@@ -279,16 +276,17 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 	return res, nil
 }
 
-// sessionPeople returns every attendee who has entered, with their scan time in the session (if any).
-func (r *Repository) sessionPeople(ctx context.Context, sessionID string) ([]SessionPerson, error) {
+// sessionPeople returns every ticket holder with their scan time in the session (if any).
+// Exit sessions only expect people who have entered; attendance sessions expect everyone.
+func (r *Repository) sessionPeople(ctx context.Context, sessionID, kind string) ([]SessionPerson, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT u.id, u.name, u.email, u.phone_number, tm.name, e.scanned_at
 		FROM tickets t
 		JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
 		LEFT JOIN teams tm ON tm.id = u.team_id
 		LEFT JOIN scan_events e ON e.ticket_id = t.id AND e.session_id = $1
-		WHERE t.is_checked_in = true
-		ORDER BY u.name`, sessionID)
+		WHERE ($2 <> 'exit' OR t.is_checked_in = true)
+		ORDER BY u.name`, sessionID, kind)
 	if err != nil {
 		return nil, fmt.Errorf("query session people: %w", err)
 	}
@@ -397,7 +395,8 @@ func (s *Service) ScanInSession(
 		return nil, &SessionScanRejection{Error: msg, Code: code, Attendee: attendee}, sentinel
 	}
 
-	if !info.IsCheckedIn {
+	// Entry check-in gates only the exit gate; session attendance is open to every ticket holder.
+	if sess.Kind == KindExit && !info.IsCheckedIn {
 		return reject("not_checked_in", "This attendee has not checked in at entry", ErrNotCheckedIn)
 	}
 	if sess.Kind == KindExit {
@@ -472,7 +471,7 @@ func (s *Service) GetSessionReport(ctx context.Context, sessionID string) (*Sess
 	if err != nil {
 		return nil, err
 	}
-	people, err := s.repo.sessionPeople(ctx, sessionID)
+	people, err := s.repo.sessionPeople(ctx, sessionID, sess.Kind)
 	if err != nil {
 		return nil, err
 	}

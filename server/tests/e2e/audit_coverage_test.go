@@ -50,7 +50,7 @@ func TestStage7_AuditTrailForTicketingAndAuth(t *testing.T) {
 		admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/tickets/sessions/%s/scan", id), map[string]string{"ticket_code": c}, want, nil)
 	}
 
-	scan(att.ID, code, http.StatusUnprocessableEntity) // not checked in -> scan_rejected
+	scan(exit.ID, code, http.StatusUnprocessableEntity) // not checked in at entry -> scan_rejected
 	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/check-in", map[string]string{"ticket_code": code}, http.StatusOK, nil)
 	scan(att.ID, code, http.StatusOK)
 	scan(att.ID, code, http.StatusConflict)                          // duplicate

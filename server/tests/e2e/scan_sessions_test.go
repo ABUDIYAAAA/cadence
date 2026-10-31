@@ -55,19 +55,20 @@ func TestStage7_ScanSessions(t *testing.T) {
 	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/sessions", map[string]string{"name": "Gate out", "kind": "exit"}, http.StatusCreated, &exit)
 	scanPath := func(id string) string { return fmt.Sprintf("/api/v1/tickets/sessions/%s/scan", id) }
 
-	// Not entered yet
+	// Exit scans still need entry check-in
 	var rej tickets.SessionScanRejection
-	admin.DoJSON(t, http.MethodPost, scanPath(attendance.ID), map[string]string{"ticket_code": insCode}, http.StatusUnprocessableEntity, &rej)
+	admin.DoJSON(t, http.MethodPost, scanPath(exit.ID), map[string]string{"ticket_code": extCode}, http.StatusUnprocessableEntity, &rej)
 	if rej.Code != "not_checked_in" {
 		t.Fatalf("expected not_checked_in, got %+v", rej)
 	}
 
+	// Attendance works without ever checking in at entry
+	var ok tickets.SessionScanResponse
+	admin.DoJSON(t, http.MethodPost, scanPath(attendance.ID), map[string]string{"ticket_code": insCode}, http.StatusOK, &ok)
+
 	for _, c := range []string{insCode, extCode} {
 		admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/check-in", map[string]string{"ticket_code": c}, http.StatusOK, nil)
 	}
-
-	var ok tickets.SessionScanResponse
-	admin.DoJSON(t, http.MethodPost, scanPath(attendance.ID), map[string]string{"ticket_code": insCode}, http.StatusOK, &ok)
 	if !ok.Success || ok.Attendee.Email != "ins@internal.example" {
 		t.Fatalf("unexpected attendance scan: %+v", ok)
 	}
@@ -101,7 +102,7 @@ func TestStage7_ScanSessions(t *testing.T) {
 	}
 }
 
-// A team leader's attendance scan marks the whole team; members who never entered are reported, not marked.
+// A team leader's attendance scan marks the whole team; attendance does not require entry check-in.
 func TestStage7_TeamLeaderScanMarksTeam(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
@@ -136,11 +137,11 @@ func TestStage7_TeamLeaderScanMarksTeam(t *testing.T) {
 	var resp tickets.SessionScanResponse
 	scan := fmt.Sprintf("/api/v1/tickets/sessions/%s/scan", sess.ID)
 	admin.DoJSON(t, http.MethodPost, scan, map[string]string{"ticket_code": code("lead@internal.example")}, http.StatusOK, &resp)
-	if resp.Team == nil || resp.Team.Marked != 1 || len(resp.Team.Skipped) != 1 || resp.Team.Skipped[0].Reason != "not_checked_in" {
+	if resp.Team == nil || resp.Team.Marked != 2 || len(resp.Team.Skipped) != 0 {
 		t.Fatalf("unexpected team scan result: %+v", resp.Team)
 	}
-	if resp.Session.ScannedCount != 2 {
-		t.Fatalf("expected 2 scans recorded (leader + 1 member), got %d", resp.Session.ScannedCount)
+	if resp.Session.ScannedCount != 3 {
+		t.Fatalf("expected 3 scans recorded (leader + 2 members, entry check-in not required), got %d", resp.Session.ScannedCount)
 	}
 
 	// The marked member is now a duplicate when scanned on their own.

@@ -27,15 +27,18 @@ func TestSignInBurst_SeededUsersSetPasswordsTogether(t *testing.T) {
 		actors[i] = NewActor(t, fmt.Sprintf("Burst%03d", i), fmt.Sprintf("burst%03d@cadence.local", i))
 	}
 
-	// parallel runs fn for every actor at once and fails if any returns an error.
-	parallel := func(fn func(a *Actor) error) {
+	// parallel runs fn for every actor with at most `limit` in flight and fails if any returns an error.
+	parallel := func(limit int, fn func(a *Actor) error) {
 		t.Helper()
 		var wg sync.WaitGroup
 		errs := make(chan error, n)
+		slots := make(chan struct{}, limit)
 		for _, a := range actors {
 			wg.Add(1)
+			slots <- struct{}{}
 			go func(a *Actor) {
 				defer wg.Done()
+				defer func() { <-slots }()
 				if err := fn(a); err != nil {
 					errs <- fmt.Errorf("%s: %w", a.Email, err)
 				}
@@ -57,7 +60,9 @@ func TestSignInBurst_SeededUsersSetPasswordsTogether(t *testing.T) {
 
 	// 1. App load: unauthenticated /auth/me (401), then each asks for a reset link.
 	start := time.Now()
-	parallel(func(a *Actor) error {
+	// In-flight connections are capped because a local test listener's accept backlog is small (and slower under
+	// -race); the shared-IP limits count requests per minute, so all 200 users still hit them.
+	parallel(40, func(a *Actor) error {
 		if err := call(a, http.MethodGet, "/api/v1/auth/me", nil, http.StatusUnauthorized); err != nil {
 			return err
 		}
@@ -91,8 +96,10 @@ func TestSignInBurst_SeededUsersSetPasswordsTogether(t *testing.T) {
 	}
 	t.Logf("all %d reset emails delivered %s after the first request", n, time.Since(start).Round(time.Millisecond))
 
-	// 3. Everyone sets a password and signs in at the same time, then loads /auth/me.
-	parallel(func(a *Actor) error {
+	// 3. Everyone sets a password and signs in, then loads /auth/me. These calls are bcrypt-bound (CPU), so
+	// they run in waves: the shared-IP rate limits are what is under test here, not how many password
+	// hashes a small CI runner can compute in one instant (especially under -race).
+	parallel(20, func(a *Actor) error {
 		pw := "BurstPass123!"
 		if err := call(a, http.MethodPost, "/api/v1/auth/reset-password",
 			map[string]string{"token": tokens[a.Email], "password": pw, "confirm_password": pw}, http.StatusOK); err != nil {

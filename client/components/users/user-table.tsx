@@ -9,6 +9,7 @@ import {
   Crown,
   Check,
   Clock,
+  RotateCcw,
 } from "lucide-react";
 import { UserDetailResponse } from "@/types/users";
 import {
@@ -31,6 +32,8 @@ interface UserTableProps {
   onEdit: (user: UserDetailResponse) => void;
   onDelete: (user: UserDetailResponse) => void;
   onResetPassword: (user: UserDetailResponse) => void;
+  /** Reactivates a removed user; shown only for rows with deleted_at. */
+  onReactivate?: (user: UserDetailResponse) => void;
   /** Admins get every action; volunteers can only view. */
   canManage?: boolean;
   actionInProgressId?: string | null;
@@ -43,6 +46,7 @@ export function UserTable({
   onEdit,
   onDelete,
   onResetPassword,
+  onReactivate,
   canManage = true,
   actionInProgressId,
 }: UserTableProps) {
@@ -186,7 +190,7 @@ export function UserTable({
                     dot
                     size="sm"
                   >
-                    {user.is_active ? "Active" : "Inactive"}
+                    {user.deleted_at ? "Removed" : user.is_active ? "Active" : "Inactive"}
                   </Badge>
                 </TableCell>
 
@@ -209,8 +213,23 @@ export function UserTable({
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
 
+                    {/* Removed users can only be reactivated */}
+                    {canManage && user.deleted_at && onReactivate && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isProcessing}
+                      onClick={() => onReactivate(user)}
+                      title="Reactivate user"
+                      className="h-7 px-2 text-xs gap-1"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      Reactivate
+                    </Button>
+                    )}
+
                     {/* Edit User */}
-                    {canManage && (
+                    {canManage && !user.deleted_at && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -223,7 +242,7 @@ export function UserTable({
                     )}
 
                     {/* Trigger Password Reset */}
-                    {canManage && (
+                    {canManage && !user.deleted_at && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -237,7 +256,7 @@ export function UserTable({
                     )}
 
                     {/* Delete User */}
-                    {canManage && (
+                    {canManage && !user.deleted_at && (
                     <Button
                       variant="ghost"
                       size="sm"

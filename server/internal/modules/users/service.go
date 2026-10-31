@@ -321,6 +321,37 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	return nil
 }
 
+// RestoreUser reactivates a removed user and lifts the instant-revocation block.
+func (s *Service) RestoreUser(ctx context.Context, id string) error {
+	if err := s.repo.RestoreUser(ctx, id); err != nil {
+		return err
+	}
+
+	if s.redis != nil {
+		_ = s.redis.Del(ctx, fmt.Sprintf("blocked:user:%s", id)).Err()
+	}
+
+	if s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserUpdate,
+			TargetType:  audit.TargetUser,
+			TargetID:    &id,
+			Description: "Administrator reactivated a removed user",
+		})
+	}
+	return nil
+}
+
 // volunteerCaller reports whether the caller in ctx is a volunteer, who may only add participants.
 func volunteerCaller(ctx context.Context) bool {
 	claims, ok := auth.GetUserClaims(ctx)

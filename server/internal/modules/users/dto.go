@@ -44,6 +44,8 @@ type UserFilter struct {
 	IsActive *bool  `json:"is_active"`
 	// CheckinStatus narrows to "checked_in", "not_checked_in" (has a pass, not yet arrived) or "no_pass".
 	CheckinStatus string `json:"checkin_status"`
+	// Deleted lists removed (soft-deleted) users instead of live ones. Admin-only.
+	Deleted bool `json:"deleted"`
 }
 
 // UserDetailResponse is the complete user view returned to administrators.
@@ -63,6 +65,8 @@ type UserDetailResponse struct {
 	// Set only by the list endpoint: "checked_in", "not_checked_in" or "no_pass".
 	CheckinStatus string     `json:"checkin_status,omitempty"`
 	CheckedInAt   *time.Time `json:"checked_in_at,omitempty"`
+	// Set only when listing removed users.
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // PaginatedUsersResponse wraps user lists with pagination metadata.

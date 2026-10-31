@@ -13,6 +13,7 @@ import {
   useBulkCreateUsers,
   useCreateUser,
   useDeleteUser,
+  useReactivateUser,
   useTriggerResetPassword,
   useUpdateUser,
   useUsers,
@@ -66,6 +67,7 @@ export default function UsersPage() {
   const bulkCreateMutation = useBulkCreateUsers();
   const updateUserMutation = useUpdateUser();
   const deleteUserMutation = useDeleteUser();
+  const reactivateUserMutation = useReactivateUser();
   const resetPasswordMutation = useTriggerResetPassword();
 
   // Dialog states
@@ -189,6 +191,25 @@ export default function UsersPage() {
     }
   };
 
+  const handleReactivateUser = async (targetUser: UserDetailResponse) => {
+    setActionInProgressId(targetUser.id);
+    try {
+      await reactivateUserMutation.mutateAsync(targetUser.id);
+      toast.success(
+        `${targetUser.email} can sign in again. Their team membership was not restored.`,
+        "Account reactivated"
+      );
+    } catch (err: unknown) {
+      const errorMsg =
+        err && typeof err === "object" && "error" in err
+          ? (err as { error: string }).error
+          : "Reactivation failed";
+      toast.error(errorMsg, "Error");
+    } finally {
+      setActionInProgressId(null);
+    }
+  };
+
   const handleTriggerResetPassword = async (targetUser: UserDetailResponse) => {
     setActionInProgressId(targetUser.id);
     try {
@@ -302,6 +323,7 @@ export default function UsersPage() {
       {/* Inline Filters */}
       <UserFilters
         filters={filters}
+        canViewRemoved={isAdmin}
         onChange={(newFilters) => setFilters(newFilters)}
         onReset={() =>
           setFilters({
@@ -310,6 +332,7 @@ export default function UsersPage() {
             search: "",
             role: undefined,
             is_active: undefined,
+            deleted: undefined,
           })
         }
       />
@@ -322,6 +345,7 @@ export default function UsersPage() {
         onEdit={(user) => setEditingUser(user)}
         onDelete={(user) => setDeletingUser(user)}
         onResetPassword={handleTriggerResetPassword}
+        onReactivate={handleReactivateUser}
         actionInProgressId={actionInProgressId}
         canManage={isAdmin}
       />

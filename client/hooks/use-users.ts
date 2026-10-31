@@ -97,6 +97,17 @@ export function useDeleteUser() {
   });
 }
 
+export function useReactivateUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => usersService.reactivate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
+  });
+}
+
 export function useTriggerResetPassword() {
   const queryClient = useQueryClient();
 

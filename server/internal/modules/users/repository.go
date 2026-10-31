@@ -123,7 +123,11 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	var args []any
 	argIndex := 1
 
-	conditions = append(conditions, "u.deleted_at IS NULL")
+	if filter.Deleted {
+		conditions = append(conditions, "u.deleted_at IS NOT NULL")
+	} else {
+		conditions = append(conditions, "u.deleted_at IS NULL")
+	}
 
 	if filter.Role != "" {
 		conditions = append(conditions, fmt.Sprintf("u.role = $%d", argIndex))
@@ -194,7 +198,7 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
 		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at,
 		       CASE WHEN tk.id IS NULL THEN 'no_pass' WHEN tk.is_checked_in THEN 'checked_in' ELSE 'not_checked_in' END,
-		       tk.checked_in_at
+		       tk.checked_in_at, u.deleted_at
 		FROM users u
 		LEFT JOIN teams t ON u.team_id = t.id
 		LEFT JOIN tickets tk ON tk.user_id = u.id
@@ -219,7 +223,7 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
 			&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.CreatedAt,
-			&u.CheckinStatus, &u.CheckedInAt,
+			&u.CheckinStatus, &u.CheckedInAt, &u.DeletedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan user row: %w", err)
 		}
@@ -360,6 +364,25 @@ func (r *Repository) CreateResetOrSetupToken(ctx context.Context, userID, tokenH
 	_, err := r.db.Exec(ctx, query, userID, tokenHash, purpose, expiresAt)
 	if err != nil {
 		return fmt.Errorf("insert reset/setup token: %w", err)
+	}
+	return nil
+}
+
+// RestoreUser reactivates a soft-deleted user. Returns ErrUserNotFound if the user is not deleted.
+func (r *Repository) RestoreUser(ctx context.Context, id string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE users
+		SET is_active = TRUE,
+		    deleted_at = NULL,
+		    token_version = token_version + 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND deleted_at IS NOT NULL
+	`, id)
+	if err != nil {
+		return fmt.Errorf("restore user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
 	}
 	return nil
 }

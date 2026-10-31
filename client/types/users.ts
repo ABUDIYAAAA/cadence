@@ -16,6 +16,8 @@ export interface UserDetailResponse {
   /** Present on the list endpoint only. */
   checkin_status?: CheckinStatus;
   checked_in_at?: string | null;
+  /** Set when listing removed users (admin only). */
+  deleted_at?: string | null;
 }
 
 export type CheckinStatus = "checked_in" | "not_checked_in" | "no_pass";
@@ -56,6 +58,8 @@ export interface UserFilter {
   search?: string;
   is_active?: boolean;
   checkin_status?: CheckinStatus;
+  /** List removed (soft-deleted) users instead of live ones. Admin only. */
+  deleted?: boolean;
 }
 
 export type PaginatedUsersResponse = PaginatedResponse<UserDetailResponse>;

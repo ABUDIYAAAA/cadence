@@ -43,6 +43,11 @@ export const usersService = {
     return data;
   },
 
+  async reactivate(id: string): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(`/users/${id}/reactivate`);
+    return data;
+  },
+
   async triggerResetPassword(id: string): Promise<MessageResponse> {
     const { data } = await apiClient.post<MessageResponse>(
       `/users/${id}/trigger-reset-password`

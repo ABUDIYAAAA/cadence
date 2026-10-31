@@ -28,6 +28,7 @@ func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) 
 			r.Post("/bulk", h.HandleBulkCreate)
 			r.Patch("/{id}", h.HandleUpdate)
 			r.Delete("/{id}", h.HandleDelete)
+			r.Post("/{id}/reactivate", h.HandleRestore)
 
 			// Recovery triggers
 			r.Post("/{id}/trigger-reset-password", h.HandleTriggerResetPassword)

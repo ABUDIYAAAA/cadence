@@ -9,13 +9,15 @@ import { UserFilter } from "@/types/users";
 
 interface UserFiltersProps {
   filters: UserFilter;
+  /** Admins can also browse removed accounts. */
+  canViewRemoved?: boolean;
   onChange: (filters: UserFilter) => void;
   onReset: () => void;
 }
 
-export function UserFilters({ filters, onChange, onReset }: UserFiltersProps) {
+export function UserFilters({ filters, canViewRemoved = false, onChange, onReset }: UserFiltersProps) {
   const hasActiveFilters = Boolean(
-    filters.search || filters.role || filters.is_active !== undefined
+    filters.search || filters.role || filters.is_active !== undefined || filters.deleted
   );
 
   return (
@@ -66,7 +68,9 @@ export function UserFilters({ filters, onChange, onReset }: UserFiltersProps) {
         <div>
           <Select
             value={
-              filters.is_active === undefined
+              filters.deleted
+                ? "removed"
+                : filters.is_active === undefined
                 ? ""
                 : filters.is_active
                 ? "active"
@@ -76,6 +80,7 @@ export function UserFilters({ filters, onChange, onReset }: UserFiltersProps) {
               const val = e.target.value;
               onChange({
                 ...filters,
+                deleted: val === "removed" ? true : undefined,
                 is_active:
                   val === "active" ? true : val === "inactive" ? false : undefined,
                 page: 1,
@@ -86,6 +91,7 @@ export function UserFilters({ filters, onChange, onReset }: UserFiltersProps) {
             <option value="">All Statuses</option>
             <option value="active">Active Only</option>
             <option value="inactive">Inactive Only</option>
+            {canViewRemoved && <option value="removed">Removed</option>}
           </Select>
         </div>
 

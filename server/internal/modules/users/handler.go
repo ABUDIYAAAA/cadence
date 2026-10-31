@@ -100,6 +100,14 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if query.Get("deleted") == "true" || query.Get("deleted") == "1" {
+		if claims, ok := auth.GetUserClaims(r.Context()); !ok || claims.Role != "admin" {
+			utils.ErrorJSON(w, http.StatusForbidden, "only admins can view removed users")
+			return
+		}
+		filter.Deleted = true
+	}
+
 	if activeParam := query.Get("is_active"); activeParam != "" {
 		activeBool := activeParam == "true" || activeParam == "1"
 		filter.IsActive = &activeBool
@@ -176,6 +184,23 @@ func (h *Handler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 
 	utils.JSON(w, http.StatusOK, map[string]string{
 		"message": "user removed and sessions invalidated instantly",
+	})
+}
+
+// HandleRestore reactivates a removed user.
+func (h *Handler) HandleRestore(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.service.RestoreUser(r.Context(), id); err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "removed user not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to reactivate user")
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{
+		"message": "user reactivated",
 	})
 }
 

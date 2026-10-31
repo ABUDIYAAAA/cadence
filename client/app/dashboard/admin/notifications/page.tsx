@@ -13,6 +13,7 @@ import {
   useAdminNotificationHistory,
 } from "@/hooks/use-notifications";
 import { useTeams } from "@/hooks/use-teams";
+import { useScanSessions } from "@/hooks/use-tickets";
 import { useUsers } from "@/hooks/use-users";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,8 @@ export default function AdminNotificationsPage() {
   // Form State
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [targetType, setTargetType] = useState<"broadcast" | "role" | "team" | "user">("broadcast");
+  const [targetType, setTargetType] = useState<"broadcast" | "role" | "team" | "user" | "attendance">("broadcast");
+  const [attendanceMode, setAttendanceMode] = useState<"present" | "absent">("present");
   const [targetId, setTargetId] = useState("");
   const [roleSelection, setRoleSelection] = useState("participant");
   const [actionUrl, setActionUrl] = useState("");
@@ -59,6 +61,8 @@ export default function AdminNotificationsPage() {
   } = useAdminNotificationHistory(page, limit);
 
   // Fetch Teams for dropdown (only when team target is active or preloaded)
+  const { data: scanSessions = [], isLoading: sessionsLoading } = useScanSessions();
+  const attendanceSessions = scanSessions.filter((s) => s.kind === "attendance");
   const { data: teamsData, isLoading: teamsLoading } = useTeams({ limit: 100 });
   const teams = useMemo(() => teamsData?.data || [], [teamsData?.data]);
 
@@ -112,8 +116,8 @@ export default function AdminNotificationsPage() {
       setFormError("Message body is required.");
       return;
     }
-    if ((targetType === "team" || targetType === "user") && !targetId.trim()) {
-      setFormError(`Please select a ${targetType} from the list.`);
+    if ((targetType === "team" || targetType === "user" || targetType === "attendance") && !targetId.trim()) {
+      setFormError(`Please select ${targetType === "attendance" ? "an attendance session" : `a ${targetType}`} from the list.`);
       return;
     }
 
@@ -121,7 +125,7 @@ export default function AdminNotificationsPage() {
       const resp = await broadcastMutation.mutateAsync({
         title: title.trim(),
         body: body.trim(),
-        target_type: targetType,
+        target_type: targetType === "attendance" ? `attendance_${attendanceMode}` : targetType,
         target_id: effectiveTargetId,
         action_url: actionUrl.trim() || undefined,
         icon_url: iconUrl.trim() || undefined,
@@ -203,19 +207,20 @@ export default function AdminNotificationsPage() {
                       <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
                         Recipients
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 rounded-[8px] bg-[var(--card-solid-subtle)]">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 p-1 rounded-[8px] bg-[var(--card-solid-subtle)]">
                         {[
                           { id: "broadcast", label: "Everyone" },
                           { id: "role", label: "By role" },
                           { id: "team", label: "By team" },
                           { id: "user", label: "Specific user" },
+                          { id: "attendance", label: "By attendance" },
                         ].map((item) => (
                           <button
                             key={item.id}
                             type="button"
                             onClick={() => {
                               setTargetType(
-                                item.id as "broadcast" | "role" | "team" | "user"
+                                item.id as "broadcast" | "role" | "team" | "user" | "attendance"
                               );
                               setTargetId("");
                             }}
@@ -230,6 +235,46 @@ export default function AdminNotificationsPage() {
                         ))}
                       </div>
                     </div>
+
+                    {/* TARGET TYPE: ATTENDANCE GROUP */}
+                    {targetType === "attendance" && (
+                      <div className="space-y-2">
+                        <Select
+                          label="Attendance session"
+                          value={targetId}
+                          onChange={(e) => setTargetId(e.target.value)}
+                          disabled={sessionsLoading}
+                        >
+                          <option value="">
+                            {sessionsLoading ? "Loading sessions..." : "— Choose a session —"}
+                          </option>
+                          {attendanceSessions.map((sess) => (
+                            <option key={sess.id} value={sess.id}>
+                              {sess.name} ({sess.scanned_count} present)
+                            </option>
+                          ))}
+                        </Select>
+                        <div className="grid grid-cols-2 gap-1 p-1 rounded-[8px] bg-[var(--card-solid-subtle)]">
+                          {(["present", "absent"] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setAttendanceMode(mode)}
+                              className={`px-2.5 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer capitalize ${
+                                attendanceMode === mode
+                                  ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
+                                  : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
+                              }`}
+                            >
+                              {mode}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-[var(--ink-secondary)]">
+                          Delivered to ticket holders who were {attendanceMode === "present" ? "scanned in" : "not scanned in"} this session.
+                        </p>
+                      </div>
+                    )}
 
                     {/* TARGET TYPE: ROLE */}
                     {targetType === "role" && (
@@ -477,6 +522,8 @@ export default function AdminNotificationsPage() {
                           ? "Everyone"
                           : targetType === "role"
                           ? `Role: ${roleSelection}`
+                          : targetType === "attendance"
+                          ? `Attendance (${attendanceMode}): ${attendanceSessions.find((x) => x.id === targetId)?.name || "Not selected"}`
                           : targetType === "team"
                           ? `Squad: ${selectedTeam?.name || targetId || "Not selected"}`
                           : `User: ${selectedUser?.name || targetId || "Not selected"}`}

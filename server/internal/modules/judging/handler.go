@@ -308,6 +308,14 @@ func (h *Handler) HandleUpdateSlotLinks(w http.ResponseWriter, r *http.Request) 
 			utils.ErrorJSON(w, http.StatusForbidden, "you can only update submission links for your own team")
 			return
 		}
+		if errors.Is(err, ErrNotPresent) {
+			utils.ErrorJSON(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, ErrProjectNameTooLong) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update links: "+err.Error())
 		return
 	}
@@ -788,4 +796,56 @@ func (h *Handler) HandleUnqueueSlot(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusOK, map[string]string{
 		"message": "Team reverted to scheduled slot",
 	})
+}
+
+// HandleGetSubmissionGate returns the attendance session that gates submissions.
+func (h *Handler) HandleGetSubmissionGate(w http.ResponseWriter, r *http.Request) {
+	gate, err := h.service.GetSubmissionGate(r.Context())
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to load submission gate")
+		return
+	}
+	utils.JSON(w, http.StatusOK, gate)
+}
+
+// HandleSetSubmissionGate sets or clears the attendance session that gates submissions.
+func (h *Handler) HandleSetSubmissionGate(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req UpdateSubmissionGateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+	gate, err := h.service.SetSubmissionGate(r.Context(), req.SessionID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		if errors.Is(err, ErrGateSessionInvalid) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update submission gate")
+		return
+	}
+	utils.JSON(w, http.StatusOK, gate)
+}
+
+// HandleGetRoundSubmissions lists every team's project name and links in a round.
+func (h *Handler) HandleGetRoundSubmissions(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.service.GetRoundSubmissions(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		if errors.Is(err, ErrRoundNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "judging round not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to fetch submissions")
+		return
+	}
+	utils.JSON(w, http.StatusOK, resp)
 }

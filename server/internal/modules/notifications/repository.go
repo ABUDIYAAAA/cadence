@@ -98,6 +98,22 @@ func (r *Repository) GetEligibleRecipientIDs(ctx context.Context, targetType str
 		}
 		query = `SELECT id::text FROM users WHERE id = $1 AND deleted_at IS NULL;`
 		args = append(args, *targetID)
+	case "attendance_present", "attendance_absent":
+		if targetID == nil || *targetID == "" {
+			return nil, fmt.Errorf("attendance session target_id is required")
+		}
+		// Ticket holders are the people an attendance session expects; present = scanned in it.
+		cond := "EXISTS"
+		if targetType == "attendance_absent" {
+			cond = "NOT EXISTS"
+		}
+		query = `
+			SELECT u.id::text FROM users u
+			JOIN tickets t ON t.user_id = u.id
+			WHERE u.deleted_at IS NULL
+			  AND EXISTS (SELECT 1 FROM scan_sessions ss WHERE ss.id = $1 AND ss.kind = 'attendance')
+			  AND ` + cond + ` (SELECT 1 FROM scan_events e WHERE e.ticket_id = t.id AND e.session_id = $1);`
+		args = append(args, *targetID)
 	default:
 		return nil, fmt.Errorf("unknown target type: %s", targetType)
 	}

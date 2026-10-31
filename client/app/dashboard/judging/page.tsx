@@ -391,7 +391,7 @@ export default function JudgingPage() {
 			</div>
 
 			{/* TAB 2: VOLUNTEER STAGING SCHEDULE MONITOR */}
-			{activeTab === 'volunteer_monitor' && <VolunteerScheduleView />}
+			{activeTab === 'volunteer_monitor' && <VolunteerScheduleView allowExport />}
 
 			{/* LEADERBOARD (admin) */}
 			{activeTab === 'leaderboard' && <RoundLeaderboardView />}

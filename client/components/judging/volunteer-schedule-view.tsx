@@ -7,9 +7,14 @@ import {
   Play,
   ExternalLink,
   Volume2,
+  Download,
 } from "lucide-react";
 import { useVolunteerSchedule } from "@/hooks/use-judging";
+import { judgingService } from "@/services/judging.service";
+import { useToast } from "@/providers/toast-provider";
+import { downloadCsv, slugify, toCsv } from "@/lib/csv";
 import { VolunteerPanelSchedule } from "@/types/judging";
+import { SubmissionAdminCard } from "./submission-admin-card";
 import { SectionToolbar, MetricGrid, Metric } from "./section-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +22,16 @@ import { Badge } from "@/components/ui/badge";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
-export function VolunteerScheduleView({ showStats = true }: { showStats?: boolean }) {
+export function VolunteerScheduleView({
+  showStats = true,
+  allowExport = false,
+}: {
+  showStats?: boolean;
+  /** Admin-only: export the panel-wise team division as a Sheets-ready CSV. */
+  allowExport?: boolean;
+}) {
+  const toast = useToast();
+  const [exporting, setExporting] = useState(false);
   const { data: rawSchedule, isLoading, isFetching, refetch } = useVolunteerSchedule();
   const schedule = useMemo(() => (Array.isArray(rawSchedule) ? rawSchedule : []), [rawSchedule]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,6 +100,38 @@ export function VolunteerScheduleView({ showStats = true }: { showStats?: boolea
     }
   };
 
+  // One row per team, grouped by room/panel; one column per criterion, headed with its weightage.
+  const exportDivision = async () => {
+    const roundIds = Array.from(new Set(schedule.map((p) => p.round_id)));
+    if (roundIds.length === 0) return;
+    setExporting(true);
+    try {
+      const results = await Promise.all(roundIds.map((id) => judgingService.getAdminLeaderboard(id)));
+      const fmt = (n: number) => (Math.round(n * 100) / 100).toString();
+      for (const data of results) {
+        const header = [
+          "Room",
+          "Panel",
+          "Team",
+          ...data.criteria.map((c) => `${c.name} (weight x${fmt(c.weight)}, max ${fmt(c.max_score)})`),
+        ];
+        const rows = [...data.leaderboard]
+          .sort(
+            (a, b) =>
+              a.room.localeCompare(b.room, undefined, { numeric: true }) ||
+              a.panel_name.localeCompare(b.panel_name, undefined, { numeric: true }) ||
+              a.team_name.localeCompare(b.team_name)
+          )
+          .map((e) => [e.room, e.panel_name, e.team_name, ...data.criteria.map(() => "")]);
+        downloadCsv(`${slugify(data.round_name)}-panel-division.csv`, toCsv(header, rows));
+      }
+    } catch {
+      toast.error("Could not export the panel division.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="font-sans space-y-6">
       <SectionToolbar
@@ -93,7 +139,22 @@ export function VolunteerScheduleView({ showStats = true }: { showStats?: boolea
         subtitle="Live presentation status and on-deck escorts for each room"
         onRefresh={() => refetch()}
         isFetching={isFetching}
-      />
+      >
+        {allowExport && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportDivision}
+            disabled={exporting || schedule.length === 0}
+            className="text-xs"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exporting ? "Exporting…" : "Export panels"}
+          </Button>
+        )}
+      </SectionToolbar>
+
+      {allowExport && <SubmissionAdminCard />}
 
       {showStats && (
       <MetricGrid>

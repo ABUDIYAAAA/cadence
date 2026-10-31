@@ -191,6 +191,24 @@ export function useJudgingRound(id: string) {
   });
 }
 
+export function useSubmissionGate() {
+  return useQuery({
+    queryKey: [...JUDGING_QUERY_KEY, "submission-gate"],
+    queryFn: () => judgingService.getSubmissionGate(),
+  });
+}
+
+export function useSetSubmissionGate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string | null) => judgingService.setSubmissionGate(sessionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...JUDGING_QUERY_KEY, "submission-gate"] });
+      queryClient.invalidateQueries({ queryKey: [...JUDGING_QUERY_KEY, "team-status"] });
+    },
+  });
+}
+
 export function useAdminLeaderboard(roundId: string) {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "leaderboard", roundId],

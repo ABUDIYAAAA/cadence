@@ -17,7 +17,7 @@ export interface BroadcastNotificationRequest {
   body: string;
   action_url?: string;
   icon_url?: string;
-  target_type: "broadcast" | "team" | "role" | "user";
+  target_type: "broadcast" | "team" | "role" | "user" | "attendance_present" | "attendance_absent";
   target_id?: string;
 }
 

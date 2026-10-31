@@ -16,6 +16,7 @@ var (
 	ErrInvalidCriteria     = errors.New("each criterion must have valid min/max scores (max > min >= 0) and non-negative weight")
 	ErrScoreOutOfRange     = errors.New("submitted score is outside criterion allowed score range")
 	ErrCriterionNotInRound = errors.New("submitted criterion does not belong to this slot's judging round")
+	ErrProjectNameTooLong  = errors.New("project name must be at most 150 characters")
 	ErrDuplicateCriterion  = errors.New("duplicate criterion_id in score submission")
 )
 
@@ -231,6 +232,16 @@ func (s *Service) UpdateSlotLinks(
 			}
 			return ErrUnauthorizedSlot
 		}
+	}
+	if actorRole != "admin" {
+		if ok, _, err := s.canTeamSubmit(ctx, slotID); err != nil {
+			return err
+		} else if !ok {
+			return ErrNotPresent
+		}
+	}
+	if name := links["project_name"]; len([]rune(name)) > 150 {
+		return ErrProjectNameTooLong
 	}
 	if err := s.repo.UpdateSlotLinks(ctx, slotID, links); err != nil {
 		return err
@@ -471,12 +482,85 @@ func (s *Service) GetTeamStatusForUser(ctx context.Context, userID string) (*Tea
 			Instructions:   "You are not assigned to any team.",
 		}, nil
 	}
-	return s.repo.GetTeamActiveStatus(ctx, *teamID)
+	return s.withSubmitGate(ctx, *teamID)
+}
+
+// withSubmitGate loads a team's status and marks whether the attendance gate lets it submit.
+func (s *Service) withSubmitGate(ctx context.Context, teamID string) (*TeamStatusResponse, error) {
+	resp, err := s.repo.GetTeamActiveStatus(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	resp.CanSubmit = true
+	gate, err := s.repo.GetSubmissionGate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if gate.SessionID != nil {
+		present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("check attendance: %w", err)
+		}
+		if !present {
+			resp.CanSubmit = false
+			resp.SubmitBlockedReason = fmt.Sprintf("No member of your team was present at %q, so submissions are closed for your team.", *gate.SessionName)
+		}
+	}
+	return resp, nil
+}
+
+// canTeamSubmit applies the attendance gate to the team that owns slotID.
+func (s *Service) canTeamSubmit(ctx context.Context, slotID string) (bool, SubmissionGate, error) {
+	gate, err := s.repo.GetSubmissionGate(ctx)
+	if err != nil || gate.SessionID == nil {
+		return true, gate, err
+	}
+	teamID, err := s.repo.SlotTeamID(ctx, slotID)
+	if err != nil {
+		return false, gate, err
+	}
+	present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
+	if err != nil {
+		return false, gate, fmt.Errorf("check attendance: %w", err)
+	}
+	return present, gate, nil
+}
+
+// GetSubmissionGate returns the attendance session that gates submissions.
+func (s *Service) GetSubmissionGate(ctx context.Context) (SubmissionGate, error) {
+	return s.repo.GetSubmissionGate(ctx)
+}
+
+// SetSubmissionGate sets or clears the gating attendance session.
+func (s *Service) SetSubmissionGate(ctx context.Context, sessionID *string, actorID, actorEmail, actorRole, ip, ua string) (SubmissionGate, error) {
+	if sessionID != nil && *sessionID == "" {
+		sessionID = nil
+	}
+	gate, err := s.repo.SetSubmissionGate(ctx, sessionID, actorID)
+	if err != nil {
+		return gate, err
+	}
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingSlotLinksUpdate,
+		audit.TargetJudgingSlot,
+		nil,
+		fmt.Sprintf("Submission gate changed by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"submission_gate_session": sessionID},
+		&ip, &ua,
+	)
+	return gate, nil
+}
+
+// GetRoundSubmissions lists each team's project name and links for the CSV export.
+func (s *Service) GetRoundSubmissions(ctx context.Context, roundID string) (*SubmissionsResponse, error) {
+	return s.repo.GetRoundSubmissions(ctx, roundID)
 }
 
 // GetTeamStatus returns the live queue position and room coordinates for a team.
 func (s *Service) GetTeamStatus(ctx context.Context, teamID string) (*TeamStatusResponse, error) {
-	return s.repo.GetTeamActiveStatus(ctx, teamID)
+	return s.withSubmitGate(ctx, teamID)
 }
 
 // GetVolunteerSchedule returns room coordinates, on-deck teams, and upcoming teams for coordinators.

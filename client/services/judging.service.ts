@@ -3,6 +3,8 @@ import {
   AssignedJudge,
   RoundPanelOverview,
   AdminLeaderboardResponse,
+  SubmissionGate,
+  SubmissionsResponse,
   RoundAnalyticsResponse,
   ConfigureSlotsRequest,
   CreatePanelRequest,
@@ -164,6 +166,25 @@ export const judgingService = {
   async activateRound(id: string): Promise<MessageResponse> {
     const { data } = await apiClient.post<MessageResponse>(
       `/judging/rounds/${id}/activate`
+    );
+    return data;
+  },
+
+  async getSubmissionGate(): Promise<SubmissionGate> {
+    const { data } = await apiClient.get<SubmissionGate>("/judging/submission-gate");
+    return data;
+  },
+
+  async setSubmissionGate(sessionId: string | null): Promise<SubmissionGate> {
+    const { data } = await apiClient.put<SubmissionGate>("/judging/submission-gate", {
+      session_id: sessionId,
+    });
+    return data;
+  },
+
+  async getRoundSubmissions(roundId: string): Promise<SubmissionsResponse> {
+    const { data } = await apiClient.get<SubmissionsResponse>(
+      `/judging/rounds/${roundId}/submissions`
     );
     return data;
   },

@@ -18,7 +18,6 @@ import {
   RefreshCw,
   Save,
   Pause,
-  Plus,
   Users,
 } from "lucide-react";
 import {
@@ -27,7 +26,6 @@ import {
   useStartSlot,
   usePauseTimer,
   useResumeTimer,
-  useExtendTimer,
   useSubmitScores,
   useLockScores,
   useCompleteSlot,
@@ -322,7 +320,6 @@ function JudgeSlotScorecardForm({
   const startSlotMutation = useStartSlot();
   const pauseTimerMutation = usePauseTimer();
   const resumeTimerMutation = useResumeTimer();
-  const extendTimerMutation = useExtendTimer();
   const submitScoresMutation = useSubmitScores();
   const lockScoresMutation = useLockScores();
   const completeSlotMutation = useCompleteSlot();
@@ -408,7 +405,7 @@ function JudgeSlotScorecardForm({
     }
   };
 
-  // Timer controls: pause / resume / add time
+  // Timer controls: pause / resume
   const runTimerAction = async (action: () => Promise<unknown>, success: string) => {
     try {
       await action();
@@ -425,11 +422,6 @@ function JudgeSlotScorecardForm({
     runTimerAction(() => pauseTimerMutation.mutateAsync(slot.slot_id), "Timer paused.");
   const handleResumeTimer = () =>
     runTimerAction(() => resumeTimerMutation.mutateAsync(slot.slot_id), "Timer resumed.");
-  const handleExtendTimer = (seconds: number) =>
-    runTimerAction(
-      () => extendTimerMutation.mutateAsync({ slotId: slot.slot_id, seconds }),
-      `Added ${seconds / 60} min to the pitch.`
-    );
 
   // 2. Action: Save Draft Scores
   const handleSaveDraft = async () => {
@@ -569,12 +561,7 @@ function JudgeSlotScorecardForm({
           receivedAt={receivedAt}
           onPause={handlePauseTimer}
           onResume={handleResumeTimer}
-          onExtend={handleExtendTimer}
-          isBusy={
-            pauseTimerMutation.isPending ||
-            resumeTimerMutation.isPending ||
-            extendTimerMutation.isPending
-          }
+          isBusy={pauseTimerMutation.isPending || resumeTimerMutation.isPending}
         />
       </div>
 
@@ -986,8 +973,6 @@ function PanelScoringProgress({ slot }: { slot: JudgeSlotDetails }) {
 }
 
 // Live Countdown Timer Subcomponent
-const EXTEND_OPTIONS = [60, 120, 300];
-
 function formatClock(totalSecs: number) {
   const abs = Math.abs(totalSecs);
   return `${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
@@ -998,7 +983,6 @@ function JudgeCountdownTimer({
   receivedAt,
   onPause,
   onResume,
-  onExtend,
   isBusy,
 }: {
   slot: JudgeSlotDetails;
@@ -1006,7 +990,6 @@ function JudgeCountdownTimer({
   receivedAt: number;
   onPause: () => void;
   onResume: () => void;
-  onExtend: (seconds: number) => void;
   isBusy: boolean;
 }) {
   const status = slot.status;
@@ -1113,20 +1096,6 @@ function JudgeCountdownTimer({
             <span>Pause</span>
           </button>
         )}
-        <span className="mx-1 h-5 w-px bg-[var(--card-line)]" aria-hidden />
-        {EXTEND_OPTIONS.map((secs) => (
-          <button
-            key={secs}
-            type="button"
-            onClick={() => onExtend(secs)}
-            disabled={isBusy}
-            aria-label={`Add ${secs / 60} ${secs === 60 ? "minute" : "minutes"}`}
-            className={`${controlBtn} font-mono`}
-          >
-            <Plus className="h-3 w-3" />
-            <span>{secs / 60} min</span>
-          </button>
-        ))}
       </div>
       )}
     </div>

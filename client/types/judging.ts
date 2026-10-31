@@ -172,7 +172,28 @@ export interface TeamStatusResponse {
   estimated_start_time?: string | null;
   estimated_duration_mins?: number;
   instructions?: string;
+  slot_id?: string;
   submission_links?: Record<string, string>;
+  can_submit?: boolean;
+  submit_blocked_reason?: string;
+}
+
+export interface SubmissionGate {
+  session_id: string | null;
+  session_name?: string | null;
+}
+
+export interface SubmissionRow {
+  team_name: string;
+  project_name: string;
+  repository: string;
+  demo: string;
+  slides: string;
+}
+
+export interface SubmissionsResponse {
+  round_name: string;
+  submissions: SubmissionRow[];
 }
 
 export interface TeamSlotSummary {

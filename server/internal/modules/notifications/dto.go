@@ -25,7 +25,7 @@ type BroadcastNotificationRequest struct {
 	Body       string  `json:"body" validate:"required"`
 	ActionURL  *string `json:"action_url,omitempty"`
 	IconURL    *string `json:"icon_url,omitempty"`
-	TargetType string  `json:"target_type" validate:"required,oneof=broadcast team role user"`
+	TargetType string  `json:"target_type" validate:"required,oneof=broadcast team role user attendance_present attendance_absent"`
 	TargetID   *string `json:"target_id,omitempty"`
 }
 

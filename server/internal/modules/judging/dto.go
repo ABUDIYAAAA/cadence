@@ -205,7 +205,37 @@ type TeamStatusResponse struct {
 	EstimatedStartTime    *time.Time        `json:"estimated_start_time,omitempty"`
 	EstimatedDurationMins int               `json:"estimated_duration_mins,omitempty"`
 	Instructions          string            `json:"instructions,omitempty"`
+	SlotID                string            `json:"slot_id,omitempty"`
 	SubmissionLinks       map[string]string `json:"submission_links,omitempty"`
+	// CanSubmit is false when the submission gate is on and no team member attended its session.
+	CanSubmit           bool   `json:"can_submit"`
+	SubmitBlockedReason string `json:"submit_blocked_reason,omitempty"`
+}
+
+// SubmissionGate is the attendance session a team must have been present at to submit.
+type SubmissionGate struct {
+	SessionID   *string `json:"session_id"`
+	SessionName *string `json:"session_name,omitempty"`
+}
+
+// UpdateSubmissionGateRequest sets or clears (null/empty) the gating attendance session.
+type UpdateSubmissionGateRequest struct {
+	SessionID *string `json:"session_id" validate:"omitempty,uuid"`
+}
+
+// SubmissionRow is one team's submission, for the admin CSV export.
+type SubmissionRow struct {
+	TeamName    string `json:"team_name"`
+	ProjectName string `json:"project_name"`
+	Repository  string `json:"repository"`
+	Demo        string `json:"demo"`
+	Slides      string `json:"slides"`
+}
+
+// SubmissionsResponse lists every team's submission in a round.
+type SubmissionsResponse struct {
+	RoundName   string          `json:"round_name"`
+	Submissions []SubmissionRow `json:"submissions"`
 }
 
 // TeamSlotSummary used by volunteers to identify and escort teams.

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useTeamJudgingStatus, useUpdateSlotLinks } from "@/hooks/use-judging";
 import { useToast } from "@/providers/toast-provider";
+import { apiErrorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
@@ -29,6 +30,7 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
   const [githubUrl, setGithubUrl] = useState("");
   const [demoUrl, setDemoUrl] = useState("");
   const [slidesUrl, setSlidesUrl] = useState("");
+  const [projectName, setProjectName] = useState("");
 
   const updateLinksMutation = useUpdateSlotLinks();
 
@@ -37,7 +39,9 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
       setGithubUrl(status.submission_links["github"] || "");
       setDemoUrl(status.submission_links["demo"] || "");
       setSlidesUrl(status.submission_links["slides"] || "");
+      setProjectName(status.submission_links["project_name"] || "");
     } else {
+      setProjectName("");
       setGithubUrl("");
       setDemoUrl("");
       setSlidesUrl("");
@@ -48,17 +52,24 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
   const handleSaveLinks = async () => {
     // Collect links
     const links: Record<string, string> = {};
+    if (projectName.trim()) links["project_name"] = projectName.trim();
     if (githubUrl.trim()) links["github"] = githubUrl.trim();
     if (demoUrl.trim()) links["demo"] = demoUrl.trim();
     if (slidesUrl.trim()) links["slides"] = slidesUrl.trim();
 
+    if (!status?.slot_id) {
+      toast.error("No judging slot found for your team.");
+      return;
+    }
     try {
-      // Backend expects slotId for updateSlotLinks. Since team status doesn't return slotId directly,
-      // we check if we can pass it or alert the user.
-      toast.info("Project links updated.");
+      await updateLinksMutation.mutateAsync({
+        slotId: status.slot_id,
+        payload: { submission_links: links },
+      });
+      toast.success("Submission saved.");
       setIsEditLinksOpen(false);
-    } catch {
-      toast.error("Failed to update submission links.");
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to update submission links."));
     }
   };
 
@@ -167,7 +178,11 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
     },
   ];
 
-  const links = status.submission_links ? Object.entries(status.submission_links) : [];
+  const projectNameSaved = status.submission_links?.["project_name"];
+  const links = status.submission_links
+    ? Object.entries(status.submission_links).filter(([k]) => k !== "project_name")
+    : [];
+  const submitBlocked = status.can_submit === false;
 
   return (
     <div className="font-sans space-y-6">
@@ -227,12 +242,25 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
               variant="outline"
               size="sm"
               onClick={handleOpenEditLinks}
+              disabled={submitBlocked}
               className="text-xs flex items-center gap-1.5 active:scale-[0.97] transition-transform duration-150"
             >
               <Edit2 className="h-3 w-3" />
               {links.length > 0 ? "Edit" : "Add links"}
             </Button>
           </div>
+
+          {submitBlocked && (
+            <p className="text-xs rounded-[10px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] p-3 text-[var(--ink-primary)]">
+              {status.submit_blocked_reason || "Submissions are closed for your team."}
+            </p>
+          )}
+
+          {projectNameSaved && (
+            <div className="text-xs text-[var(--ink-secondary)]">
+              Project: <strong className="text-[var(--ink-primary)]">{projectNameSaved}</strong>
+            </div>
+          )}
 
           {links.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -268,6 +296,19 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
         description="Attach public links for evaluators to review during your evaluation."
       >
         <div className="space-y-4 pt-2 font-sans">
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
+              Project name
+            </label>
+            <Input
+              placeholder="e.g. SmartCampus"
+              value={projectName}
+              maxLength={150}
+              onChange={(e) => setProjectName(e.target.value)}
+              className="text-xs"
+            />
+          </div>
+
           <div className="space-y-1">
             <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
               GitHub Repository URL

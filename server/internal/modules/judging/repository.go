@@ -13,28 +13,30 @@ import (
 )
 
 var (
-	ErrRoundNotFound    = errors.New("judging round not found")
-	ErrPanelNotFound    = errors.New("judging panel not found")
-	ErrSlotNotFound     = errors.New("judging slot not found")
-	ErrUnauthorizedSlot = errors.New("unauthorized: you do not have permission to update links for this slot")
-	ErrJudgeNotAssigned = errors.New("forbidden: judge is not assigned to evaluate this panel")
-	ErrSlotNotStarted   = errors.New("pitch has not started; start the pitch before scoring")
-	ErrNotJudges        = errors.New("only users with the judge role can be assigned to a panel")
-	ErrJudgeAssigned    = errors.New("one or more judges are already assigned to another panel in this round")
-	ErrTeamSlotted      = errors.New("one or more teams are already scheduled in this round")
-	ErrRoundNotActive   = errors.New("this round is not active; pitches can only start once the round has been activated")
-	ErrRoundNotRunning  = errors.New("only an active round can be ended")
-	ErrPitchesRunning   = errors.New("a team is still presenting; complete that pitch before ending the round")
-	ErrRoundIsActive    = errors.New("end the round before deleting it")
-	ErrRoundFinished    = errors.New("this round has already finished and cannot be activated")
-	ErrPanelBusy        = errors.New("another team is already presenting in this room; complete that pitch first")
-	ErrPanelStarted     = errors.New("panel has started or finished pitches; add teams instead of replacing the sequence")
-	ErrSlotNotMovable   = errors.New("only teams waiting in the queue can be moved; presenting and finished teams stay where they are")
-	ErrPitchEnded       = errors.New("pitch has ended; the timer can no longer be changed")
-	ErrIncompleteScore  = errors.New("scorecard is incomplete: every criterion must be scored before locking")
-	ErrTimerPaused      = errors.New("timer is already paused")
-	ErrTimerNotPaused   = errors.New("timer is not paused")
-	ErrSlotNotPending   = errors.New("pitch has already started or finished")
+	ErrRoundNotFound      = errors.New("judging round not found")
+	ErrPanelNotFound      = errors.New("judging panel not found")
+	ErrSlotNotFound       = errors.New("judging slot not found")
+	ErrNotPresent         = errors.New("submissions are closed: no member of your team was present at the required attendance session")
+	ErrGateSessionInvalid = errors.New("submission gate must be an existing attendance session")
+	ErrUnauthorizedSlot   = errors.New("unauthorized: you do not have permission to update links for this slot")
+	ErrJudgeNotAssigned   = errors.New("forbidden: judge is not assigned to evaluate this panel")
+	ErrSlotNotStarted     = errors.New("pitch has not started; start the pitch before scoring")
+	ErrNotJudges          = errors.New("only users with the judge role can be assigned to a panel")
+	ErrJudgeAssigned      = errors.New("one or more judges are already assigned to another panel in this round")
+	ErrTeamSlotted        = errors.New("one or more teams are already scheduled in this round")
+	ErrRoundNotActive     = errors.New("this round is not active; pitches can only start once the round has been activated")
+	ErrRoundNotRunning    = errors.New("only an active round can be ended")
+	ErrPitchesRunning     = errors.New("a team is still presenting; complete that pitch before ending the round")
+	ErrRoundIsActive      = errors.New("end the round before deleting it")
+	ErrRoundFinished      = errors.New("this round has already finished and cannot be activated")
+	ErrPanelBusy          = errors.New("another team is already presenting in this room; complete that pitch first")
+	ErrPanelStarted       = errors.New("panel has started or finished pitches; add teams instead of replacing the sequence")
+	ErrSlotNotMovable     = errors.New("only teams waiting in the queue can be moved; presenting and finished teams stay where they are")
+	ErrPitchEnded         = errors.New("pitch has ended; the timer can no longer be changed")
+	ErrIncompleteScore    = errors.New("scorecard is incomplete: every criterion must be scored before locking")
+	ErrTimerPaused        = errors.New("timer is already paused")
+	ErrTimerNotPaused     = errors.New("timer is not paused")
+	ErrSlotNotPending     = errors.New("pitch has already started or finished")
 )
 
 type Repository struct {
@@ -1386,7 +1388,7 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 	query := `
 		SELECT 
 			r.name, p.name, p.room, s.status::text, s.sequence_order,
-			s.estimated_start_time, r.slot_duration_mins, s.submission_links,
+			s.estimated_start_time, r.slot_duration_mins, s.submission_links, s.id::text,
 			(
 				SELECT COUNT(*) + 1 
 				FROM judging_slots prev 
@@ -1405,7 +1407,7 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 	var linksJSON []byte
 	err := r.db.QueryRow(ctx, query, teamID).Scan(
 		&resp.RoundName, &resp.PanelName, &resp.Room, &resp.Status, &resp.QueuePosition,
-		&resp.EstimatedStartTime, &resp.EstimatedDurationMins, &linksJSON, &resp.QueuePosition,
+		&resp.EstimatedStartTime, &resp.EstimatedDurationMins, &linksJSON, &resp.SlotID, &resp.QueuePosition,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1963,4 +1965,121 @@ func (r *Repository) QueueSlot(ctx context.Context, slotID string) error {
 func (r *Repository) UnqueueSlot(ctx context.Context, slotID string) error {
 	status := "scheduled"
 	return r.MoveSlot(ctx, slotID, MoveSlotRequest{Status: &status})
+}
+
+const submissionGateKey = "submission_gate_session"
+
+// GetSubmissionGate returns the gating attendance session, or an empty gate when none is set.
+func (r *Repository) GetSubmissionGate(ctx context.Context) (SubmissionGate, error) {
+	var gate SubmissionGate
+	var raw []byte
+	err := r.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE key = $1`, submissionGateKey).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return gate, nil
+		}
+		return gate, fmt.Errorf("get submission gate: %w", err)
+	}
+	var id string
+	if json.Unmarshal(raw, &id) != nil || id == "" {
+		return gate, nil
+	}
+	var name string
+	err = r.db.QueryRow(ctx, `SELECT name FROM scan_sessions WHERE id = $1`, id).Scan(&name)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return gate, nil // session was removed; treat as no gate
+		}
+		return gate, fmt.Errorf("get gate session: %w", err)
+	}
+	gate.SessionID, gate.SessionName = &id, &name
+	return gate, nil
+}
+
+// SetSubmissionGate stores the gating attendance session (nil clears it).
+func (r *Repository) SetSubmissionGate(ctx context.Context, sessionID *string, updatedBy string) (SubmissionGate, error) {
+	id := ""
+	if sessionID != nil {
+		id = *sessionID
+		var kind string
+		err := r.db.QueryRow(ctx, `SELECT kind FROM scan_sessions WHERE id = $1`, id).Scan(&kind)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return SubmissionGate{}, ErrGateSessionInvalid
+			}
+			return SubmissionGate{}, fmt.Errorf("check gate session: %w", err)
+		}
+		if kind != "attendance" {
+			return SubmissionGate{}, ErrGateSessionInvalid
+		}
+	}
+	raw, _ := json.Marshal(id)
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO app_settings (key, value, updated_by) VALUES ($1, $2, $3)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
+		submissionGateKey, raw, updatedBy)
+	if err != nil {
+		return SubmissionGate{}, fmt.Errorf("set submission gate: %w", err)
+	}
+	return r.GetSubmissionGate(ctx)
+}
+
+// TeamPresentInSession reports whether at least one member of the team was scanned in the session.
+func (r *Repository) TeamPresentInSession(ctx context.Context, teamID, sessionID string) (bool, error) {
+	var present bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM users u
+			JOIN tickets t ON t.user_id = u.id
+			JOIN scan_events e ON e.ticket_id = t.id AND e.session_id = $2
+			WHERE u.team_id = $1 AND u.deleted_at IS NULL
+		)`, teamID, sessionID).Scan(&present)
+	return present, err
+}
+
+// SlotTeamID returns the team that owns a slot.
+func (r *Repository) SlotTeamID(ctx context.Context, slotID string) (string, error) {
+	var teamID string
+	err := r.db.QueryRow(ctx, `SELECT team_id::text FROM judging_slots WHERE id = $1`, slotID).Scan(&teamID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrSlotNotFound
+	}
+	return teamID, err
+}
+
+// GetRoundSubmissions lists every slotted team's project name and links for a round.
+func (r *Repository) GetRoundSubmissions(ctx context.Context, roundID string) (*SubmissionsResponse, error) {
+	resp := &SubmissionsResponse{Submissions: []SubmissionRow{}}
+	err := r.db.QueryRow(ctx, `SELECT name FROM judging_rounds WHERE id = $1`, roundID).Scan(&resp.RoundName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrRoundNotFound
+		}
+		return nil, fmt.Errorf("get round: %w", err)
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT t.name, s.submission_links
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN teams t ON t.id = s.team_id
+		WHERE p.round_id = $1
+		ORDER BY t.name`, roundID)
+	if err != nil {
+		return nil, fmt.Errorf("query submissions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row SubmissionRow
+		var raw []byte
+		if err := rows.Scan(&row.TeamName, &raw); err != nil {
+			return nil, fmt.Errorf("scan submission: %w", err)
+		}
+		links := map[string]string{}
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &links)
+		}
+		row.ProjectName, row.Repository, row.Demo, row.Slides = links["project_name"], links["github"], links["demo"], links["slides"]
+		resp.Submissions = append(resp.Submissions, row)
+	}
+	return resp, rows.Err()
 }

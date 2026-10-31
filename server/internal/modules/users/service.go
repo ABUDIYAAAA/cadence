@@ -61,7 +61,17 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 			role = "participant"
 		}
 
-		userID, createErr := s.repo.CreateUserTx(ctx, tx, u.Email, u.Name, role, u.PhoneNumber)
+		// Savepoint per row: any single-row DB error (bad enum, length, etc.) must not abort the whole batch.
+		sp, spErr := tx.Begin(ctx)
+		if spErr != nil {
+			return nil, fmt.Errorf("begin row savepoint: %w", spErr)
+		}
+		userID, createErr := s.repo.CreateUserTx(ctx, sp, u.Email, u.Name, role, u.PhoneNumber)
+		if createErr != nil {
+			_ = sp.Rollback(ctx)
+		} else if cErr := sp.Commit(ctx); cErr != nil {
+			createErr = fmt.Errorf("release row savepoint: %w", cErr)
+		}
 		if createErr != nil {
 			resp.SkippedCount++
 			resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): %v", i+1, u.Email, createErr))

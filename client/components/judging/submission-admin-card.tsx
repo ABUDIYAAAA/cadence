@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import { Download } from "lucide-react";
 import {
-  useJudgingRounds,
   useSubmissionGate,
   useSetSubmissionGate,
 } from "@/hooks/use-judging";
@@ -11,7 +10,7 @@ import { useScanSessions } from "@/hooks/use-tickets";
 import { judgingService } from "@/services/judging.service";
 import { useToast } from "@/providers/toast-provider";
 import { apiErrorMessage } from "@/lib/utils";
-import { downloadCsv, slugify, toCsv } from "@/lib/csv";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 
@@ -24,13 +23,9 @@ export function SubmissionAdminCard() {
   const { data: gate } = useSubmissionGate();
   const setGate = useSetSubmissionGate();
   const { data: sessions = [] } = useScanSessions();
-  const { data: rounds = [] } = useJudgingRounds();
-  const [pickedRound, setPickedRound] = useState("");
   const [exporting, setExporting] = useState(false);
 
   const attendance = sessions.filter((s) => s.kind === "attendance");
-  const defaultRound = rounds.find((r) => r.status === "active") ?? rounds[0];
-  const roundId = pickedRound || defaultRound?.id || "";
 
   const changeGate = async (value: string) => {
     try {
@@ -42,15 +37,11 @@ export function SubmissionAdminCard() {
   };
 
   const exportSubmissions = async () => {
-    if (!roundId) return;
     setExporting(true);
     try {
-      const data = await judgingService.getRoundSubmissions(roundId);
+      const data = await judgingService.listSubmissions();
       const rows = data.submissions.map((r) => [r.team_name, r.project_name, r.repository]);
-      downloadCsv(
-        `${slugify(data.round_name)}-submissions.csv`,
-        toCsv(["Team", "Project name", "Repository link"], rows)
-      );
+      downloadCsv("submissions.csv", toCsv(["Team", "Project name", "Repository link"], rows));
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, "Could not export submissions."));
     } finally {
@@ -67,7 +58,7 @@ export function SubmissionAdminCard() {
           onChange={(e) => changeGate(e.target.value)}
           disabled={setGate.isPending}
         >
-          <option value="">No gate: every team can submit</option>
+          <option value="">Closed: nobody can submit</option>
           {attendance.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -75,31 +66,16 @@ export function SubmissionAdminCard() {
           ))}
         </Select>
         <p className="text-[11px] text-[var(--ink-secondary)]">
-          Teams can submit only if at least one member was scanned in this session.
+          Only teams with at least one member scanned in this session see the submission form on their dashboard. Closed hides it for everyone.
         </p>
       </div>
 
       <div className="flex items-end gap-2">
-        {rounds.length > 1 && (
-          <div className="w-44">
-            <Select
-              label="Round"
-              value={roundId}
-              onChange={(e) => setPickedRound(e.target.value)}
-            >
-              {rounds.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
         <Button
           variant="outline"
           size="sm"
           onClick={exportSubmissions}
-          disabled={exporting || !roundId}
+          disabled={exporting}
           className="text-xs h-9"
         >
           <Download className="h-3.5 w-3.5" />

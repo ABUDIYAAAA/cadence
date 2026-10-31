@@ -1,77 +1,20 @@
 "use client";
 
 
-import React, { useState } from "react";
+import React from "react";
 import { SectionToolbar, MetricGrid, Metric } from "./section-shell";
 import Link from "next/link";
 import {
   DoorOpen,
   Clock,
   Users,
-  ExternalLink,
-  Edit2,
-  Layers,
 } from "lucide-react";
-import { useTeamJudgingStatus, useUpdateSlotLinks } from "@/hooks/use-judging";
-import { useToast } from "@/providers/toast-provider";
-import { apiErrorMessage } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog } from "@/components/ui/dialog";
+import { useTeamJudgingStatus } from "@/hooks/use-judging";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
 export function ParticipantJudgingStatusView({ compact = false }: { compact?: boolean } = {}) {
-  const toast = useToast();
   const { data: status, isLoading, isFetching, refetch } = useTeamJudgingStatus();
-
-  // Links dialog state
-  const [isEditLinksOpen, setIsEditLinksOpen] = useState(false);
-  const [githubUrl, setGithubUrl] = useState("");
-  const [demoUrl, setDemoUrl] = useState("");
-  const [slidesUrl, setSlidesUrl] = useState("");
-  const [projectName, setProjectName] = useState("");
-
-  const updateLinksMutation = useUpdateSlotLinks();
-
-  const handleOpenEditLinks = () => {
-    if (status?.submission_links) {
-      setGithubUrl(status.submission_links["github"] || "");
-      setDemoUrl(status.submission_links["demo"] || "");
-      setSlidesUrl(status.submission_links["slides"] || "");
-      setProjectName(status.submission_links["project_name"] || "");
-    } else {
-      setProjectName("");
-      setGithubUrl("");
-      setDemoUrl("");
-      setSlidesUrl("");
-    }
-    setIsEditLinksOpen(true);
-  };
-
-  const handleSaveLinks = async () => {
-    // Collect links
-    const links: Record<string, string> = {};
-    if (projectName.trim()) links["project_name"] = projectName.trim();
-    if (githubUrl.trim()) links["github"] = githubUrl.trim();
-    if (demoUrl.trim()) links["demo"] = demoUrl.trim();
-    if (slidesUrl.trim()) links["slides"] = slidesUrl.trim();
-
-    if (!status?.slot_id) {
-      toast.error("No judging slot found for your team.");
-      return;
-    }
-    try {
-      await updateLinksMutation.mutateAsync({
-        slotId: status.slot_id,
-        payload: { submission_links: links },
-      });
-      toast.success("Submission saved.");
-      setIsEditLinksOpen(false);
-    } catch (err: unknown) {
-      toast.error(apiErrorMessage(err, "Failed to update submission links."));
-    }
-  };
 
   const formatEstimatedTime = (iso?: string | null) => {
     if (!iso) return "TBD";
@@ -178,11 +121,6 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
     },
   ];
 
-  const projectNameSaved = status.submission_links?.["project_name"];
-  const links = status.submission_links
-    ? Object.entries(status.submission_links).filter(([k]) => k !== "project_name")
-    : [];
-  const submitBlocked = status.can_submit === false;
 
   return (
     <div className="font-sans space-y-6">
@@ -223,7 +161,7 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
         <p className="text-xs text-[var(--ink-secondary)] mt-1">{hero.body}</p>
       </div>
 
-      {/* Secondary: notes + submission links */}
+      {/* Secondary: notes */}
       {!compact && status.instructions && (
         <div className="text-xs text-[var(--ink-secondary)] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] rounded-[14px] p-3.5 leading-relaxed">
           <strong className="text-[var(--ink-primary)]">Coordinator notes: </strong>
@@ -231,139 +169,6 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
         </div>
       )}
 
-      {!compact && (
-        <div className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 sm:p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-semibold text-[var(--ink-primary)]">
-              <Layers className="h-4 w-4 text-[var(--ink-tertiary)]" />
-              Project links
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenEditLinks}
-              disabled={submitBlocked}
-              className="text-xs flex items-center gap-1.5 active:scale-[0.97] transition-transform duration-150"
-            >
-              <Edit2 className="h-3 w-3" />
-              {links.length > 0 ? "Edit" : "Add links"}
-            </Button>
-          </div>
-
-          {submitBlocked && (
-            <p className="text-xs rounded-[10px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] p-3 text-[var(--ink-primary)]">
-              {status.submit_blocked_reason || "Submissions are closed for your team."}
-            </p>
-          )}
-
-          {projectNameSaved && (
-            <div className="text-xs text-[var(--ink-secondary)]">
-              Project: <strong className="text-[var(--ink-primary)]">{projectNameSaved}</strong>
-            </div>
-          )}
-
-          {links.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {links.map(([k, url]) => (
-                <a
-                  key={k}
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-3 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] hover:bg-[var(--color-blue-dim)] transition-colors duration-150 flex items-center justify-between text-xs group"
-                >
-                  <div className="truncate mr-2">
-                    <div className="font-semibold capitalize text-[var(--ink-primary)]">{k}</div>
-                    <div className="truncate text-[var(--ink-tertiary)] mt-0.5">{url}</div>
-                  </div>
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] group-hover:text-[var(--color-blue)] transition-colors" />
-                </a>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-[var(--ink-secondary)]">
-              Add your GitHub, demo, or slides so judges can review them during your slot.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Links Edit Dialog */}
-      <Dialog
-        open={isEditLinksOpen}
-        onClose={() => setIsEditLinksOpen(false)}
-        title="Project links"
-        description="Attach public links for evaluators to review during your evaluation."
-      >
-        <div className="space-y-4 pt-2 font-sans">
-          <div className="space-y-1">
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-              Project name
-            </label>
-            <Input
-              placeholder="e.g. SmartCampus"
-              value={projectName}
-              maxLength={150}
-              onChange={(e) => setProjectName(e.target.value)}
-              className="text-xs"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-              GitHub Repository URL
-            </label>
-            <Input
-              placeholder="https://github.com/..."
-              value={githubUrl}
-              onChange={(e) => setGithubUrl(e.target.value)}
-              className="text-xs font-mono"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-              Live Demo / Prototype URL
-            </label>
-            <Input
-              placeholder="https://my-demo-app.com"
-              value={demoUrl}
-              onChange={(e) => setDemoUrl(e.target.value)}
-              className="text-xs font-mono"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-              Slide Deck / Presentation URL
-            </label>
-            <Input
-              placeholder="https://slides.google.com/..."
-              value={slidesUrl}
-              onChange={(e) => setSlidesUrl(e.target.value)}
-              className="text-xs font-mono"
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--card-line)]">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditLinksOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={handleSaveLinks}
-              disabled={updateLinksMutation.isPending}
-            >
-              Save Links
-            </Button>
-          </div>
-        </div>
-      </Dialog>
     </div>
   );
 }

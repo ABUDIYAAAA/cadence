@@ -5,6 +5,8 @@ import {
   AdminLeaderboardResponse,
   SubmissionGate,
   SubmissionsResponse,
+  MySubmission,
+  UpdateMySubmissionRequest,
   RoundAnalyticsResponse,
   ConfigureSlotsRequest,
   CreatePanelRequest,
@@ -182,10 +184,18 @@ export const judgingService = {
     return data;
   },
 
-  async getRoundSubmissions(roundId: string): Promise<SubmissionsResponse> {
-    const { data } = await apiClient.get<SubmissionsResponse>(
-      `/judging/rounds/${roundId}/submissions`
-    );
+  async listSubmissions(): Promise<SubmissionsResponse> {
+    const { data } = await apiClient.get<SubmissionsResponse>("/judging/submissions");
+    return data;
+  },
+
+  async getMySubmission(): Promise<MySubmission> {
+    const { data } = await apiClient.get<MySubmission>("/judging/my-submission");
+    return data;
+  },
+
+  async updateMySubmission(payload: UpdateMySubmissionRequest): Promise<MessageResponse> {
+    const { data } = await apiClient.put<MessageResponse>("/judging/my-submission", payload);
     return data;
   },
 

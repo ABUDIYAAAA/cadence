@@ -232,10 +232,25 @@ type SubmissionRow struct {
 	Slides      string `json:"slides"`
 }
 
-// SubmissionsResponse lists every team's submission in a round.
+// SubmissionsResponse lists every team's submission.
 type SubmissionsResponse struct {
-	RoundName   string          `json:"round_name"`
 	Submissions []SubmissionRow `json:"submissions"`
+}
+
+// MySubmission is the caller's team submission and whether it can currently be edited.
+type MySubmission struct {
+	HasTeam             bool              `json:"has_team"`
+	TeamName            string            `json:"team_name,omitempty"`
+	ProjectName         string            `json:"project_name"`
+	Links               map[string]string `json:"links"`
+	CanSubmit           bool              `json:"can_submit"`
+	SubmitBlockedReason string            `json:"submit_blocked_reason,omitempty"`
+}
+
+// UpdateMySubmissionRequest saves the caller's team submission.
+type UpdateMySubmissionRequest struct {
+	ProjectName string            `json:"project_name" validate:"max=150"`
+	Links       map[string]string `json:"links"`
 }
 
 // TeamSlotSummary used by volunteers to identify and escort teams.

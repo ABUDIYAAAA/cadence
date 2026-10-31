@@ -836,16 +836,59 @@ func (h *Handler) HandleSetSubmissionGate(w http.ResponseWriter, r *http.Request
 	utils.JSON(w, http.StatusOK, gate)
 }
 
-// HandleGetRoundSubmissions lists every team's project name and links in a round.
-func (h *Handler) HandleGetRoundSubmissions(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.service.GetRoundSubmissions(r.Context(), chi.URLParam(r, "id"))
+// HandleListSubmissions lists every team's project name and links.
+func (h *Handler) HandleListSubmissions(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.service.ListSubmissions(r.Context())
 	if err != nil {
-		if errors.Is(err, ErrRoundNotFound) {
-			utils.ErrorJSON(w, http.StatusNotFound, "judging round not found")
-			return
-		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to fetch submissions")
 		return
 	}
 	utils.JSON(w, http.StatusOK, resp)
+}
+
+// HandleGetMySubmission returns the caller's team submission.
+func (h *Handler) HandleGetMySubmission(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	resp, err := h.service.GetMySubmission(r.Context(), claims.UserID)
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to load submission")
+		return
+	}
+	utils.JSON(w, http.StatusOK, resp)
+}
+
+// HandleSetMySubmission saves the caller's team submission.
+func (h *Handler) HandleSetMySubmission(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req UpdateMySubmissionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+	if err := h.service.SetMySubmission(r.Context(), claims.UserID, claims.Email, claims.Role, req, r.RemoteAddr, r.UserAgent()); err != nil {
+		switch {
+		case errors.Is(err, ErrNotPresent):
+			utils.ErrorJSON(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, ErrUnauthorizedSlot):
+			utils.ErrorJSON(w, http.StatusForbidden, "join a team before submitting")
+		case errors.Is(err, ErrProjectNameTooLong):
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to save submission")
+		}
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Submission saved"})
 }

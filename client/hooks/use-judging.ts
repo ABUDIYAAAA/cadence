@@ -9,6 +9,7 @@ import {
   MoveSlotRequest,
   SubmitScoresRequest,
   UpdateSlotLinksRequest,
+  UpdateMySubmissionRequest,
 } from "@/types/judging";
 
 export const JUDGING_QUERY_KEY = ["judging"] as const;
@@ -188,6 +189,24 @@ export function useJudgingRound(id: string) {
     queryKey: [...JUDGING_QUERY_KEY, "round", id],
     queryFn: () => judgingService.getRound(id),
     enabled: Boolean(id),
+  });
+}
+
+export function useMySubmission() {
+  return useQuery({
+    queryKey: [...JUDGING_QUERY_KEY, "my-submission"],
+    queryFn: () => judgingService.getMySubmission(),
+  });
+}
+
+export function useUpdateMySubmission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: UpdateMySubmissionRequest) => judgingService.updateMySubmission(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...JUDGING_QUERY_KEY, "my-submission"] });
+      queryClient.invalidateQueries({ queryKey: [...JUDGING_QUERY_KEY, "team-status"] });
+    },
   });
 }
 

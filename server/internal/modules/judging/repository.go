@@ -557,7 +557,23 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 		}
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	r.seedSlotsFromTeams(ctx, panelID)
+	return nil
+}
+
+// seedSlotsFromTeams copies each team's saved submission onto its new empty slots so judges see
+// links submitted before the slot existed. Best effort: the slots are already committed, and a
+// team re-saving its submission mirrors it again.
+func (r *Repository) seedSlotsFromTeams(ctx context.Context, panelID string) {
+	_, _ = r.db.Exec(ctx, `
+		UPDATE judging_slots s
+		SET submission_links = t.submission_links ||
+			CASE WHEN t.project_name IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('project_name', t.project_name) END
+		FROM teams t
+		WHERE s.panel_id = $1 AND t.id = s.team_id AND s.submission_links = '{}'::jsonb`, panelID)
 }
 
 // UpdateSlotLinks modifies submission artifacts for a slot.
@@ -2047,39 +2063,78 @@ func (r *Repository) SlotTeamID(ctx context.Context, slotID string) (string, err
 	return teamID, err
 }
 
-// GetRoundSubmissions lists every slotted team's project name and links for a round.
-func (r *Repository) GetRoundSubmissions(ctx context.Context, roundID string) (*SubmissionsResponse, error) {
-	resp := &SubmissionsResponse{Submissions: []SubmissionRow{}}
-	err := r.db.QueryRow(ctx, `SELECT name FROM judging_rounds WHERE id = $1`, roundID).Scan(&resp.RoundName)
+// GetTeamSubmission returns the team's name, project name and links.
+func (r *Repository) GetTeamSubmission(ctx context.Context, teamID string) (name string, project string, links map[string]string, err error) {
+	var proj *string
+	var raw []byte
+	err = r.db.QueryRow(ctx, `SELECT name, project_name, submission_links FROM teams WHERE id = $1`, teamID).Scan(&name, &proj, &raw)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrRoundNotFound
-		}
-		return nil, fmt.Errorf("get round: %w", err)
+		return "", "", nil, fmt.Errorf("get team submission: %w", err)
 	}
-	rows, err := r.db.Query(ctx, `
-		SELECT t.name, s.submission_links
-		FROM judging_slots s
-		JOIN judging_panels p ON p.id = s.panel_id
-		JOIN teams t ON t.id = s.team_id
-		WHERE p.round_id = $1
-		ORDER BY t.name`, roundID)
+	if proj != nil {
+		project = *proj
+	}
+	links = map[string]string{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &links)
+	}
+	return name, project, links, nil
+}
+
+// SetTeamSubmission saves the team's submission and mirrors it onto any judging slots it holds,
+// so judges and volunteers keep reading links from the slot.
+func (r *Repository) SetTeamSubmission(ctx context.Context, teamID, project string, links map[string]string) error {
+	linksJSON, err := json.Marshal(links)
+	if err != nil {
+		return fmt.Errorf("marshal links: %w", err)
+	}
+	slotLinks := map[string]string{}
+	for k, v := range links {
+		slotLinks[k] = v
+	}
+	if project != "" {
+		slotLinks["project_name"] = project
+	}
+	slotJSON, _ := json.Marshal(slotLinks)
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	var projArg *string
+	if project != "" {
+		projArg = &project
+	}
+	if _, err := tx.Exec(ctx, `UPDATE teams SET project_name = $2, submission_links = $3 WHERE id = $1`, teamID, projArg, linksJSON); err != nil {
+		return fmt.Errorf("update team submission: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE judging_slots SET submission_links = $2, updated_at = CURRENT_TIMESTAMP WHERE team_id = $1`, teamID, slotJSON); err != nil {
+		return fmt.Errorf("mirror slot links: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// ListSubmissions lists every team's project name and links for the CSV export.
+func (r *Repository) ListSubmissions(ctx context.Context) ([]SubmissionRow, error) {
+	rows, err := r.db.Query(ctx, `SELECT name, COALESCE(project_name, ''), submission_links FROM teams ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("query submissions: %w", err)
 	}
 	defer rows.Close()
+	out := []SubmissionRow{}
 	for rows.Next() {
 		var row SubmissionRow
 		var raw []byte
-		if err := rows.Scan(&row.TeamName, &raw); err != nil {
+		if err := rows.Scan(&row.TeamName, &row.ProjectName, &raw); err != nil {
 			return nil, fmt.Errorf("scan submission: %w", err)
 		}
 		links := map[string]string{}
 		if len(raw) > 0 {
 			_ = json.Unmarshal(raw, &links)
 		}
-		row.ProjectName, row.Repository, row.Demo, row.Slides = links["project_name"], links["github"], links["demo"], links["slides"]
-		resp.Submissions = append(resp.Submissions, row)
+		row.Repository, row.Demo, row.Slides = links["github"], links["demo"], links["slides"]
+		out = append(out, row)
 	}
-	return resp, rows.Err()
+	return out, rows.Err()
 }

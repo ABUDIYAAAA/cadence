@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"devclubxnst.com/cadence/pkg/audit"
@@ -512,18 +513,15 @@ func (s *Service) withSubmitGate(ctx context.Context, teamID string) (*TeamStatu
 // canTeamSubmit applies the attendance gate to the team that owns slotID.
 func (s *Service) canTeamSubmit(ctx context.Context, slotID string) (bool, SubmissionGate, error) {
 	gate, err := s.repo.GetSubmissionGate(ctx)
-	if err != nil || gate.SessionID == nil {
-		return true, gate, err
+	if err != nil {
+		return false, gate, err
 	}
 	teamID, err := s.repo.SlotTeamID(ctx, slotID)
 	if err != nil {
 		return false, gate, err
 	}
-	present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
-	if err != nil {
-		return false, gate, fmt.Errorf("check attendance: %w", err)
-	}
-	return present, gate, nil
+	can, _, err := s.gateStatus(ctx, teamID)
+	return can, gate, err
 }
 
 // GetSubmissionGate returns the attendance session that gates submissions.
@@ -553,9 +551,98 @@ func (s *Service) SetSubmissionGate(ctx context.Context, sessionID *string, acto
 	return gate, nil
 }
 
-// GetRoundSubmissions lists each team's project name and links for the CSV export.
-func (s *Service) GetRoundSubmissions(ctx context.Context, roundID string) (*SubmissionsResponse, error) {
-	return s.repo.GetRoundSubmissions(ctx, roundID)
+// ListSubmissions lists each team's project name and links for the CSV export.
+func (s *Service) ListSubmissions(ctx context.Context) (*SubmissionsResponse, error) {
+	rows, err := s.repo.ListSubmissions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &SubmissionsResponse{Submissions: rows}, nil
+}
+
+// gateStatus reports whether the team may submit under the attendance gate.
+func (s *Service) gateStatus(ctx context.Context, teamID string) (bool, string, error) {
+	// Submissions are closed until an admin picks an attendance session; then only teams with
+	// at least one member scanned in it may submit.
+	const closed = "Submissions are closed for your team."
+	gate, err := s.repo.GetSubmissionGate(ctx)
+	if err != nil {
+		return false, "", err
+	}
+	if gate.SessionID == nil {
+		return false, closed, nil
+	}
+	present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
+	if err != nil {
+		return false, "", fmt.Errorf("check attendance: %w", err)
+	}
+	if present {
+		return true, "", nil
+	}
+	return false, closed, nil
+}
+
+// GetMySubmission returns the caller's team submission with its gate status.
+func (s *Service) GetMySubmission(ctx context.Context, userID string) (*MySubmission, error) {
+	teamID, err := s.repo.GetUserTeamID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if teamID == nil {
+		return &MySubmission{Links: map[string]string{}}, nil
+	}
+	name, project, links, err := s.repo.GetTeamSubmission(ctx, *teamID)
+	if err != nil {
+		return nil, err
+	}
+	can, reason, err := s.gateStatus(ctx, *teamID)
+	if err != nil {
+		return nil, err
+	}
+	return &MySubmission{HasTeam: true, TeamName: name, ProjectName: project, Links: links, CanSubmit: can, SubmitBlockedReason: reason}, nil
+}
+
+var allowedSubmissionLinks = map[string]bool{"github": true, "demo": true, "slides": true}
+
+// SetMySubmission saves the caller's team submission, subject to the attendance gate.
+func (s *Service) SetMySubmission(ctx context.Context, actorID, actorEmail, actorRole string, req UpdateMySubmissionRequest, ip, ua string) error {
+	teamID, err := s.repo.GetUserTeamID(ctx, actorID)
+	if err != nil {
+		return err
+	}
+	if teamID == nil {
+		return ErrUnauthorizedSlot
+	}
+	if can, _, err := s.gateStatus(ctx, *teamID); err != nil {
+		return err
+	} else if !can {
+		return ErrNotPresent
+	}
+	project := strings.TrimSpace(req.ProjectName)
+	if len([]rune(project)) > 150 {
+		return ErrProjectNameTooLong
+	}
+	links := map[string]string{}
+	for k, v := range req.Links {
+		v = strings.TrimSpace(v)
+		if v != "" && allowedSubmissionLinks[k] {
+			links[k] = v
+		}
+	}
+	if err := s.repo.SetTeamSubmission(ctx, *teamID, project, links); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(links))
+	for k := range links {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	s.recordAudit(ctx, audit.ActionJudgingSlotLinksUpdate, audit.TargetJudgingSlot, teamID,
+		fmt.Sprintf("Team submission updated by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"team_id": *teamID, "link_keys": keys, "has_project_name": project != ""},
+		&ip, &ua)
+	return nil
 }
 
 // GetTeamStatus returns the live queue position and room coordinates for a team.

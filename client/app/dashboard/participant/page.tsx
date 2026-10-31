@@ -8,7 +8,7 @@ import { getDashboardRoute } from "@/lib/auth-routes";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { MyTicketView } from "@/components/tickets/my-ticket-view";
 import { MyTeamView } from "@/components/teams/my-team-view";
-import { ParticipantJudgingStatusView } from "@/components/judging";
+import { ParticipantJudgingStatusView, SubmissionView } from "@/components/judging";
 
 export default function ParticipantDashboardPage() {
   const router = useRouter();
@@ -44,8 +44,9 @@ export default function ParticipantDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start">
         {/* Primary: my team (create/join/manage) and what's happening with it right now */}
         <div className="space-y-8 min-w-0">
-          <ParticipantJudgingStatusView compact />
           <MyTeamView />
+          <SubmissionView />
+          <ParticipantJudgingStatusView compact />
         </div>
 
         {/* Secondary: entry pass, needed at the door */}

@@ -15,6 +15,8 @@ func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) 
 		// Participant & Team routes
 		r.Get("/teams/my-status", h.HandleGetTeamStatus)
 		r.Patch("/slots/{slotId}/links", h.HandleUpdateSlotLinks)
+		r.Get("/my-submission", h.HandleGetMySubmission)
+		r.Put("/my-submission", h.HandleSetMySubmission)
 
 		// Volunteer coordinator routes
 		r.Group(func(r chi.Router) {
@@ -52,7 +54,7 @@ func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) 
 			r.Delete("/rounds/{id}", h.HandleDeleteRound)
 			r.Get("/rounds/{id}/leaderboard", h.HandleGetAdminLeaderboard)
 			r.Get("/rounds/{id}/analytics", h.HandleGetRoundAnalytics)
-			r.Get("/rounds/{id}/submissions", h.HandleGetRoundSubmissions)
+			r.Get("/submissions", h.HandleListSubmissions)
 			r.Get("/submission-gate", h.HandleGetSubmissionGate)
 			r.Put("/submission-gate", h.HandleSetSubmissionGate)
 			r.Get("/rounds/{id}/panels", h.HandleGetRoundPanels)

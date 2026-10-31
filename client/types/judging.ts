@@ -192,8 +192,21 @@ export interface SubmissionRow {
 }
 
 export interface SubmissionsResponse {
-  round_name: string;
   submissions: SubmissionRow[];
+}
+
+export interface MySubmission {
+  has_team: boolean;
+  team_name?: string;
+  project_name: string;
+  links: Record<string, string>;
+  can_submit: boolean;
+  submit_blocked_reason?: string;
+}
+
+export interface UpdateMySubmissionRequest {
+  project_name: string;
+  links: Record<string, string>;
 }
 
 export interface TeamSlotSummary {

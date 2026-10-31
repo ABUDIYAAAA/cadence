@@ -275,13 +275,16 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	critInnovationID := judgePanels[0].Criteria[0].ID
 	critExecutionID := judgePanels[0].Criteria[1].ID
 
-	// 4e. AlphaLeader updates their team's submission links, and is forbidden from updating Team Beta's slot
-	alphaLeader.DoJSON(t, http.MethodPatch, fmt.Sprintf("/api/v1/judging/slots/%s/links", slotAlphaID), map[string]any{
+	// 4e. Submissions are closed until an admin opens an attendance gate, so the leader is refused;
+	// an admin can still set the links, and the leader is forbidden from Team Beta's slot either way.
+	alphaLinks := map[string]any{
 		"submission_links": map[string]string{
 			"github": "https://github.com/cadence/alpha-final",
 			"demo":   "https://alpha.cadence.local",
 		},
-	}, http.StatusOK, nil)
+	}
+	alphaLeader.DoJSON(t, http.MethodPatch, fmt.Sprintf("/api/v1/judging/slots/%s/links", slotAlphaID), alphaLinks, http.StatusForbidden, nil)
+	admin.DoJSON(t, http.MethodPatch, fmt.Sprintf("/api/v1/judging/slots/%s/links", slotAlphaID), alphaLinks, http.StatusOK, nil)
 
 	alphaLeader.DoJSON(t, http.MethodPatch, fmt.Sprintf("/api/v1/judging/slots/%s/links", slotBetaID), map[string]any{
 		"submission_links": map[string]string{

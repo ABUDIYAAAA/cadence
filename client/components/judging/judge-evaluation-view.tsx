@@ -268,16 +268,21 @@ const roundToTenth = (v: number) => Math.round(v * 10) / 10;
 function ScoreNumberInput({
   value,
   max,
+  scored,
   disabled,
   onCommit,
 }: {
   value: number;
   max: number;
+  /** False until the judge has deliberately scored this criterion. */
+  scored: boolean;
   disabled: boolean;
   onCommit: (v: number) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const shown = draft ?? String(value);
+  // An unscored criterion shows an empty box, not "0". Typing 0 into a box already showing "0" is not a
+  // change, so the browser fires no event and the criterion would never count as scored (lock stays disabled).
+  const shown = draft ?? (scored ? String(value) : "");
 
   return (
     <div className="flex items-center gap-1.5 text-xs font-mono text-[var(--ink-secondary)]">
@@ -290,6 +295,7 @@ function ScoreNumberInput({
         value={shown}
         disabled={disabled}
         aria-label="Enter score"
+        placeholder="Type score"
         onChange={(e) => {
           const text = e.target.value;
           setDraft(text);
@@ -756,7 +762,7 @@ function JudgeSlotScorecardForm({
                         </span>
                       ) : (
                         <span className="text-xs font-medium text-[var(--ink-tertiary)]">
-                          Not scored · tap the slider or a value
+                          Not scored · tap the slider, a value, or type a score
                         </span>
                       )}
                     </div>
@@ -803,6 +809,7 @@ function JudgeSlotScorecardForm({
                         <ScoreNumberInput
                           value={currentScore}
                           max={c.max_score}
+                          scored={scoredIds.has(c.criterion_id)}
                           disabled={!canScore}
                           onCommit={(v) => handleScoreChange(c.criterion_id, v)}
                         />

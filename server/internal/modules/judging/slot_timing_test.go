@@ -96,3 +96,70 @@ func TestSlotTiming_OverridesAndChaining(t *testing.T) {
 		t.Fatalf("expected ErrSlotTimingLocked, got %v", err)
 	}
 }
+
+func TestRoundDuration_ChangeAndReset(t *testing.T) {
+	pool, _ := newTestJudgingPool(t, 19)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	var judgeID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO users (email, name, role, is_active, is_password_configured)
+		VALUES ('judge.rd@cadence.local', 'Judge RD', 'judge', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatal(err)
+	}
+	teams := make([]string, 2)
+	for i, code := range []string{"RDTEAM01", "RDTEAM02"} {
+		if err := pool.QueryRow(ctx, `INSERT INTO teams (name, join_code) VALUES ($1, $1) RETURNING id`, code).Scan(&teams[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roundID, err := repo.CreateRound(ctx, CreateRoundRequest{
+		Name: "R", BufferSize: 2, SlotDurationMins: 10,
+		Criteria: []CreateCriteriaRequest{{Name: "C", MinScore: 0, MaxScore: 10, Weight: 100, OrderIndex: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	panelID, err := repo.CreatePanel(ctx, CreatePanelRequest{RoundID: roundID, Name: "P", Room: "R1", JudgeIDs: []string{judgeID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ConfigureSlots(ctx, panelID, []SlotAssignment{{TeamID: teams[0], SequenceOrder: 1}, {TeamID: teams[1], SequenceOrder: 2}}, false); err != nil {
+		t.Fatal(err)
+	}
+	var s1, s2 string
+	_ = pool.QueryRow(ctx, `SELECT id FROM judging_slots WHERE panel_id=$1 AND sequence_order=1`, panelID).Scan(&s1)
+	_ = pool.QueryRow(ctx, `SELECT id FROM judging_slots WHERE panel_id=$1 AND sequence_order=2`, panelID).Scan(&s2)
+	custom := 25
+	if err := repo.UpdateSlotTiming(ctx, s1, UpdateSlotTimingRequest{DurationMins: &custom}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without reset: round default changes, the custom team keeps its own length.
+	if _, err := repo.UpdateRoundSlotDuration(ctx, roundID, 12, false); err != nil {
+		t.Fatalf("change duration: %v", err)
+	}
+	d1, _ := repo.GetJudgeSlotDetails(ctx, s1, judgeID)
+	d2, _ := repo.GetJudgeSlotDetails(ctx, s2, judgeID)
+	if d1.SlotDurationSeconds != 25*60 || d2.SlotDurationSeconds != 12*60 {
+		t.Fatalf("got %ds/%ds, want 1500s/720s", d1.SlotDurationSeconds, d2.SlotDurationSeconds)
+	}
+
+	// With reset: the custom team follows the new default too.
+	reset, err := repo.UpdateRoundSlotDuration(ctx, roundID, 8, true)
+	if err != nil || reset != 1 {
+		t.Fatalf("reset: n=%d err=%v", reset, err)
+	}
+	d1, _ = repo.GetJudgeSlotDetails(ctx, s1, judgeID)
+	if d1.SlotDurationSeconds != 8*60 {
+		t.Fatalf("after reset got %ds, want 480s", d1.SlotDurationSeconds)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE judging_rounds SET status='completed' WHERE id=$1`, roundID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpdateRoundSlotDuration(ctx, roundID, 5, false); !errors.Is(err, ErrRoundCompleted) {
+		t.Fatalf("expected ErrRoundCompleted, got %v", err)
+	}
+}

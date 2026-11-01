@@ -35,6 +35,7 @@ interface RoundTableProps {
   onAddPanel: (round: RoundSummary) => void;
   onConfigureSlots: (round: RoundSummary) => void;
   onReassignTeams: (round: RoundSummary) => void;
+  onEditDuration: (round: RoundSummary) => void;
   onEnd: (round: RoundSummary) => void;
   onDelete: (round: RoundSummary) => void;
   isActivatingId?: string | null;
@@ -49,6 +50,7 @@ export function RoundTable({
   onAddPanel,
   onConfigureSlots,
   onReassignTeams,
+  onEditDuration,
   onEnd,
   onDelete,
   isActivatingId,
@@ -134,11 +136,29 @@ export function RoundTable({
 
                 {/* Slot Duration */}
                 <TableCell className="text-xs">
-                  <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
-                    <Clock className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                    <span>{round.slot_duration_mins || 10} min</span>
-                  </div>
-                  <span className="text-[10px] text-[var(--ink-tertiary)]">pitch + Q&amp;A</span>
+                  {isAdmin && round.status !== "completed" ? (
+                    <button
+                      type="button"
+                      onClick={() => onEditDuration(round)}
+                      title="Change time per team for the whole round"
+                      className="group -mx-1.5 -my-1 cursor-pointer rounded-[8px] px-1.5 py-1 text-left transition-colors hover:bg-[var(--card-solid-subtle)]"
+                    >
+                      <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
+                        <Clock className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                        <span>{round.slot_duration_mins || 10} min</span>
+                        <span className="text-[10px] font-medium text-[var(--color-blue)] opacity-70 group-hover:opacity-100">Edit</span>
+                      </div>
+                      <span className="text-[10px] text-[var(--ink-tertiary)]">pitch + Q&amp;A</span>
+                    </button>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1 font-semibold text-[var(--ink-primary)]">
+                        <Clock className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                        <span>{round.slot_duration_mins || 10} min</span>
+                      </div>
+                      <span className="text-[10px] text-[var(--ink-tertiary)]">pitch + Q&amp;A</span>
+                    </>
+                  )}
                 </TableCell>
 
                 {/* Panels count */}

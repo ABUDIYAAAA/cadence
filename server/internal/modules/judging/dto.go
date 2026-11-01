@@ -78,6 +78,13 @@ type RoundPanelSlot struct {
 	EstimatedStartTime *time.Time `json:"estimated_start_time,omitempty"`
 }
 
+// UpdateRoundDurationRequest changes the default time per team for a whole round.
+type UpdateRoundDurationRequest struct {
+	SlotDurationMins int `json:"slot_duration_mins" validate:"min=1,max=600"`
+	// ResetCustom also sends waiting teams with their own custom length back to this default.
+	ResetCustom bool `json:"reset_custom"`
+}
+
 // SetPanelJudgesRequest replaces the judges seated in a room.
 type SetPanelJudgesRequest struct {
 	JudgeIDs []string `json:"judge_ids" validate:"required,min=1,dive,uuid"`

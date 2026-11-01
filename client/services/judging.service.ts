@@ -283,6 +283,17 @@ export const judgingService = {
     return data;
   },
 
+  async updateRoundDuration(
+    roundId: string,
+    payload: { slot_duration_mins: number; reset_custom: boolean }
+  ): Promise<MessageResponse & { teams_reset?: number }> {
+    const { data } = await apiClient.patch<MessageResponse & { teams_reset?: number }>(
+      `/judging/rounds/${roundId}/slot-duration`,
+      payload
+    );
+    return data;
+  },
+
   async queueSlot(slotId: string): Promise<MessageResponse> {
     const { data } = await apiClient.post<MessageResponse>(
       `/judging/slots/${slotId}/queue`

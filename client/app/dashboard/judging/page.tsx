@@ -46,6 +46,7 @@ import {
 	RoundPanelCreateDialog,
 	RoundSlotsConfigDialog,
 	RoundTeamReassignDialog,
+	RoundDurationDialog,
 	RoundDetailDialog,
 	RoundLeaderboardView,
 	RoundAnalyticsView,
@@ -99,6 +100,8 @@ export default function JudgingPage() {
 	const [selectedRoundForSlots, setSelectedRoundForSlots] =
 		useState<RoundSummary | null>(null);
 	const [selectedRoundForReassign, setSelectedRoundForReassign] =
+		useState<RoundSummary | null>(null);
+	const [selectedRoundForDuration, setSelectedRoundForDuration] =
 		useState<RoundSummary | null>(null);
 	const [roundToEnd, setRoundToEnd] = useState<RoundSummary | null>(null);
 	const [roundToDelete, setRoundToDelete] = useState<RoundSummary | null>(null);
@@ -552,6 +555,9 @@ export default function JudgingPage() {
 							onReassignTeams={(round: RoundSummary) =>
 								setSelectedRoundForReassign(round)
 							}
+							onEditDuration={(round: RoundSummary) =>
+								setSelectedRoundForDuration(round)
+							}
 							onEnd={(round: RoundSummary) => setRoundToEnd(round)}
 							onDelete={(round: RoundSummary) => setRoundToDelete(round)}
 							onActivate={(roundId: string) =>
@@ -593,6 +599,13 @@ export default function JudgingPage() {
 				round={selectedRoundForSlots}
 				onSubmit={handleSlotsConfigure}
 				isLoading={configureSlotsMutation.isPending}
+			/>
+
+			{/* Default time per team for the whole round */}
+			<RoundDurationDialog
+				open={Boolean(selectedRoundForDuration)}
+				onClose={() => setSelectedRoundForDuration(null)}
+				round={selectedRoundForDuration}
 			/>
 
 			{/* Reassign teams between rooms (draft rounds) */}

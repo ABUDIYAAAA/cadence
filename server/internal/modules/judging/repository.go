@@ -27,6 +27,7 @@ var (
 	ErrJudgeAssigned      = errors.New("one or more judges are already assigned to another panel in this round")
 	ErrTeamSlotted        = errors.New("one or more teams are already scheduled in this round")
 	ErrRoundNotActive     = errors.New("this round is not active; pitches can only start once the round has been activated")
+	ErrRoundCompleted     = errors.New("this round has ended, so its time per team can no longer be changed")
 	ErrRoundNotRunning    = errors.New("only an active round can be ended")
 	ErrPitchesRunning     = errors.New("a team is still presenting; complete that pitch before ending the round")
 	ErrRoundIsActive      = errors.New("end the round before deleting it")
@@ -1909,6 +1910,70 @@ func (r *Repository) recalibratePanelEstimatesTx(ctx context.Context, tx pgx.Tx,
 		cursor = est.Add(time.Duration(s.mins) * time.Minute)
 	}
 	return nil
+}
+
+// UpdateRoundSlotDuration changes the round's default time per team and reschedules every room.
+// With resetOverrides, waiting teams that had their own custom length go back to the new default.
+// It returns how many teams were reset.
+func (r *Repository) UpdateRoundSlotDuration(ctx context.Context, roundID string, mins int, resetOverrides bool) (int, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE;`, roundID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, ErrRoundNotFound
+		}
+		return 0, fmt.Errorf("fetch round: %w", err)
+	}
+	if status == "completed" {
+		return 0, ErrRoundCompleted
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE judging_rounds SET slot_duration_mins = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`, roundID, mins); err != nil {
+		return 0, fmt.Errorf("update round duration: %w", err)
+	}
+
+	reset := 0
+	if resetOverrides {
+		tag, err := tx.Exec(ctx, `
+			UPDATE judging_slots s SET duration_mins = NULL, updated_at = CURRENT_TIMESTAMP
+			FROM judging_panels p
+			WHERE p.id = s.panel_id AND p.round_id = $1
+			  AND s.duration_mins IS NOT NULL AND s.status IN ('scheduled', 'queued');`, roundID)
+		if err != nil {
+			return 0, fmt.Errorf("reset team durations: %w", err)
+		}
+		reset = int(tag.RowsAffected())
+	}
+
+	rows, err := tx.Query(ctx, `SELECT id FROM judging_panels WHERE round_id = $1;`, roundID)
+	if err != nil {
+		return 0, fmt.Errorf("query panels: %w", err)
+	}
+	var panelIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		panelIDs = append(panelIDs, id)
+	}
+	rows.Close()
+	for _, id := range panelIDs {
+		if err := r.recalibratePanelEstimatesTx(ctx, tx, id, mins); err != nil {
+			return 0, fmt.Errorf("recalibrate estimates: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit tx: %w", err)
+	}
+	return reset, nil
 }
 
 // UpdateSlotTiming sets (or clears, when nil) a team's own pitch length and pinned start time,

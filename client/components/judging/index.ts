@@ -3,6 +3,7 @@ export { RoundCreateDialog } from "./round-dialog-create";
 export { RoundPanelCreateDialog } from "./round-dialog-panel-create";
 export { RoundSlotsConfigDialog } from "./round-dialog-slots-config";
 export { RoundTeamReassignDialog } from "./round-dialog-reassign";
+export { RoundDurationDialog } from "./round-dialog-duration";
 export { RoundLeaderboardView } from "./round-leaderboard-view";
 export { RoundDetailDialog } from "./round-dialog-detail";
 export { RoundConfirmDialog } from "./round-dialog-confirm";

@@ -784,6 +784,44 @@ func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleUpdateRoundDuration changes a round's default time per team.
+func (h *Handler) HandleUpdateRoundDuration(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	roundID := chi.URLParam(r, "id")
+
+	var req UpdateRoundDurationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	reset, err := h.service.UpdateRoundDuration(r.Context(), roundID, req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrRoundNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, ErrRoundCompleted):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update time per team")
+		}
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]any{
+		"message":     "Time per team updated",
+		"teams_reset": reset,
+	})
+}
+
 // HandleSetPanelJudges replaces the judges seated in a room.
 func (h *Handler) HandleSetPanelJudges(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.GetUserClaims(r.Context())

@@ -695,6 +695,32 @@ func (s *Service) GetAdminLeaderboard(ctx context.Context, roundID string) (*Adm
 	return s.repo.GetAdminLeaderboard(ctx, roundID)
 }
 
+// UpdateRoundDuration changes a round's default time per team.
+func (s *Service) UpdateRoundDuration(
+	ctx context.Context,
+	roundID string,
+	req UpdateRoundDurationRequest,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) (int, error) {
+	reset, err := s.repo.UpdateRoundSlotDuration(ctx, roundID, req.SlotDurationMins, req.ResetCustom)
+	if err != nil {
+		return 0, err
+	}
+
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingRoundDuration,
+		audit.TargetJudgingRound,
+		&roundID,
+		fmt.Sprintf("Round time per team changed by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"round_id": roundID, "slot_duration_mins": req.SlotDurationMins, "reset_custom": req.ResetCustom, "teams_reset": reset},
+		&ip, &userAgent,
+	)
+	return reset, nil
+}
+
 // SetPanelJudges replaces the judges seated in a room.
 func (s *Service) SetPanelJudges(
 	ctx context.Context,

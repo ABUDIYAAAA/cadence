@@ -414,6 +414,23 @@ export function useSetPanelJudges() {
   });
 }
 
+export function useUpdateRoundDuration() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      roundId,
+      payload,
+    }: {
+      roundId: string;
+      payload: { slot_duration_mins: number; reset_custom: boolean };
+    }) => judgingService.updateRoundDuration(roundId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
 export function useQueueSlot() {
   const queryClient = useQueryClient();
 

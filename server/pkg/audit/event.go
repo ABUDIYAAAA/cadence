@@ -82,6 +82,7 @@ const (
 	ActionJudgingSlotMove           = "judging.slot_move"
 	ActionJudgingSlotTiming         = "judging.slot_timing"
 	ActionJudgingPanelJudges        = "judging.panel_judges_update"
+	ActionJudgingRoundDuration      = "judging.round_duration_update"
 	ActionJudgingSlotQueue          = "judging.slot_queue"
 	ActionJudgingSlotUnqueue        = "judging.slot_unqueue"
 	ActionJudgingPanelCreate        = "judging.panel_create"

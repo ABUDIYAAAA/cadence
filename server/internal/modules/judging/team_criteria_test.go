@@ -7,7 +7,7 @@ import (
 )
 
 func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 18)
+	pool, _ := newTestJudgingPool(t, 19)
 	repo := NewRepository(pool)
 	svc := NewService(repo, nil)
 	ctx := context.Background()

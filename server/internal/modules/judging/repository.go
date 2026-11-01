@@ -21,6 +21,8 @@ var (
 	ErrUnauthorizedSlot   = errors.New("unauthorized: you do not have permission to update links for this slot")
 	ErrJudgeNotAssigned   = errors.New("forbidden: judge is not assigned to evaluate this panel")
 	ErrSlotNotStarted     = errors.New("pitch has not started; start the pitch before scoring")
+	ErrJudgeHasScores     = errors.New("a judge who has already scored in this room can't be removed from it")
+	ErrNoJudges           = errors.New("a room needs at least one judge")
 	ErrNotJudges          = errors.New("only users with the judge role can be assigned to a panel")
 	ErrJudgeAssigned      = errors.New("one or more judges are already assigned to another panel in this round")
 	ErrTeamSlotted        = errors.New("one or more teams are already scheduled in this round")
@@ -31,6 +33,7 @@ var (
 	ErrRoundFinished      = errors.New("this round has already finished and cannot be activated")
 	ErrPanelBusy          = errors.New("another team is already presenting in this room; complete that pitch first")
 	ErrPanelStarted       = errors.New("panel has started or finished pitches; add teams instead of replacing the sequence")
+	ErrSlotTimingLocked   = errors.New("finished teams can no longer have their time changed")
 	ErrSlotNotMovable     = errors.New("only teams waiting in the queue can be moved; presenting and finished teams stay where they are")
 	ErrPitchEnded         = errors.New("pitch has ended; the timer can no longer be changed")
 	ErrIncompleteScore    = errors.New("scorecard is incomplete: every criterion must be scored before locking")
@@ -393,11 +396,115 @@ func (r *Repository) CreatePanel(ctx context.Context, req CreatePanelRequest) (s
 	return panelID, nil
 }
 
+// SetPanelJudges replaces the judges seated in a room. Judges must have the judge role, can sit on only
+// one room per round, and can't be removed once they've scored a team in this room.
+func (r *Repository) SetPanelJudges(ctx context.Context, panelID string, judgeIDs []string) (added, removed []string, err error) {
+	distinct := make(map[string]struct{}, len(judgeIDs))
+	unique := make([]string, 0, len(judgeIDs))
+	for _, id := range judgeIDs {
+		if _, dup := distinct[id]; !dup {
+			distinct[id] = struct{}{}
+			unique = append(unique, id)
+		}
+	}
+	if len(unique) == 0 {
+		return nil, nil, ErrNoJudges
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var roundID string
+	if err := tx.QueryRow(ctx, `SELECT round_id FROM judging_panels WHERE id = $1 FOR UPDATE;`, panelID).Scan(&roundID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrPanelNotFound
+		}
+		return nil, nil, fmt.Errorf("fetch panel: %w", err)
+	}
+
+	var judges int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT id) FROM users
+		WHERE id = ANY($1::uuid[]) AND role = 'judge' AND deleted_at IS NULL`, unique).Scan(&judges); err != nil {
+		return nil, nil, fmt.Errorf("verify judges: %w", err)
+	}
+	if judges != len(unique) {
+		return nil, nil, ErrNotJudges
+	}
+
+	var conflicts int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM judging_panel_judges pj
+		JOIN judging_panels p ON p.id = pj.panel_id
+		WHERE p.round_id = $1 AND p.id <> $2 AND pj.judge_id = ANY($3::uuid[])`,
+		roundID, panelID, unique).Scan(&conflicts); err != nil {
+		return nil, nil, fmt.Errorf("check judge assignments: %w", err)
+	}
+	if conflicts > 0 {
+		return nil, nil, ErrJudgeAssigned
+	}
+
+	rows, err := tx.Query(ctx, `SELECT judge_id::text FROM judging_panel_judges WHERE panel_id = $1;`, panelID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query current judges: %w", err)
+	}
+	current := map[string]struct{}{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		current[id] = struct{}{}
+	}
+	rows.Close()
+
+	for id := range current {
+		if _, keep := distinct[id]; !keep {
+			removed = append(removed, id)
+		}
+	}
+	for _, id := range unique {
+		if _, had := current[id]; !had {
+			added = append(added, id)
+		}
+	}
+
+	if len(removed) > 0 {
+		var scored int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM judging_scores sc
+			JOIN judging_slots s ON s.id = sc.slot_id
+			WHERE s.panel_id = $1 AND sc.judge_id = ANY($2::uuid[])`, panelID, removed).Scan(&scored); err != nil {
+			return nil, nil, fmt.Errorf("check judge scores: %w", err)
+		}
+		if scored > 0 {
+			return nil, nil, ErrJudgeHasScores
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM judging_panel_judges WHERE panel_id = $1 AND judge_id = ANY($2::uuid[]);`, panelID, removed); err != nil {
+			return nil, nil, fmt.Errorf("remove judges: %w", err)
+		}
+	}
+	for _, id := range added {
+		if _, err := tx.Exec(ctx, `INSERT INTO judging_panel_judges (panel_id, judge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;`, panelID, id); err != nil {
+			return nil, nil, fmt.Errorf("assign judge %s: %w", id, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return added, removed, nil
+}
+
 // GetRoundPanels lists a round's panels with judge counts and the teams each already holds.
 func (r *Repository) GetRoundPanels(ctx context.Context, roundID string) ([]RoundPanelOverview, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT p.id, p.name, p.room,
-			(SELECT COUNT(*) FROM judging_panel_judges pj WHERE pj.panel_id = p.id),
+			COALESCE((SELECT array_agg(pj.judge_id::text ORDER BY pj.judge_id) FROM judging_panel_judges pj WHERE pj.panel_id = p.id), '{}'),
 			COALESCE((SELECT array_agg(s.team_id::text ORDER BY s.sequence_order)
 			          FROM judging_slots s WHERE s.panel_id = p.id), '{}')
 		FROM judging_panels p
@@ -411,9 +518,10 @@ func (r *Repository) GetRoundPanels(ctx context.Context, roundID string) ([]Roun
 	out := make([]RoundPanelOverview, 0)
 	for rows.Next() {
 		var o RoundPanelOverview
-		if err := rows.Scan(&o.PanelID, &o.Name, &o.Room, &o.JudgeCount, &o.TeamIDs); err != nil {
+		if err := rows.Scan(&o.PanelID, &o.Name, &o.Room, &o.JudgeIDs, &o.TeamIDs); err != nil {
 			return nil, fmt.Errorf("scan round panel: %w", err)
 		}
+		o.JudgeCount = len(o.JudgeIDs)
 		o.SlotCount = len(o.TeamIDs)
 		o.Slots = []RoundPanelSlot{}
 		out = append(out, o)
@@ -424,9 +532,11 @@ func (r *Repository) GetRoundPanels(ctx context.Context, roundID string) ([]Roun
 	}
 
 	slotRows, err := r.db.Query(ctx, `
-		SELECT s.panel_id, s.id, s.team_id, t.name, s.sequence_order, s.status::text
+		SELECT s.panel_id, s.id, s.team_id, t.name, s.sequence_order, s.status::text,
+			   COALESCE(s.duration_mins, r.slot_duration_mins), s.duration_mins IS NOT NULL, s.scheduled_start_time, s.estimated_start_time
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_rounds r ON r.id = p.round_id
 		JOIN teams t ON t.id = s.team_id
 		WHERE p.round_id = $1
 		ORDER BY s.sequence_order ASC`, roundID)
@@ -442,7 +552,8 @@ func (r *Repository) GetRoundPanels(ctx context.Context, roundID string) ([]Roun
 	for slotRows.Next() {
 		var panelID string
 		var sl RoundPanelSlot
-		if err := slotRows.Scan(&panelID, &sl.SlotID, &sl.TeamID, &sl.TeamName, &sl.SequenceOrder, &sl.Status); err != nil {
+		if err := slotRows.Scan(&panelID, &sl.SlotID, &sl.TeamID, &sl.TeamName, &sl.SequenceOrder, &sl.Status,
+			&sl.DurationMins, &sl.CustomDuration, &sl.ScheduledStartTime, &sl.EstimatedStartTime); err != nil {
 			return nil, fmt.Errorf("scan round panel slot: %w", err)
 		}
 		if i, ok := byPanel[panelID]; ok {
@@ -772,7 +883,7 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	query := `
 		SELECT 
 			s.id, s.panel_id, p.name, p.room, s.team_id, tm.name, s.sequence_order, s.status::text,
-			r.slot_duration_mins, s.actual_start_time, s.submission_links,
+			COALESCE(s.duration_mins, r.slot_duration_mins), s.actual_start_time, s.submission_links,
 			s.paused_at, s.paused_total_ms, s.extra_secs, s.pitch_ended_at, CURRENT_TIMESTAMP
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
@@ -1374,39 +1485,8 @@ func (r *Repository) CompleteSlot(ctx context.Context, slotID string) error {
 	}
 
 	// Recalibrate estimated start times for remaining slots
-	now := time.Now()
-	recalQuery := `
-		SELECT id, sequence_order
-		FROM judging_slots
-		WHERE panel_id = $1 AND status IN ('scheduled', 'queued')
-		ORDER BY sequence_order ASC;
-	`
-	rows, err := tx.Query(ctx, recalQuery, panelID)
-	if err != nil {
-		return fmt.Errorf("query remaining slots: %w", err)
-	}
-	defer rows.Close()
-
-	type slotOrder struct {
-		id string
-	}
-	var remaining []slotOrder
-	for rows.Next() {
-		var s slotOrder
-		var so int
-		if err := rows.Scan(&s.id, &so); err != nil {
-			return err
-		}
-		remaining = append(remaining, s)
-	}
-	rows.Close()
-
-	updateEstQuery := `UPDATE judging_slots SET estimated_start_time = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`
-	for idx, s := range remaining {
-		estTime := now.Add(time.Duration(idx*durationMins) * time.Minute)
-		if _, err := tx.Exec(ctx, updateEstQuery, s.id, estTime); err != nil {
-			return fmt.Errorf("update est time for slot %s: %w", s.id, err)
-		}
+	if err := r.recalibratePanelEstimatesTx(ctx, tx, panelID, durationMins); err != nil {
+		return fmt.Errorf("recalibrate estimates: %w", err)
 	}
 
 	return tx.Commit(ctx)
@@ -1430,7 +1510,7 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 	query := `
 		SELECT 
 			r.name, p.name, p.room, s.status::text, s.sequence_order,
-			s.estimated_start_time, r.slot_duration_mins, s.submission_links, s.id::text,
+			s.estimated_start_time, COALESCE(s.duration_mins, r.slot_duration_mins), s.submission_links, s.id::text,
 			(
 				SELECT COUNT(*) + 1 
 				FROM judging_slots prev 
@@ -1516,13 +1596,14 @@ func (r *Repository) GetVolunteerSchedule(ctx context.Context, judgeID *string) 
 		slotQuery := `
 			SELECT 
 				s.id, s.team_id, tm.name, s.sequence_order, s.status::text,
-				s.estimated_start_time, s.actual_start_time, s.submission_links
+				s.estimated_start_time, s.actual_start_time, s.submission_links,
+				COALESCE(s.duration_mins, $2), s.duration_mins IS NOT NULL, s.scheduled_start_time
 			FROM judging_slots s
 			JOIN teams tm ON tm.id = s.team_id
 			WHERE s.panel_id = $1
 			ORDER BY s.sequence_order ASC;
 		`
-		slotRows, err := r.db.Query(ctx, slotQuery, panels[i].PanelID)
+		slotRows, err := r.db.Query(ctx, slotQuery, panels[i].PanelID, panels[i].SlotDurationMins)
 		if err != nil {
 			return nil, fmt.Errorf("query slots: %w", err)
 		}
@@ -1530,7 +1611,8 @@ func (r *Repository) GetVolunteerSchedule(ctx context.Context, judgeID *string) 
 		for slotRows.Next() {
 			var s TeamSlotSummary
 			var linksJSON []byte
-			if err := slotRows.Scan(&s.SlotID, &s.TeamID, &s.TeamName, &s.SequenceOrder, &s.Status, &s.EstimatedStartTime, &s.ActualStartTime, &linksJSON); err != nil {
+			if err := slotRows.Scan(&s.SlotID, &s.TeamID, &s.TeamName, &s.SequenceOrder, &s.Status, &s.EstimatedStartTime, &s.ActualStartTime, &linksJSON,
+				&s.DurationMins, &s.CustomDuration, &s.ScheduledStartTime); err != nil {
 				slotRows.Close()
 				return nil, err
 			}
@@ -1784,38 +1866,92 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 }
 
 // recalibratePanelEstimatesTx recalculates estimated start times for scheduled and queued slots.
-func (r *Repository) recalibratePanelEstimatesTx(ctx context.Context, tx pgx.Tx, panelID string, durationMins int) error {
-	now := time.Now()
-	recalQuery := `
-		SELECT id, sequence_order
+// Each slot advances the clock by its own duration (falling back to defaultDurationMins), and a slot
+// with a pinned scheduled_start_time starts exactly then, with the following teams chaining after it.
+func (r *Repository) recalibratePanelEstimatesTx(ctx context.Context, tx pgx.Tx, panelID string, defaultDurationMins int) error {
+	rows, err := tx.Query(ctx, `
+		SELECT id, COALESCE(duration_mins, $2), scheduled_start_time
 		FROM judging_slots
 		WHERE panel_id = $1 AND status IN ('scheduled', 'queued')
 		ORDER BY sequence_order ASC;
-	`
-	rows, err := tx.Query(ctx, recalQuery, panelID)
+	`, panelID, defaultDurationMins)
 	if err != nil {
 		return err
 	}
-	type slotSeq struct {
-		id  string
-		seq int
+	type pendingSlot struct {
+		id     string
+		mins   int
+		pinned *time.Time
 	}
-	var pending []slotSeq
+	var pending []pendingSlot
 	for rows.Next() {
-		var s slotSeq
-		if err := rows.Scan(&s.id, &s.seq); err == nil {
-			pending = append(pending, s)
+		var s pendingSlot
+		if err := rows.Scan(&s.id, &s.mins, &s.pinned); err != nil {
+			rows.Close()
+			return err
 		}
+		pending = append(pending, s)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 
-	for idx, s := range pending {
-		est := now.Add(time.Duration(idx*durationMins) * time.Minute)
+	cursor := time.Now()
+	for _, s := range pending {
+		est := cursor
+		if s.pinned != nil {
+			est = *s.pinned
+		}
 		if _, err := tx.Exec(ctx, `UPDATE judging_slots SET estimated_start_time = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`, s.id, est); err != nil {
 			return err
 		}
+		cursor = est.Add(time.Duration(s.mins) * time.Minute)
 	}
 	return nil
+}
+
+// UpdateSlotTiming sets (or clears, when nil) a team's own pitch length and pinned start time,
+// then recalculates the panel's estimated start times. Finished teams can no longer be changed.
+func (r *Repository) UpdateSlotTiming(ctx context.Context, slotID string, req UpdateSlotTimingRequest) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var panelID, status string
+	var defaultMins int
+	err = tx.QueryRow(ctx, `
+		SELECT s.panel_id, s.status::text, r.slot_duration_mins
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE s.id = $1
+		FOR UPDATE OF s;
+	`, slotID).Scan(&panelID, &status, &defaultMins)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSlotNotFound
+		}
+		return fmt.Errorf("fetch slot: %w", err)
+	}
+	if status == "completed" || status == "skipped" || status == "no_show" {
+		return ErrSlotTimingLocked
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_slots
+		SET duration_mins = $2, scheduled_start_time = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1;
+	`, slotID, req.DurationMins, req.StartTime); err != nil {
+		return fmt.Errorf("update slot timing: %w", err)
+	}
+
+	if err := r.recalibratePanelEstimatesTx(ctx, tx, panelID, defaultMins); err != nil {
+		return fmt.Errorf("recalibrate estimates: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // MoveSlot moves a team slot within its current panel or transfers it to a new panel/room,

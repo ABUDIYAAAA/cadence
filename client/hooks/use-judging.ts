@@ -8,6 +8,7 @@ import {
   CreateRoundRequest,
   ImportTeamCriteriaRequest,
   MoveSlotRequest,
+  UpdateSlotTimingRequest,
   SubmitScoresRequest,
   UpdateSlotLinksRequest,
   UpdateMySubmissionRequest,
@@ -378,6 +379,35 @@ export function useMoveSlot() {
       slotId: string;
       payload: MoveSlotRequest;
     }) => judgingService.moveSlot(slotId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useUpdateSlotTiming() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      slotId,
+      payload,
+    }: {
+      slotId: string;
+      payload: UpdateSlotTimingRequest;
+    }) => judgingService.updateSlotTiming(slotId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useSetPanelJudges() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ panelId, judgeIds }: { panelId: string; judgeIds: string[] }) =>
+      judgingService.setPanelJudges(panelId, judgeIds),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
     },

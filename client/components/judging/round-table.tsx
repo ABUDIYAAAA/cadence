@@ -205,11 +205,11 @@ export function RoundTable({
                             variant="ghost"
                             size="sm"
                             onClick={() => onReassignTeams(round)}
-                            title="Move teams between rooms or change their order"
+                            title="Move teams, set team times, and change room judges"
                             className="h-7 px-2 text-xs gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
                           >
                             <ArrowRightLeft className="h-3 w-3" />
-                            <span>Move teams</span>
+                            <span>Manage rooms</span>
                           </Button>
                         )}
 

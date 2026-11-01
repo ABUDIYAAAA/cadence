@@ -18,6 +18,7 @@ import {
   JudgePanelSummary,
   JudgeSlotDetails,
   MoveSlotRequest,
+  UpdateSlotTimingRequest,
   RoundDetail,
   RoundSummary,
   SubmitScoresRequest,
@@ -256,6 +257,28 @@ export const judgingService = {
     const { data } = await apiClient.post<MessageResponse>(
       `/judging/slots/${slotId}/move`,
       payload
+    );
+    return data;
+  },
+
+  async updateSlotTiming(
+    slotId: string,
+    payload: UpdateSlotTimingRequest
+  ): Promise<MessageResponse> {
+    const { data } = await apiClient.patch<MessageResponse>(
+      `/judging/slots/${slotId}/timing`,
+      payload
+    );
+    return data;
+  },
+
+  async setPanelJudges(
+    panelId: string,
+    judgeIds: string[]
+  ): Promise<MessageResponse> {
+    const { data } = await apiClient.put<MessageResponse>(
+      `/judging/panels/${panelId}/judges`,
+      { judge_ids: judgeIds }
     );
     return data;
   },

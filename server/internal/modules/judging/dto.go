@@ -57,6 +57,7 @@ type RoundPanelOverview struct {
 	Room       string   `json:"room"`
 	JudgeCount int      `json:"judge_count"`
 	SlotCount  int      `json:"slot_count"`
+	JudgeIDs   []string `json:"judge_ids"`
 	TeamIDs    []string `json:"team_ids"`
 	// Slots lists the panel's teams in pitch order, with the slot ids needed to move them.
 	Slots []RoundPanelSlot `json:"slots"`
@@ -69,6 +70,24 @@ type RoundPanelSlot struct {
 	TeamName      string `json:"team_name"`
 	SequenceOrder int    `json:"sequence_order"`
 	Status        string `json:"status"`
+	// DurationMins is this team's pitch length; CustomDuration is false when it just follows the round.
+	DurationMins   int  `json:"duration_mins"`
+	CustomDuration bool `json:"custom_duration"`
+	// ScheduledStartTime is the start time an admin pinned for this team, if any.
+	ScheduledStartTime *time.Time `json:"scheduled_start_time,omitempty"`
+	EstimatedStartTime *time.Time `json:"estimated_start_time,omitempty"`
+}
+
+// SetPanelJudgesRequest replaces the judges seated in a room.
+type SetPanelJudgesRequest struct {
+	JudgeIDs []string `json:"judge_ids" validate:"required,min=1,dive,uuid"`
+}
+
+// UpdateSlotTimingRequest sets one team's pitch length and/or start time. A null field clears the
+// override: the team then follows the round's slot length and queues after the team before it.
+type UpdateSlotTimingRequest struct {
+	DurationMins *int       `json:"duration_mins"`
+	StartTime    *time.Time `json:"start_time"`
 }
 
 // UpdateSlotLinksRequest modifies project artifacts/links for a team's slot.
@@ -263,6 +282,9 @@ type TeamSlotSummary struct {
 	EstimatedStartTime *time.Time        `json:"estimated_start_time,omitempty"`
 	ActualStartTime    *time.Time        `json:"actual_start_time,omitempty"`
 	SubmissionLinks    map[string]string `json:"submission_links,omitempty"`
+	DurationMins       int               `json:"duration_mins"`
+	CustomDuration     bool              `json:"custom_duration"`
+	ScheduledStartTime *time.Time        `json:"scheduled_start_time,omitempty"`
 }
 
 // VolunteerPanelSchedule coordinator view per room.

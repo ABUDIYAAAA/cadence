@@ -784,6 +784,86 @@ func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSetPanelJudges replaces the judges seated in a room.
+func (h *Handler) HandleSetPanelJudges(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	panelID := chi.URLParam(r, "panelId")
+	if panelID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "panel ID is required")
+		return
+	}
+
+	var req SetPanelJudgesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	if err := h.service.SetPanelJudges(r.Context(), panelID, req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		switch {
+		case errors.Is(err, ErrPanelNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, ErrJudgeAssigned), errors.Is(err, ErrJudgeHasScores):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		case errors.Is(err, ErrNotJudges), errors.Is(err, ErrNoJudges):
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update room judges")
+		}
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Room judges updated"})
+}
+
+// HandleUpdateSlotTiming sets a single team's pitch length and/or pinned start time.
+func (h *Handler) HandleUpdateSlotTiming(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slotID := chi.URLParam(r, "slotId")
+	if slotID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "slot ID is required")
+		return
+	}
+
+	var req UpdateSlotTimingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.DurationMins != nil && (*req.DurationMins < 1 || *req.DurationMins > 600) {
+		utils.ErrorJSON(w, http.StatusBadRequest, "duration must be between 1 and 600 minutes")
+		return
+	}
+
+	if err := h.service.UpdateSlotTiming(r.Context(), slotID, req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		switch {
+		case errors.Is(err, ErrSlotNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+		case errors.Is(err, ErrSlotTimingLocked):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update team time")
+		}
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Team time updated"})
+}
+
 // HandleQueueSlot immediately stages a team slot into the room queue ('queued' status).
 func (h *Handler) HandleQueueSlot(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.GetUserClaims(r.Context())

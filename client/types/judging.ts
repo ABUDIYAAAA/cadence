@@ -39,6 +39,7 @@ export interface RoundPanelOverview {
   name: string;
   room: string;
   judge_count: number;
+  judge_ids: string[];
   slot_count: number;
   team_ids: string[];
   /** The panel's teams in pitch order, with the slot ids needed to move them. */
@@ -51,6 +52,18 @@ export interface RoundPanelSlot {
   team_name: string;
   sequence_order: number;
   status: string;
+  /** This team's pitch length in minutes (the round default unless custom_duration). */
+  duration_mins: number;
+  custom_duration: boolean;
+  /** Start time an admin pinned for this team, if any. */
+  scheduled_start_time?: string | null;
+  estimated_start_time?: string | null;
+}
+
+/** Null clears an override: the team follows the round's slot length / queues after the previous team. */
+export interface UpdateSlotTimingRequest {
+  duration_mins: number | null;
+  start_time: string | null;
 }
 
 export interface UpdateSlotLinksRequest {
@@ -218,6 +231,9 @@ export interface TeamSlotSummary {
   estimated_start_time?: string | null;
   actual_start_time?: string | null;
   submission_links?: Record<string, string>;
+  duration_mins?: number;
+  custom_duration?: boolean;
+  scheduled_start_time?: string | null;
 }
 
 export interface VolunteerPanelSchedule {

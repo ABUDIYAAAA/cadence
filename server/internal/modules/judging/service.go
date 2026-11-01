@@ -695,6 +695,68 @@ func (s *Service) GetAdminLeaderboard(ctx context.Context, roundID string) (*Adm
 	return s.repo.GetAdminLeaderboard(ctx, roundID)
 }
 
+// SetPanelJudges replaces the judges seated in a room.
+func (s *Service) SetPanelJudges(
+	ctx context.Context,
+	panelID string,
+	req SetPanelJudgesRequest,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	added, removed, err := s.repo.SetPanelJudges(ctx, panelID, req.JudgeIDs)
+	if err != nil {
+		return err
+	}
+	if len(added) == 0 && len(removed) == 0 {
+		return nil
+	}
+
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingPanelJudges,
+		audit.TargetJudgingPanel,
+		&panelID,
+		fmt.Sprintf("Room judges changed by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"panel_id": panelID, "added": added, "removed": removed},
+		&ip, &userAgent,
+	)
+	return nil
+}
+
+// UpdateSlotTiming sets a team's own pitch length and pinned start time.
+func (s *Service) UpdateSlotTiming(
+	ctx context.Context,
+	slotID string,
+	req UpdateSlotTimingRequest,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.UpdateSlotTiming(ctx, slotID, req); err != nil {
+		return err
+	}
+
+	metadata := map[string]any{"slot_id": slotID, "duration_mins": nil, "start_time": nil}
+	if req.DurationMins != nil {
+		metadata["duration_mins"] = *req.DurationMins
+	}
+	if req.StartTime != nil {
+		metadata["start_time"] = req.StartTime.UTC().Format(time.RFC3339)
+	}
+
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingSlotTiming,
+		audit.TargetJudgingSlot,
+		&slotID,
+		fmt.Sprintf("Judging slot time changed by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		metadata,
+		&ip, &userAgent,
+	)
+	return nil
+}
+
 // MoveSlot moves a team slot across panels or reorders inside a panel.
 func (s *Service) MoveSlot(
 	ctx context.Context,

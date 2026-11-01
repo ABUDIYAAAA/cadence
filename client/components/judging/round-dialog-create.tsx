@@ -24,8 +24,10 @@ import { useTeams } from "@/hooks/use-teams";
 import {
   CreateCriteriaRequest,
   CreateRoundRequest,
+  ImportTeamCriteriaRequest,
   SlotAssignment,
 } from "@/types/judging";
+import { TeamCriteriaPicker, TeamCriteriaPickerState } from "./team-criteria-picker";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +52,7 @@ interface RoundCreateDialogProps {
       judge_ids: string[];
       slots: SlotAssignment[];
     }>;
+    teamCriteria?: ImportTeamCriteriaRequest;
   }) => Promise<void>;
   isLoading: boolean;
 }
@@ -203,7 +206,17 @@ export function RoundCreateDialog({
   }, [usersData]);
 
   // Available Teams
-  const availableTeams = useMemo(() => teamsData?.data || [], [teamsData]);
+  const [teamCsv, setTeamCsv] = useState<TeamCriteriaPickerState>({ status: "empty", payload: null });
+  const [csvResetKey, setCsvResetKey] = useState(0);
+  // When a team CSV is imported, only its teams can be scheduled in this round.
+  const rosterIds = useMemo(
+    () => (teamCsv.status === "valid" ? new Set(teamCsv.payload.rows.map((r) => r.team_id)) : null),
+    [teamCsv]
+  );
+  const availableTeams = useMemo(
+    () => (teamsData?.data || []).filter((t) => !rosterIds || rosterIds.has(t.id)),
+    [teamsData, rosterIds]
+  );
 
   // Form State - Step 1: Round & Criteria
   const [roundName, setRoundName] = useState("");
@@ -287,6 +300,7 @@ export function RoundCreateDialog({
       },
     ]);
     setSelectedTeamIds([]);
+    setCsvResetKey((k) => k + 1);
     setStepErrors(null);
     setEvaluatorSearchQuery("");
     setTeamSearchQuery("");
@@ -497,6 +511,10 @@ export function RoundCreateDialog({
       setStepErrors("Please specify at least one scoring criterion.");
       return false;
     }
+    if (teamCsv.status === "invalid") {
+      setStepErrors(teamCsv.message);
+      return false;
+    }
     for (let i = 0; i < criteria.length; i++) {
       const c = criteria[i];
       if (!c.name.trim()) {
@@ -579,7 +597,9 @@ export function RoundCreateDialog({
             name: p.name.trim(),
             room: p.room.trim(),
             judge_ids: p.judge_ids,
-            slots: p.assigned_team_ids.map((teamId, seq) => ({
+            slots: p.assigned_team_ids
+              .filter((teamId) => !rosterIds || rosterIds.has(teamId))
+              .map((teamId, seq) => ({
               team_id: teamId,
               sequence_order: seq + 1,
               submission_links: {},
@@ -602,6 +622,7 @@ export function RoundCreateDialog({
           })),
         },
         panels: effectivePanels,
+        teamCriteria: teamCsv.status === "valid" ? teamCsv.payload : undefined,
       });
 
       // Reset directly: handleClose() is gated on this render's stale isLoading, so it would skip the reset.
@@ -1023,6 +1044,20 @@ export function RoundCreateDialog({
             </div>
           </div>
         )}
+
+        {/* Team list + per-team extra criterion (optional). Kept mounted so the chosen file survives step changes. */}
+        <div className={step === 1 ? "mt-5" : "hidden"}>
+          <div className="rounded-[18px] border border-[var(--card-line)] bg-[var(--card-solid)] p-4 sm:p-5 space-y-3 shadow-xs">
+            <div>
+              <h3 className="font-bold text-sm text-[var(--ink-primary)]">Teams & extra criterion (optional)</h3>
+              <p className="text-[11px] text-[var(--ink-secondary)]">
+                Upload a CSV to set the teams going into this round. Each team also gets its own extra criterion with
+                its own max score; the weight is the same for all.
+              </p>
+            </div>
+            <TeamCriteriaPicker key={csvResetKey} onChange={setTeamCsv} />
+          </div>
+        </div>
 
         {/* ========================================================= */}
         {/* STEP 2: Rooms / Panels & Evaluator Assignments             */}

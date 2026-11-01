@@ -25,10 +25,12 @@ import {
 	useCreateRound,
 	useCreatePanel,
 	useConfigureSlots,
+	useImportTeamCriteria,
 } from '@/hooks/use-judging';
 import {
 	RoundSummary,
 	CreateRoundRequest,
+	ImportTeamCriteriaRequest,
 	CreatePanelRequest,
 	ConfigureSlotsRequest,
 	SlotAssignment,
@@ -83,6 +85,7 @@ export default function JudgingPage() {
 	const endRoundMutation = useEndRound();
 	const deleteRoundMutation = useDeleteRound();
 	const createRoundMutation = useCreateRound();
+	const importTeamCriteriaMutation = useImportTeamCriteria();
 	const createPanelMutation = useCreatePanel();
 	const configureSlotsMutation = useConfigureSlots();
 
@@ -234,6 +237,7 @@ export default function JudgingPage() {
 			judge_ids: string[];
 			slots: SlotAssignment[];
 		}>;
+		teamCriteria?: ImportTeamCriteriaRequest;
 	}) => {
 		setIsCreatingWorkflow(true);
 		try {
@@ -247,6 +251,14 @@ export default function JudgingPage() {
 				throw new Error(
 					'Round created but server did not return a round ID',
 				);
+			}
+
+			// 1b. Seed the roster + per-team criteria before slots (slots are checked against the roster)
+			if (params.teamCriteria) {
+				await importTeamCriteriaMutation.mutateAsync({
+					roundId,
+					payload: params.teamCriteria,
+				});
 			}
 
 			// 2. Create Panels and configure Slots if any

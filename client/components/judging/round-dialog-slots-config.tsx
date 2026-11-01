@@ -3,7 +3,16 @@
 import React, { useState } from "react";
 import { ConfigureSlotsRequest, RoundSummary } from "@/types/judging";
 import { useTeams } from "@/hooks/use-teams";
-import { useRoundPanels, useRoundTeams } from "@/hooks/use-judging";
+import { useRoundPanels, useRoundTeams, useSetTeamCriterion } from "@/hooks/use-judging";
+import { TeamResponse } from "@/types/teams";
+import { Input } from "@/components/ui/input";
+import { apiErrorMessage } from "@/lib/utils";
+import {
+  MarksValue,
+  TeamMarksFields,
+  marksDefaults,
+  parseMarks,
+} from "./team-marks-editor";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -24,22 +33,33 @@ export function RoundSlotsConfigDialog({
   onSubmit,
   isLoading,
 }: RoundSlotsConfigDialogProps) {
-  const { data: teamsData, isLoading: teamsLoading } = useTeams({ limit: 100 });
+  const [search, setSearch] = useState("");
+  // Every team on Cadence can be added; the API returns at most 100 per request, so search narrows it.
+  const { data: teamsData, isLoading: teamsLoading } = useTeams({
+    limit: 100,
+    search: search.trim() || undefined,
+  });
   const { data: roundPanels, isLoading: panelsLoading } = useRoundPanels(
     open ? round?.id : undefined
   );
   const { data: roster } = useRoundTeams(open ? round?.id : undefined);
   const [panelId, setPanelId] = useState("");
   const [slottedTeamIds, setSlottedTeamIds] = useState<string[]>([]);
+  // Teams picked so far, kept so their names survive a change of search text.
+  const [pickedTeams, setPickedTeams] = useState<Record<string, TeamResponse>>({});
+  // Marks entered for teams that weren't in the CSV import (they have no custom criterion yet).
+  const [marks, setMarks] = useState<Record<string, MarksValue>>({});
+  const setCriterion = useSetTeamCriterion();
   const [error, setError] = useState<string | null>(null);
 
   if (!round || !open) return null;
 
-  // When a team list was imported for this round, only those teams can be scheduled.
+  // Teams from the CSV import; any other team is allowed too and gets marks entered by hand.
   const rosterIds = new Set((roster ?? []).map((t) => t.team_id));
-  const availableTeams = (teamsData?.data || []).filter(
-    (t) => rosterIds.size === 0 || rosterIds.has(t.id)
-  );
+  const hasRoster = rosterIds.size > 0;
+  const isOffRoster = (teamId: string) => hasRoster && !rosterIds.has(teamId);
+  const availableTeams = teamsData?.data || [];
+  const matchingTotal = teamsData?.total_count ?? availableTeams.length;
   const panels = roundPanels ?? [];
   // A team plays once per round, so hide teams already scheduled in any of its panels.
   const scheduledIds = new Set(panels.flatMap((p) => p.team_ids));
@@ -47,6 +67,11 @@ export function RoundSlotsConfigDialog({
 
   const handleAddTeamToSlots = (teamId: string) => {
     if (!teamId || slottedTeamIds.includes(teamId)) return;
+    const team = availableTeams.find((t) => t.id === teamId);
+    if (team) setPickedTeams((prev) => ({ ...prev, [teamId]: team }));
+    if (isOffRoster(teamId)) {
+      setMarks((prev) => ({ ...prev, [teamId]: marksDefaults(roster) }));
+    }
     setSlottedTeamIds((prev) => [...prev, teamId]);
   };
 
@@ -77,6 +102,19 @@ export function RoundSlotsConfigDialog({
     }
 
     try {
+      // Teams outside the import: save any marks entered for them first. Leaving all four fields
+      // empty skips it (no custom criterion); a half-filled form is an error.
+      for (const teamId of slottedTeamIds.filter(isOffRoster)) {
+        const v = marks[teamId];
+        if (!v || (!v.name.trim() && !v.score.trim())) continue;
+        const parsed = parseMarks(v);
+        if (parsed.error !== undefined) {
+          setError(`${pickedTeams[teamId]?.name ?? "A team"}: ${parsed.error}`);
+          return;
+        }
+        await setCriterion.mutateAsync({ roundId: round.id, teamId, payload: parsed.payload });
+      }
+
       const slots = slottedTeamIds.map((teamId, index) => ({
         team_id: teamId,
         sequence_order: index + 1,
@@ -84,12 +122,16 @@ export function RoundSlotsConfigDialog({
       }));
 
       await onSubmit(panelId.trim(), { slots, append: true });
+      setSlottedTeamIds([]);
+      setPickedTeams({});
+      setMarks({});
+      setSearch("");
       onClose();
     } catch (err: unknown) {
       setError(
         err && typeof err === "object" && "error" in err
           ? (err as { error: string }).error
-          : "Failed to configure slots"
+          : apiErrorMessage(err, "Failed to configure slots")
       );
     }
   };
@@ -114,7 +156,7 @@ export function RoundSlotsConfigDialog({
             variant="primary"
             size="sm"
             onClick={handleSubmit}
-            isLoading={isLoading}
+            isLoading={isLoading || setCriterion.isPending}
             className="gap-1.5"
           >
             <Layers className="h-3.5 w-3.5" />
@@ -159,6 +201,14 @@ export function RoundSlotsConfigDialog({
           <label className="block text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
             Team to add
           </label>
+          <Input
+            type="search"
+            placeholder="Search all teams by name..."
+            aria-label="Search teams"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            disabled={isLoading}
+          />
           <Select
             onChange={(e) => {
               if (e.target.value) {
@@ -174,10 +224,15 @@ export function RoundSlotsConfigDialog({
               .filter((t) => !slottedTeamIds.includes(t.id) && !scheduledIds.has(t.id))
               .map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({t.member_count} members)
+                  {t.name} ({t.member_count} members){isOffRoster(t.id) ? " · not in import" : ""}
                 </option>
               ))}
           </Select>
+          <p className="text-[11px] text-[var(--ink-tertiary)]">
+            {matchingTotal > availableTeams.length
+              ? `Showing ${availableTeams.length} of ${matchingTotal} teams. Search to narrow the list.`
+              : `${matchingTotal} ${matchingTotal === 1 ? "team" : "teams"} on Cadence${search.trim() ? " match" : ""}.`}
+          </p>
         </div>
 
         {/* Slotted Teams List */}
@@ -194,12 +249,14 @@ export function RoundSlotsConfigDialog({
           ) : (
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {slottedTeamIds.map((teamId, index) => {
-                const team = availableTeams.find((t) => t.id === teamId);
+                const team = pickedTeams[teamId] ?? availableTeams.find((t) => t.id === teamId);
+                const offRoster = isOffRoster(teamId);
                 return (
                   <div
                     key={teamId}
-                    className="flex items-center justify-between p-2.5 rounded-[10px] bg-[var(--card-solid)] border border-[var(--card-line)]"
+                    className="p-2.5 rounded-[10px] bg-[var(--card-solid)] border border-[var(--card-line)]"
                   >
+                    <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-[var(--ink-primary)] text-xs min-w-5">
                         #{index + 1}
@@ -238,6 +295,20 @@ export function RoundSlotsConfigDialog({
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
+                    </div>
+
+                    {offRoster && marks[teamId] && (
+                      <div className="mt-2 space-y-1.5 border-t border-[var(--card-line)] pt-2">
+                        <p className="text-[11px] text-[var(--ink-secondary)]">
+                          Not in the import. Enter their custom-criterion marks here, or leave empty to skip.
+                        </p>
+                        <TeamMarksFields
+                          value={marks[teamId]}
+                          onChange={(next) => setMarks((prev) => ({ ...prev, [teamId]: next }))}
+                          disabled={isLoading || setCriterion.isPending}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}

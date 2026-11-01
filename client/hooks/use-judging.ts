@@ -9,6 +9,7 @@ import {
   ImportTeamCriteriaRequest,
   MoveSlotRequest,
   UpdateSlotTimingRequest,
+  SetTeamCriterionRequest,
   SubmitScoresRequest,
   UpdateSlotLinksRequest,
   UpdateMySubmissionRequest,
@@ -425,6 +426,37 @@ export function useUpdateRoundDuration() {
       roundId: string;
       payload: { slot_duration_mins: number; reset_custom: boolean };
     }) => judgingService.updateRoundDuration(roundId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useSetTeamCriterion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      roundId,
+      teamId,
+      payload,
+    }: {
+      roundId: string;
+      teamId: string;
+      payload: SetTeamCriterionRequest;
+    }) => judgingService.setTeamCriterion(roundId, teamId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useDeleteTeamCriterion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ roundId, teamId }: { roundId: string; teamId: string }) =>
+      judgingService.deleteTeamCriterion(roundId, teamId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
     },

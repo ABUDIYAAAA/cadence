@@ -168,6 +168,53 @@ func (s *Service) ImportTeamCriteria(
 	return nil
 }
 
+// SetTeamCriterion sets a team's custom criterion and the marks awarded for it.
+func (s *Service) SetTeamCriterion(
+	ctx context.Context,
+	roundID, teamID string,
+	req SetTeamCriterionRequest,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.SetTeamCriterion(ctx, roundID, teamID, req); err != nil {
+		return err
+	}
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingTeamCriterionSet,
+		audit.TargetJudgingRound,
+		&roundID,
+		fmt.Sprintf("Team marks set by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"round_id": roundID, "team_id": teamID, "criterion": req.CriterionName, "max_score": req.MaxScore, "weight": req.Weight, "score": req.Score},
+		&ip, &userAgent,
+	)
+	return nil
+}
+
+// DeleteTeamCriterion removes a team's custom criterion.
+func (s *Service) DeleteTeamCriterion(
+	ctx context.Context,
+	roundID, teamID string,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.DeleteTeamCriterion(ctx, roundID, teamID); err != nil {
+		return err
+	}
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingTeamCriterionDel,
+		audit.TargetJudgingRound,
+		&roundID,
+		fmt.Sprintf("Team criterion removed by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"round_id": roundID, "team_id": teamID},
+		&ip, &userAgent,
+	)
+	return nil
+}
+
 // GetRoundTeams lists the round roster with each team's extra criterion.
 func (s *Service) GetRoundTeams(ctx context.Context, roundID string) ([]RoundTeam, error) {
 	return s.repo.GetRoundTeams(ctx, roundID)

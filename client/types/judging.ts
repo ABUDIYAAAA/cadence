@@ -374,6 +374,14 @@ export interface RoundSummary {
   slot_count?: number;
 }
 
+/** A team's custom criterion and the marks an admin awards for it. */
+export interface SetTeamCriterionRequest {
+  criterion_name: string;
+  max_score: number;
+  weight: number;
+  score: number;
+}
+
 /** A judge already seated on a panel within a round. */
 export interface AssignedJudge {
   judge_id: string;

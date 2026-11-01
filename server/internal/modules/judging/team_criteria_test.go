@@ -84,9 +84,6 @@ func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("panel: %v", err)
 	}
-	if err := repo.ConfigureSlots(ctx, panelID, []SlotAssignment{{TeamID: teamC, SequenceOrder: 1}}, false); !errors.Is(err, ErrTeamNotInRound) {
-		t.Fatalf("expected ErrTeamNotInRound for off-roster team, got %v", err)
-	}
 	if err := repo.ConfigureSlots(ctx, panelID, []SlotAssignment{
 		{TeamID: teamA, SequenceOrder: 1}, {TeamID: teamB, SequenceOrder: 2},
 	}, false); err != nil {
@@ -153,5 +150,83 @@ func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
 		if e.TeamID == teamB && (e.TotalWeightedScore < 15.99 || e.TotalWeightedScore > 16.01) {
 			t.Fatalf("team B total want 16, got %v", e.TotalWeightedScore)
 		}
+	}
+}
+
+func TestTeamCriteria_OffRosterTeamWithManualMarks(t *testing.T) {
+	pool, _ := newTestJudgingPool(t, 19)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	var judgeID, imported, extra string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO users (email, name, role, is_active, is_password_configured)
+		VALUES ('judge.or@cadence.local', 'Judge OR', 'judge', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatal(err)
+	}
+	for code, dst := range map[string]*string{"IMPORT01": &imported, "EXTRA002": &extra} {
+		if err := pool.QueryRow(ctx, `INSERT INTO teams (name, join_code) VALUES ($1, $1) RETURNING id`, code).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roundID, err := repo.CreateRound(ctx, CreateRoundRequest{
+		Name: "R", BufferSize: 2, SlotDurationMins: 10,
+		Criteria: []CreateCriteriaRequest{{Name: "Shared", MinScore: 0, MaxScore: 10, Weight: 50, OrderIndex: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ImportTeamCriteria(ctx, roundID, ImportTeamCriteriaRequest{
+		Weight: 20, Rows: []TeamCriterionRow{{TeamID: imported, CriterionName: "Hardware", MaxScore: 10}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	panelID, err := repo.CreatePanel(ctx, CreatePanelRequest{RoundID: roundID, Name: "P", Room: "R1", JudgeIDs: []string{judgeID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A team that wasn't in the CSV can be scheduled and joins the roster.
+	if err := repo.ConfigureSlots(ctx, panelID, []SlotAssignment{{TeamID: imported, SequenceOrder: 1}, {TeamID: extra, SequenceOrder: 2}}, false); err != nil {
+		t.Fatalf("off-roster team should be schedulable: %v", err)
+	}
+	if roster, _ := repo.GetRoundTeams(ctx, roundID); len(roster) != 2 {
+		t.Fatalf("roster should now hold both teams, got %d", len(roster))
+	}
+
+	// Marks must stay within the max.
+	if err := repo.SetTeamCriterion(ctx, roundID, extra, SetTeamCriterionRequest{CriterionName: "Hardware", MaxScore: 10, Weight: 20, Score: 11}); !errors.Is(err, ErrAwardedScoreRange) {
+		t.Fatalf("expected ErrAwardedScoreRange, got %v", err)
+	}
+	if err := repo.SetTeamCriterion(ctx, roundID, extra, SetTeamCriterionRequest{CriterionName: "Hardware", MaxScore: 10, Weight: 20, Score: 5}); err != nil {
+		t.Fatalf("set marks: %v", err)
+	}
+	// Editing again updates in place.
+	if err := repo.SetTeamCriterion(ctx, roundID, extra, SetTeamCriterionRequest{CriterionName: "Hardware", MaxScore: 10, Weight: 20, Score: 10}); err != nil {
+		t.Fatalf("edit marks: %v", err)
+	}
+
+	lb, err := repo.GetAdminLeaderboard(ctx, roundID)
+	if err != nil {
+		t.Fatalf("leaderboard: %v", err)
+	}
+	var found bool
+	for _, e := range lb.Leaderboard {
+		if e.TeamID == extra {
+			found = true
+			if e.TotalWeightedScore < 19.99 || e.TotalWeightedScore > 20.01 {
+				t.Fatalf("manual marks should add 20 to the total, got %v", e.TotalWeightedScore)
+			}
+			if e.CriteriaAverages["Hardware"] != 10 {
+				t.Fatalf("leaderboard should list the custom criterion, got %v", e.CriteriaAverages)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("off-roster team missing from leaderboard")
+	}
+
+	if err := repo.DeleteTeamCriterion(ctx, roundID, extra); err != nil {
+		t.Fatalf("delete: %v", err)
 	}
 }

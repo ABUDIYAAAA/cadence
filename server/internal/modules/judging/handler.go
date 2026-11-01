@@ -227,6 +227,61 @@ func (h *Handler) HandleGetRoundTeams(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusOK, teams)
 }
 
+// HandleSetTeamCriterion sets a team's custom criterion and the marks awarded for it.
+func (h *Handler) HandleSetTeamCriterion(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	roundID, teamID := chi.URLParam(r, "id"), chi.URLParam(r, "teamId")
+
+	var req SetTeamCriterionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	if err := h.service.SetTeamCriterion(r.Context(), roundID, teamID, req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		teamCriterionError(w, err)
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Team marks saved"})
+}
+
+// HandleDeleteTeamCriterion removes a team's custom criterion.
+func (h *Handler) HandleDeleteTeamCriterion(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	roundID, teamID := chi.URLParam(r, "id"), chi.URLParam(r, "teamId")
+
+	if err := h.service.DeleteTeamCriterion(r.Context(), roundID, teamID, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		teamCriterionError(w, err)
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Team criterion removed"})
+}
+
+func teamCriterionError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrRoundNotFound), errors.Is(err, ErrUnknownTeam):
+		utils.ErrorJSON(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, ErrAwardedScoreRange):
+		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrRoundFinished), errors.Is(err, ErrCriterionHasScores):
+		utils.ErrorJSON(w, http.StatusConflict, err.Error())
+	default:
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update team marks")
+	}
+}
+
 // HandleGetAssignedJudges lists judges already seated on a panel in the round.
 func (h *Handler) HandleGetAssignedJudges(w http.ResponseWriter, r *http.Request) {
 	roundID := chi.URLParam(r, "id")
@@ -307,7 +362,7 @@ func (h *Handler) HandleConfigureSlots(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrPanelNotFound):
 			utils.ErrorJSON(w, http.StatusNotFound, "judging panel not found")
-		case errors.Is(err, ErrTeamSlotted), errors.Is(err, ErrPanelStarted), errors.Is(err, ErrTeamNotInRound):
+		case errors.Is(err, ErrTeamSlotted), errors.Is(err, ErrPanelStarted):
 			utils.ErrorJSON(w, http.StatusConflict, err.Error())
 		default:
 			utils.ErrorJSON(w, http.StatusBadRequest, "failed to configure slots: "+err.Error())

@@ -41,7 +41,7 @@ var (
 	ErrTimerPaused        = errors.New("timer is already paused")
 	ErrTimerNotPaused     = errors.New("timer is not paused")
 	ErrSlotNotPending     = errors.New("pitch has already started or finished")
-	ErrTeamNotInRound     = errors.New("one or more teams are not on this round's roster")
+	ErrCriterionHasScores = errors.New("judges have already scored this criterion, so it can't be removed")
 	ErrRoundHasScores     = errors.New("scores already exist for this round's team criteria; they cannot be re-imported")
 	ErrDuplicateTeamRow   = errors.New("each team may appear only once in the import")
 	ErrUnknownTeam        = errors.New("one or more teams do not exist")
@@ -619,21 +619,13 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 		teamIDs[i] = s.TeamID
 	}
 
-	// When the round has a roster (CSV import), only roster teams can be scheduled.
-	var rosterSize, offRoster int
-	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM judging_round_teams WHERE round_id = $1`, roundID).Scan(&rosterSize); err != nil {
-		return fmt.Errorf("check roster: %w", err)
-	}
-	if rosterSize > 0 {
-		if err := tx.QueryRow(ctx, `
-			SELECT COUNT(*) FROM unnest($2::uuid[]) AS t(id)
-			WHERE NOT EXISTS (SELECT 1 FROM judging_round_teams rt WHERE rt.round_id = $1 AND rt.team_id = t.id)`,
-			roundID, teamIDs).Scan(&offRoster); err != nil {
-			return fmt.Errorf("check roster membership: %w", err)
-		}
-		if offRoster > 0 {
-			return ErrTeamNotInRound
-		}
+	// Any team can be scheduled. One that wasn't in the CSV import joins the round's roster, so it
+	// shows up alongside the imported teams and can be given custom-criterion marks.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO judging_round_teams (round_id, team_id)
+		SELECT $1, t.id FROM teams t WHERE t.id = ANY($2::uuid[])
+		ON CONFLICT DO NOTHING`, roundID, teamIDs); err != nil {
+		return fmt.Errorf("add teams to roster: %w", err)
 	}
 
 	offset := 0
@@ -2469,6 +2461,95 @@ func (r *Repository) ImportTeamCriteria(ctx context.Context, roundID string, req
 			roundID, row.TeamID, row.CriterionName, row.MaxScore, req.Weight, maxOrder+1, row.Score); err != nil {
 			return fmt.Errorf("insert team criterion: %w", err)
 		}
+	}
+	return tx.Commit(ctx)
+}
+
+// SetTeamCriterion creates or updates one team's custom criterion with marks entered by an admin.
+// The criterion is not judged: its mark counts straight into the team's total. The team joins the
+// round's roster if it wasn't already on it.
+func (r *Repository) SetTeamCriterion(ctx context.Context, roundID, teamID string, req SetTeamCriterionRequest) error {
+	if math.IsNaN(req.Score) || math.IsInf(req.Score, 0) || req.Score < 0 || req.Score > float64(req.MaxScore) {
+		return ErrAwardedScoreRange
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoundNotFound
+		}
+		return fmt.Errorf("lock round: %w", err)
+	}
+	if status == "completed" {
+		return ErrRoundFinished
+	}
+
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM teams WHERE id = $1)`, teamID).Scan(&exists); err != nil {
+		return fmt.Errorf("verify team: %w", err)
+	}
+	if !exists {
+		return ErrUnknownTeam
+	}
+
+	var maxOrder int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(order_index), 0) FROM judging_criteria WHERE round_id = $1`, roundID).Scan(&maxOrder); err != nil {
+		return fmt.Errorf("next order: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO judging_round_teams (round_id, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, roundID, teamID); err != nil {
+		return fmt.Errorf("add team to roster: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO judging_criteria (round_id, team_id, name, min_score, max_score, weight, order_index, awarded_score)
+		VALUES ($1, $2, $3, 0, $4, $5, $6, $7)
+		ON CONFLICT (round_id, team_id) WHERE team_id IS NOT NULL
+		DO UPDATE SET name = EXCLUDED.name, max_score = EXCLUDED.max_score, weight = EXCLUDED.weight,
+		              awarded_score = EXCLUDED.awarded_score`,
+		roundID, teamID, req.CriterionName, req.MaxScore, req.Weight, maxOrder+1, req.Score); err != nil {
+		return fmt.Errorf("upsert team criterion: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// DeleteTeamCriterion removes a team's custom criterion (and its marks). The team stays in the round.
+func (r *Repository) DeleteTeamCriterion(ctx context.Context, roundID, teamID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoundNotFound
+		}
+		return fmt.Errorf("lock round: %w", err)
+	}
+	if status == "completed" {
+		return ErrRoundFinished
+	}
+
+	var scored int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM judging_scores sc
+		JOIN judging_criteria c ON c.id = sc.criterion_id
+		WHERE c.round_id = $1 AND c.team_id = $2`, roundID, teamID).Scan(&scored); err != nil {
+		return fmt.Errorf("check scores: %w", err)
+	}
+	if scored > 0 {
+		return ErrCriterionHasScores
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM judging_criteria WHERE round_id = $1 AND team_id = $2`, roundID, teamID); err != nil {
+		return fmt.Errorf("delete team criterion: %w", err)
 	}
 	return tx.Commit(ctx)
 }

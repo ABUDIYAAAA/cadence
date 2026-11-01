@@ -359,6 +359,14 @@ type ImportTeamCriteriaRequest struct {
 	Rows   []TeamCriterionRow `json:"rows" validate:"required,min=1,dive"`
 }
 
+// SetTeamCriterionRequest sets one team's custom criterion and the marks awarded for it.
+type SetTeamCriterionRequest struct {
+	CriterionName string  `json:"criterion_name" validate:"required,max=150"`
+	MaxScore      int     `json:"max_score" validate:"required,min=1,max=999"`
+	Weight        float64 `json:"weight" validate:"required,gt=0"`
+	Score         float64 `json:"score" validate:"min=0"`
+}
+
 // RoundTeam is a roster team with its extra criterion.
 type RoundTeam struct {
 	TeamID        string   `json:"team_id"`

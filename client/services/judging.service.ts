@@ -19,6 +19,7 @@ import {
   JudgeSlotDetails,
   MoveSlotRequest,
   UpdateSlotTimingRequest,
+  SetTeamCriterionRequest,
   RoundDetail,
   RoundSummary,
   SubmitScoresRequest,
@@ -290,6 +291,25 @@ export const judgingService = {
     const { data } = await apiClient.patch<MessageResponse & { teams_reset?: number }>(
       `/judging/rounds/${roundId}/slot-duration`,
       payload
+    );
+    return data;
+  },
+
+  async setTeamCriterion(
+    roundId: string,
+    teamId: string,
+    payload: SetTeamCriterionRequest
+  ): Promise<MessageResponse> {
+    const { data } = await apiClient.put<MessageResponse>(
+      `/judging/rounds/${roundId}/teams/${teamId}/criterion`,
+      payload
+    );
+    return data;
+  },
+
+  async deleteTeamCriterion(roundId: string, teamId: string): Promise<MessageResponse> {
+    const { data } = await apiClient.delete<MessageResponse>(
+      `/judging/rounds/${roundId}/teams/${teamId}/criterion`
     );
     return data;
   },

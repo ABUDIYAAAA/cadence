@@ -11,13 +11,14 @@ import {
 } from "@/hooks/use-judging";
 import { useUsers } from "@/hooks/use-users";
 import { Input } from "@/components/ui/input";
+import { TeamMarksEditor } from "./team-marks-editor";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { apiErrorMessage } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Clock, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock, ListChecks, Users } from "lucide-react";
 
 interface RoundTeamReassignDialogProps {
   round: RoundSummary | null;
@@ -233,6 +234,7 @@ export function RoundTeamReassignDialog({
   const [pickedRoomId, setPickedRoomId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [timingSlotId, setTimingSlotId] = useState<string | null>(null);
+  const [marksSlotId, setMarksSlotId] = useState<string | null>(null);
   const [editingJudges, setEditingJudges] = useState(false);
 
   if (!round || !open) return null;
@@ -304,6 +306,7 @@ export function RoundTeamReassignDialog({
                     onClick={() => {
                       setPickedRoomId(p.panel_id);
                       setTimingSlotId(null);
+                      setMarksSlotId(null);
                       setEditingJudges(false);
                     }}
                     className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] px-3 text-xs font-semibold transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] cursor-pointer ${
@@ -375,6 +378,23 @@ export function RoundTeamReassignDialog({
                         {slot.team_name}
                       </span>
 
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        aria-label={`Enter marks for ${slot.team_name}`}
+                        aria-expanded={marksSlotId === slot.slot_id}
+                        title="Enter marks for this team's custom criterion"
+                        onClick={() => {
+                          setTimingSlotId(null);
+                          setMarksSlotId(marksSlotId === slot.slot_id ? null : slot.slot_id);
+                        }}
+                        className="h-7 shrink-0 gap-1 px-2 active:scale-95"
+                      >
+                        <ListChecks className="h-3.5 w-3.5" />
+                        Marks
+                      </Button>
+
                       {slot.status !== "completed" && (
                         <Button
                           variant="ghost"
@@ -382,7 +402,10 @@ export function RoundTeamReassignDialog({
                           type="button"
                           aria-label={`Edit time for ${slot.team_name}`}
                           aria-expanded={timingSlotId === slot.slot_id}
-                          onClick={() => setTimingSlotId(timingSlotId === slot.slot_id ? null : slot.slot_id)}
+                          onClick={() => {
+                            setMarksSlotId(null);
+                            setTimingSlotId(timingSlotId === slot.slot_id ? null : slot.slot_id);
+                          }}
                           className="h-7 shrink-0 gap-1 px-2 font-mono tabular-nums active:scale-95"
                         >
                           <Clock className="h-3.5 w-3.5" />
@@ -445,6 +468,15 @@ export function RoundTeamReassignDialog({
                         </>
                       )}
                       </div>
+
+                      {marksSlotId === slot.slot_id && (
+                        <TeamMarksEditor
+                          roundId={round.id}
+                          teamId={slot.team_id}
+                          onDone={() => setMarksSlotId(null)}
+                          onError={setError}
+                        />
+                      )}
 
                       {timingSlotId === slot.slot_id && (
                         <SlotTimingEditor

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSetPanelJudges_Rules(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 19)
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
 	ctx := context.Background()
 

@@ -27,6 +27,7 @@ var (
 	ErrJudgeAssigned      = errors.New("one or more judges are already assigned to another panel in this round")
 	ErrTeamSlotted        = errors.New("one or more teams are already scheduled in this round")
 	ErrRoundNotActive     = errors.New("this round is not active; pitches can only start once the round has been activated")
+	ErrScorecardNotLocked = errors.New("there is no locked scorecard to unlock for this team")
 	ErrRoundCompleted     = errors.New("this round has ended, so its time per team can no longer be changed")
 	ErrRoundNotRunning    = errors.New("only an active round can be ended")
 	ErrPitchesRunning     = errors.New("a team is still presenting; complete that pitch before ending the round")
@@ -1915,6 +1916,105 @@ func (r *Repository) recalibratePanelEstimatesTx(ctx context.Context, tx pgx.Tx,
 	return nil
 }
 
+// UnlockScorecards reopens locked scorecards so judges can edit and lock again: one judge's, or every
+// judge's on the team when judgeID is empty. A team that already finished is put back in progress, which
+// is only possible while its room isn't presenting someone else. It returns the judges unlocked and whether
+// the team was reopened. Marks stop counting on the leaderboard until the judge locks again.
+func (r *Repository) UnlockScorecards(ctx context.Context, slotID, judgeID string) (unlocked []string, reopened bool, err error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status, panelID, roundID, roundStatus string
+	err = tx.QueryRow(ctx, `
+		SELECT s.status::text, s.panel_id::text, p.round_id::text, r.status::text
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE s.id = $1
+		FOR UPDATE OF s;`, slotID).Scan(&status, &panelID, &roundID, &roundStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, ErrSlotNotFound
+		}
+		return nil, false, fmt.Errorf("fetch slot: %w", err)
+	}
+	// An ended round's results are final.
+	if roundStatus != "active" {
+		return nil, false, ErrRoundNotActive
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT judge_id::text FROM judging_scores
+		WHERE slot_id = $1 AND is_locked = true AND ($2 = '' OR judge_id = NULLIF($2, '')::uuid)`, slotID, judgeID)
+	if err != nil {
+		return nil, false, fmt.Errorf("find locked scorecards: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		unlocked = append(unlocked, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(unlocked) == 0 || (status != "in_progress" && status != "completed") {
+		return nil, false, ErrScorecardNotLocked
+	}
+
+	if status == "completed" {
+		var presenting int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM judging_slots WHERE panel_id = $1 AND status = 'in_progress' AND id <> $2`,
+			panelID, slotID).Scan(&presenting); err != nil {
+			return nil, false, fmt.Errorf("check room is free: %w", err)
+		}
+		if presenting > 0 {
+			return nil, false, ErrPanelBusy
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE judging_slots SET status = 'in_progress', actual_end_time = NULL, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1`, slotID); err != nil {
+			return nil, false, fmt.Errorf("reopen slot: %w", err)
+		}
+		reopened = true
+	}
+
+	// Only this transaction may get past the lock trigger.
+	if _, err := tx.Exec(ctx, `SELECT set_config('cadence.allow_unlock', 'on', true)`); err != nil {
+		return nil, false, fmt.Errorf("enable unlock: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_scores SET is_locked = false, locked_at = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE slot_id = $1 AND is_locked = true AND judge_id = ANY($2::uuid[])`, slotID, unlocked); err != nil {
+		return nil, false, fmt.Errorf("unlock scores: %w", err)
+	}
+	// Analytics count a scorecard as done only while locked; the next lock re-stamps these.
+	if _, err := tx.Exec(ctx, `
+		UPDATE judging_judge_metrics SET locked_at = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE slot_id = $1 AND judge_id = ANY($2::uuid[])`, slotID, unlocked); err != nil {
+		return nil, false, fmt.Errorf("reset judge metrics: %w", err)
+	}
+	for _, id := range unlocked {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO judging_score_events (round_id, panel_id, slot_id, judge_id, event_type)
+			VALUES ($1, $2, $3, $4, 'unlocked')`, roundID, panelID, slotID, id); err != nil {
+			return nil, false, fmt.Errorf("record unlock event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("commit tx: %w", err)
+	}
+	return unlocked, reopened, nil
+}
+
 // UpdateRoundSlotDuration changes the round's default time per team and reschedules every room.
 // With resetOverrides, waiting teams that had their own custom length go back to the new default.
 // It returns how many teams were reset.
@@ -2605,7 +2705,7 @@ func (r *Repository) GetScoreSheet(ctx context.Context, roundID string) (*ScoreS
 	rows, err := r.db.Query(ctx, `
 		SELECT s.team_id::text, tm.name, p.room, p.name, s.status::text,
 		       u.id::text, u.name, c.name, 'judged', c.min_score, c.max_score, c.weight::float8,
-		       sc.score::float8, sc.notes, COALESCE(sc.is_locked, false), sc.updated_at, c.order_index
+		       sc.score::float8, sc.notes, COALESCE(sc.is_locked, false), sc.updated_at, c.order_index, s.id::text
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
 		JOIN teams tm ON tm.id = s.team_id
@@ -2617,7 +2717,7 @@ func (r *Repository) GetScoreSheet(ctx context.Context, roundID string) (*ScoreS
 		UNION ALL
 		SELECT s.team_id::text, tm.name, p.room, p.name, s.status::text,
 		       '', '', c.name, 'custom', c.min_score, c.max_score, c.weight::float8,
-		       c.awarded_score::float8, NULL, true, NULL, c.order_index
+		       c.awarded_score::float8, NULL, true, NULL, c.order_index, s.id::text
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
 		JOIN teams tm ON tm.id = s.team_id
@@ -2632,7 +2732,7 @@ func (r *Repository) GetScoreSheet(ctx context.Context, roundID string) (*ScoreS
 		var order int
 		if err := rows.Scan(&row.TeamID, &row.TeamName, &row.Room, &row.PanelName, &row.SlotStatus,
 			&row.JudgeID, &row.JudgeName, &row.CriterionName, &row.Kind, &row.MinScore, &row.MaxScore, &row.Weight,
-			&row.Score, &row.Notes, &row.Locked, &row.ScoredAt, &order); err != nil {
+			&row.Score, &row.Notes, &row.Locked, &row.ScoredAt, &order, &row.SlotID); err != nil {
 			return nil, fmt.Errorf("scan score sheet: %w", err)
 		}
 		out.Rows = append(out.Rows, row)

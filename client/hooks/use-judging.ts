@@ -9,6 +9,7 @@ import {
   ImportTeamCriteriaRequest,
   MoveSlotRequest,
   UpdateSlotTimingRequest,
+  UnlockScorecardRequest,
   SetTeamCriterionRequest,
   SubmitScoresRequest,
   UpdateSlotLinksRequest,
@@ -468,6 +469,19 @@ export function useDeleteTeamCriterion() {
     mutationFn: ({ roundId, teamId }: { roundId: string; teamId: string }) =>
       judgingService.deleteTeamCriterion(roundId, teamId),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
+    },
+  });
+}
+
+export function useUnlockScorecard() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ slotId, payload }: { slotId: string; payload?: UnlockScorecardRequest }) =>
+      judgingService.unlockScorecard(slotId, payload),
+    onSuccess: () => {
+      // Unlocking changes the judge's card, the room's current team and the standings.
       queryClient.invalidateQueries({ queryKey: JUDGING_QUERY_KEY });
     },
   });

@@ -20,6 +20,8 @@ import {
   MoveSlotRequest,
   UpdateSlotTimingRequest,
   ScoreSheetResponse,
+  UnlockScorecardRequest,
+  UnlockScorecardResponse,
   SetTeamCriterionRequest,
   RoundDetail,
   RoundSummary,
@@ -316,6 +318,17 @@ export const judgingService = {
   async deleteTeamCriterion(roundId: string, teamId: string): Promise<MessageResponse> {
     const { data } = await apiClient.delete<MessageResponse>(
       `/judging/rounds/${roundId}/teams/${teamId}/criterion`
+    );
+    return data;
+  },
+
+  async unlockScorecard(
+    slotId: string,
+    payload: UnlockScorecardRequest = {}
+  ): Promise<UnlockScorecardResponse> {
+    const { data } = await apiClient.post<UnlockScorecardResponse>(
+      `/judging/slots/${slotId}/unlock`,
+      payload
     );
     return data;
   },

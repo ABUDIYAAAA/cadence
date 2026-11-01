@@ -443,6 +443,7 @@ export interface RoundTeam {
 
 /** One mark: a judge's score on a criterion for a team, or an admin-awarded custom mark (no judge). */
 export interface ScoreSheetRow {
+  slot_id: string;
   team_id: string;
   team_name: string;
   room: string;
@@ -467,4 +468,17 @@ export interface ScoreSheetResponse {
   round_name: string;
   status: string;
   rows: ScoreSheetRow[];
+}
+
+/** Judges unlock their own scorecard (no body needed); admins pick a judge, or omit judge_id for all. */
+export interface UnlockScorecardRequest {
+  judge_id?: string;
+  reason?: string;
+}
+
+export interface UnlockScorecardResponse {
+  message: string;
+  unlocked: number;
+  /** True when the team had already finished and was put back in progress. */
+  slot_reopened: boolean;
 }

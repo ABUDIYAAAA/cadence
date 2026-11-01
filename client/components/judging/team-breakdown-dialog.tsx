@@ -1,11 +1,14 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
-import { useScoreSheet } from "@/hooks/use-judging";
+import { Download, Unlock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/providers/toast-provider";
+import { apiErrorMessage } from "@/lib/utils";
+import { useScoreSheet, useUnlockScorecard } from "@/hooks/use-judging";
 import { downloadCsv, slugify } from "@/lib/csv";
 import { buildDetailedCsv, fmt, weightedPoints } from "@/lib/judging-export";
 import type { AdminLeaderboardEntry, ScoreSheetRow } from "@/types/judging";
@@ -22,6 +25,11 @@ interface Props {
  */
 export function TeamBreakdownDialog({ roundId, team, onClose }: Props) {
   const { data: sheet, isLoading } = useScoreSheet(roundId, Boolean(team));
+  const unlock = useUnlockScorecard();
+  const toast = useToast();
+  // Who the admin is about to unlock ("all" = every locked judge on this team).
+  const [confirm, setConfirm] = useState<{ judgeId: string; name: string } | null>(null);
+  const [reason, setReason] = useState("");
   if (!team) return null;
 
   const rows = (sheet?.rows ?? []).filter((r) => r.team_id === team.team_id);
@@ -42,6 +50,28 @@ export function TeamBreakdownDialog({ roundId, team, onClose }: Props) {
   const lockedJudges = judges.filter(([id]) => judged.some((r) => r.judge_id === id && r.locked)).length;
   const notes = judged.filter((r) => r.notes && r.notes.trim());
 
+  const slotId = judged[0]?.slot_id;
+  const lockedJudgeIds = judges.filter(([id]) => judged.some((r) => r.judge_id === id && r.locked)).map(([id]) => id);
+  // An ended round is final, so its scorecards can't be reopened.
+  const canUnlock = sheet?.status === "active" && Boolean(slotId);
+
+  const runUnlock = async () => {
+    if (!confirm || !slotId) return;
+    try {
+      const res = await unlock.mutateAsync({
+        slotId,
+        payload: { judge_id: confirm.judgeId === "all" ? undefined : confirm.judgeId, reason: reason.trim() || undefined },
+      });
+      toast.success(
+        `Unlocked ${res.unlocked} ${res.unlocked === 1 ? "scorecard" : "scorecards"}${res.slot_reopened ? "; the team was reopened" : ""}.`
+      );
+      setConfirm(null);
+      setReason("");
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to unlock"));
+    }
+  };
+
   const exportTeam = () => {
     if (!sheet) return;
     downloadCsv(`${slugify(sheet.round_name)}-${slugify(team.team_name)}-scores.csv`, buildDetailedCsv(sheet, new Set([team.team_id])));
@@ -60,6 +90,12 @@ export function TeamBreakdownDialog({ roundId, team, onClose }: Props) {
             <Download className="h-3.5 w-3.5" />
             Export this team
           </Button>
+          {canUnlock && lockedJudgeIds.length > 1 && (
+            <Button variant="outline" size="sm" onClick={() => setConfirm({ judgeId: "all", name: "all judges" })} className="gap-1.5">
+              <Unlock className="h-3.5 w-3.5" />
+              Unlock all
+            </Button>
+          )}
           <Button variant="primary" size="sm" onClick={onClose}>
             Close
           </Button>
@@ -100,6 +136,34 @@ export function TeamBreakdownDialog({ roundId, team, onClose }: Props) {
           </div>
         </div>
 
+        {confirm && (
+          <div className="space-y-2 rounded-[12px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] p-3">
+            <div className="font-semibold text-[var(--color-coral)]">
+              Unlock {confirm.judgeId === "all" ? "every locked scorecard" : `${confirm.name}'s scorecard`} for {team.team_name}?
+            </div>
+            <p className="text-[var(--color-coral)]">
+              {confirm.judgeId === "all" ? "Those judges" : "The judge"} can edit and must lock again. Their marks stop counting
+              on the leaderboard until they do.
+              {team.slot_status === "completed" && " This team has finished, so it will be reopened if no other team is presenting in its room."}
+            </p>
+            <Input
+              placeholder="Reason (optional, saved in the audit log)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={500}
+              disabled={unlock.isPending}
+            />
+            <div className="flex justify-end gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => setConfirm(null)} disabled={unlock.isPending}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={runUnlock} isLoading={unlock.isPending}>
+                Unlock
+              </Button>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="text-[var(--ink-tertiary)]">Loading marks...</div>
         ) : judged.length === 0 && !custom ? (
@@ -115,7 +179,18 @@ export function TeamBreakdownDialog({ roundId, team, onClose }: Props) {
                   <th className="px-2 py-2 text-right font-semibold">Weight</th>
                   {judges.map(([id, name]) => (
                     <th key={id} className="px-2 py-2 text-right font-semibold">
-                      {name}
+                      <div>{name}</div>
+                      {canUnlock && lockedJudgeIds.includes(id) && (
+                        <button
+                          type="button"
+                          onClick={() => setConfirm({ judgeId: id, name })}
+                          className="mt-0.5 inline-flex cursor-pointer items-center gap-1 text-[10px] font-medium text-[var(--color-blue)] hover:underline"
+                          title={`Unlock ${name}'s scorecard`}
+                        >
+                          <Unlock className="h-3 w-3" />
+                          Unlock
+                        </button>
+                      )}
                     </th>
                   ))}
                   <th className="px-2 py-2 text-right font-semibold">Average</th>

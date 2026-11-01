@@ -9,7 +9,7 @@ import (
 func approx(a, b float64) bool { return math.Abs(a-b) < 0.001 }
 
 func TestAnalytics_CustomCriterionAddsToTotalsAndIsTransparent(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 19)
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
 	svc := NewService(repo, nil)
 	ctx := context.Background()

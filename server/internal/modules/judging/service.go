@@ -747,6 +747,38 @@ func (s *Service) GetAdminLeaderboard(ctx context.Context, roundID string) (*Adm
 	return s.repo.GetAdminLeaderboard(ctx, roundID)
 }
 
+// UnlockScorecard reopens locked scorecards on a team so the judges can edit and lock again.
+func (s *Service) UnlockScorecard(
+	ctx context.Context,
+	slotID string,
+	req UnlockScorecardRequest,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) ([]string, bool, error) {
+	// A judge can only reopen their own scorecard, on a panel they sit on. Admins can pick any judge.
+	if actorRole == "judge" {
+		if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
+			return nil, false, err
+		}
+		req.JudgeID = actorID
+	}
+	judges, reopened, err := s.repo.UnlockScorecards(ctx, slotID, req.JudgeID)
+	if err != nil {
+		return nil, false, err
+	}
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingScoreUnlock,
+		audit.TargetJudgingSlot,
+		&slotID,
+		fmt.Sprintf("Scorecard unlocked by %s", actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"slot_id": slotID, "judge_ids": judges, "slot_reopened": reopened, "reason": req.Reason},
+		&ip, &userAgent,
+	)
+	return judges, reopened, nil
+}
+
 // UpdateRoundDuration changes a round's default time per team.
 func (s *Service) UpdateRoundDuration(
 	ctx context.Context,

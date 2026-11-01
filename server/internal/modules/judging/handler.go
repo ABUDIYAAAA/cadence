@@ -282,6 +282,46 @@ func teamCriterionError(w http.ResponseWriter, err error) {
 	}
 }
 
+// HandleUnlockScorecard reopens locked scorecards: a judge's own, or any judge's for an admin.
+func (h *Handler) HandleUnlockScorecard(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	slotID := chi.URLParam(r, "slotId")
+
+	var req UnlockScorecardRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	judges, reopened, err := h.service.UnlockScorecard(r.Context(), slotID, req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrSlotNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
+		case errors.Is(err, ErrJudgeNotAssigned):
+			utils.ErrorJSON(w, http.StatusForbidden, "you are not assigned to evaluate this judging panel")
+		case errors.Is(err, ErrScorecardNotLocked), errors.Is(err, ErrRoundNotActive), errors.Is(err, ErrPanelBusy):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to unlock scorecard")
+		}
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]any{
+		"message":       "Scorecard unlocked",
+		"unlocked":      len(judges),
+		"slot_reopened": reopened,
+	})
+}
+
 // HandleGetScoreSheet returns every mark in a round, judge by judge, for drill-downs and exports.
 func (h *Handler) HandleGetScoreSheet(w http.ResponseWriter, r *http.Request) {
 	sheet, err := h.service.GetScoreSheet(r.Context(), chi.URLParam(r, "id"))

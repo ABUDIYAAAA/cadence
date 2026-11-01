@@ -104,7 +104,7 @@ func applyMigrationsRange(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 }
 
 func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 19)
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
 	svc := NewService(repo, nil)
 	ctx := context.Background()

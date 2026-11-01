@@ -24,6 +24,12 @@ func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) 
 			r.Get("/volunteer/schedule", h.HandleGetVolunteerSchedule)
 		})
 
+		// Unlocking a scorecard: a judge reopens their own, an admin can reopen anyone's.
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireRoles("judge", "admin"))
+			r.Post("/slots/{slotId}/unlock", h.HandleUnlockScorecard)
+		})
+
 		// Judge evaluation & scoring routes
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRoles("judge"))

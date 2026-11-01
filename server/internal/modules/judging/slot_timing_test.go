@@ -8,7 +8,7 @@ import (
 )
 
 func TestSlotTiming_OverridesAndChaining(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 19)
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
 	ctx := context.Background()
 
@@ -98,7 +98,7 @@ func TestSlotTiming_OverridesAndChaining(t *testing.T) {
 }
 
 func TestRoundDuration_ChangeAndReset(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 19)
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
 	ctx := context.Background()
 

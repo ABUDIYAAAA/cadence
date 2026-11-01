@@ -85,6 +85,12 @@ type UpdateRoundDurationRequest struct {
 	ResetCustom bool `json:"reset_custom"`
 }
 
+// UnlockScorecardRequest reopens a locked scorecard. Without judge_id, every judge's scorecard on the team.
+type UnlockScorecardRequest struct {
+	JudgeID string `json:"judge_id" validate:"omitempty,uuid"`
+	Reason  string `json:"reason" validate:"max=500"`
+}
+
 // SetPanelJudgesRequest replaces the judges seated in a room.
 type SetPanelJudgesRequest struct {
 	JudgeIDs []string `json:"judge_ids" validate:"required,min=1,dive,uuid"`
@@ -388,6 +394,7 @@ type RoundTeam struct {
 // ScoreSheetRow is one mark: a judge's score for a criterion on a team, or an admin-awarded custom mark
 // (Kind "custom", no judge). Score is nil while that judge hasn't entered it, so pending work is visible.
 type ScoreSheetRow struct {
+	SlotID        string     `json:"slot_id"`
 	TeamID        string     `json:"team_id"`
 	TeamName      string     `json:"team_name"`
 	Room          string     `json:"room"`

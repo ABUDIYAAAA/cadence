@@ -6,6 +6,7 @@ import {
   Clock,
   CheckCircle2,
   Lock,
+  Unlock,
   Play,
   ArrowRight,
   ExternalLink,
@@ -28,6 +29,7 @@ import {
   useResumeTimer,
   useSubmitScores,
   useLockScores,
+  useUnlockScorecard,
   useCompleteSlot,
 } from "@/hooks/use-judging";
 import { useToast } from "@/providers/toast-provider";
@@ -371,6 +373,7 @@ function JudgeSlotScorecardForm({
   const resumeTimerMutation = useResumeTimer();
   const submitScoresMutation = useSubmitScores();
   const lockScoresMutation = useLockScores();
+  const unlockScoresMutation = useUnlockScorecard();
   const completeSlotMutation = useCompleteSlot();
 
   // Local scores state initialized directly without useEffect
@@ -395,6 +398,7 @@ function JudgeSlotScorecardForm({
   const allCriteriaScored = scoredCount === criteriaCount;
 
   const [isLockConfirmOpen, setIsLockConfirmOpen] = useState(false);
+  const [isUnlockConfirmOpen, setIsUnlockConfirmOpen] = useState(false);
   const [copiedLinkKey, setCopiedLinkKey] = useState<string | null>(null);
 
   // Mark a criterion as deliberately scored without changing its value (e.g. confirming a 0).
@@ -517,6 +521,22 @@ function JudgeSlotScorecardForm({
       const message =
         apiErrorMessage(err, "Failed to lock scores");
       toast.error(message);
+    }
+  };
+
+  // Reopen my own scorecard to fix a mistake. I have to lock it again for it to count.
+  const handleConfirmUnlock = async () => {
+    try {
+      const res = await unlockScoresMutation.mutateAsync({ slotId: slot.slot_id });
+      toast.success(
+        res.slot_reopened
+          ? `Scorecard unlocked and "${slot.team_name}" reopened. Lock again when you're done.`
+          : "Scorecard unlocked. Lock it again when you're done."
+      );
+      setIsUnlockConfirmOpen(false);
+      onRefetch();
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to unlock scorecard"));
     }
   };
 
@@ -891,6 +911,20 @@ function JudgeSlotScorecardForm({
               </>
             )}
 
+            {isLocked && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsUnlockConfirmOpen(true)}
+                disabled={unlockScoresMutation.isPending}
+                title="Reopen your scorecard to change a mark"
+                className="text-xs flex items-center gap-1.5 h-9 active:scale-[0.97] transition-transform"
+              >
+                <Unlock className="h-3.5 w-3.5" />
+                <span>Unlock to edit</span>
+              </Button>
+            )}
+
             {/* CALL NEXT TEAM BUTTON */}
             {isLocked && !isCompleted && (
               <Button
@@ -908,6 +942,37 @@ function JudgeSlotScorecardForm({
           </div>
         </div>
       </div>
+
+      {/* Unlock Confirmation Dialog */}
+      <Dialog
+        open={isUnlockConfirmOpen}
+        onClose={() => setIsUnlockConfirmOpen(false)}
+        title="Unlock your scorecard?"
+        description={`Reopen your ratings for ${slot.team_name} so you can change them.`}
+      >
+        <div className="space-y-4 pt-2 font-sans">
+          <div className="flex items-start gap-2.5 p-3 rounded-[12px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs">
+            <AlertTriangle className="h-4 w-4 text-[var(--color-coral)] shrink-0 mt-0.5" />
+            <p className="text-[var(--color-coral)] leading-relaxed">
+              Your marks stop counting on the leaderboard until you lock again.
+              {isCompleted && " This team has already finished, so it will be reopened, provided no other team is presenting in this room."}
+            </p>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--card-line)]">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsUnlockConfirmOpen(false)}
+              disabled={unlockScoresMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" onClick={handleConfirmUnlock} isLoading={unlockScoresMutation.isPending}>
+              Unlock scorecard
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       {/* Lock Confirmation Dialog */}
       <Dialog
@@ -927,7 +992,7 @@ function JudgeSlotScorecardForm({
           <div className="flex items-start gap-2.5 p-3 rounded-[12px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs">
             <AlertTriangle className="h-4 w-4 text-[var(--color-coral)] shrink-0 mt-0.5" />
             <p className="text-[var(--color-coral)] leading-relaxed">
-              Once locked, your scores cannot be modified and the pitch timer stops for the whole panel. They will immediately contribute to the final leaderboard rankings.
+              Once locked, the pitch timer stops for the whole panel and your scores immediately count toward the leaderboard. You can unlock to fix a mistake, but your marks won&apos;t count until you lock again.
             </p>
           </div>
 

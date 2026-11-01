@@ -7,7 +7,7 @@ import (
 )
 
 func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 19)
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
 	svc := NewService(repo, nil)
 	ctx := context.Background()
@@ -154,7 +154,7 @@ func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
 }
 
 func TestTeamCriteria_OffRosterTeamWithManualMarks(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 19)
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
 	ctx := context.Background()
 

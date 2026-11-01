@@ -15,6 +15,9 @@ import {
 
 export const JUDGING_QUERY_KEY = ["judging"] as const;
 
+// Judges on one panel see each other's actions within this window (paused while the tab is hidden).
+const JUDGE_SYNC_INTERVAL_MS = 3000;
+
 // Participant
 export function useTeamJudgingStatus() {
   return useQuery({
@@ -58,6 +61,8 @@ export function useJudgePanels(options?: { enabled?: boolean }) {
     queryKey: [...JUDGING_QUERY_KEY, "judge-panels"],
     queryFn: async () => (await judgingService.getJudgePanels()) ?? [],
     enabled: options?.enabled ?? true,
+    // Slot start/complete by any judge on the panel moves current_slot for everyone.
+    refetchInterval: JUDGE_SYNC_INTERVAL_MS,
   });
 }
 
@@ -66,8 +71,8 @@ export function useJudgeSlotDetails(slotId: string) {
     queryKey: [...JUDGING_QUERY_KEY, "slot-details", slotId],
     queryFn: () => judgingService.getJudgeSlotDetails(slotId),
     enabled: Boolean(slotId),
-    // The clock is shared by every judge on the panel, so pick up their pause/extend actions.
-    refetchInterval: 1000 * 10,
+    // Clock, locks and slot status are shared by every judge on the panel.
+    refetchInterval: JUDGE_SYNC_INTERVAL_MS,
   });
 }
 

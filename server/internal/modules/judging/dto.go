@@ -318,6 +318,9 @@ type TeamCriterionRow struct {
 	TeamID        string `json:"team_id" validate:"required,uuid"`
 	CriterionName string `json:"criterion_name" validate:"required,max=150"`
 	MaxScore      int    `json:"max_score" validate:"required,min=1,max=999"`
+	// Score, when set, is the team's pre-awarded mark for this criterion (0..MaxScore).
+	// A criterion with a score is not judged; it counts straight into the team's total.
+	Score *float64 `json:"score" validate:"omitempty,min=0"`
 }
 
 // ImportTeamCriteriaRequest seeds a round's roster and each team's extra criterion.
@@ -329,9 +332,10 @@ type ImportTeamCriteriaRequest struct {
 
 // RoundTeam is a roster team with its extra criterion.
 type RoundTeam struct {
-	TeamID        string  `json:"team_id"`
-	TeamName      string  `json:"team_name"`
-	CriterionName string  `json:"criterion_name"`
-	MaxScore      int     `json:"max_score"`
-	Weight        float64 `json:"weight"`
+	TeamID        string   `json:"team_id"`
+	TeamName      string   `json:"team_name"`
+	CriterionName string   `json:"criterion_name"`
+	MaxScore      int      `json:"max_score"`
+	Weight        float64  `json:"weight"`
+	AwardedScore  *float64 `json:"awarded_score"`
 }

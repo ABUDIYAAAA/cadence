@@ -110,7 +110,7 @@ func recordLockMetricsTx(ctx context.Context, tx pgx.Tx, slotID, judgeID string)
 			FROM judging_scores sc
 			JOIN judging_slots sl ON sl.id = sc.slot_id
 			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = $3
-			     AND (c.team_id IS NULL OR c.team_id = sl.team_id)
+			     AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = sl.team_id)
 			WHERE sc.slot_id = $1 AND sc.judge_id = $2
 		)
 		UPDATE judging_judge_metrics m

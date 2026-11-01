@@ -13,6 +13,8 @@ interface ParsedRow {
   team: string;
   criterion: string;
   max: number;
+  /** undefined = no marks given (judges score it); NaN = unreadable value */
+  score: number | undefined;
 }
 
 // Minimal RFC-4180 style parser: quoted fields, escaped quotes, CRLF, BOM.
@@ -50,7 +52,7 @@ function parseCsv(text: string): string[][] {
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
-const TEMPLATE = "team,criterion_name,max_score\nTeam Alpha,Problem Statement Fit,20\nTeam Beta,Hardware Demo,30\n";
+const TEMPLATE = "team,criterion_name,max_score,score\nTeam Alpha,Problem Statement Fit,20,17.5\nTeam Beta,Hardware Demo,30,24\n";
 
 
 export type TeamCriteriaPickerState =
@@ -86,6 +88,9 @@ export function TeamCriteriaPicker({ onChange }: PickerProps) {
       else if (!r.criterion.trim()) problem = "Missing criterion name";
       else if (r.criterion.trim().length > 150) problem = "Criterion name too long";
       else if (!Number.isInteger(r.max) || r.max < 1 || r.max > 999) problem = "Max score must be a whole number 1-999";
+      if (!problem && r.score !== undefined && (Number.isNaN(r.score) || r.score < 0 || r.score > r.max)) {
+        problem = "Score must be a number between 0 and max_score";
+      }
       seen.add(key);
       return { ...r, teamId, problem };
     });
@@ -116,6 +121,7 @@ export function TeamCriteriaPicker({ onChange }: PickerProps) {
       team_id: r.teamId as string,
       criterion_name: r.criterion,
       max_score: r.max,
+      ...(r.score !== undefined ? { score: r.score } : {}),
     }));
     onChange({ status: "valid", payload: { weight: weightNum, rows: payloadRows } });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,6 +141,7 @@ export function TeamCriteriaPicker({ onChange }: PickerProps) {
     const ti = col(["team", "team name", "team_name"]);
     const ci = col(["criterion_name", "criterion name", "criterion", "criteria"]);
     const mi = col(["max_score", "max score", "max", "value"]);
+    const si = col(["score", "marks", "marks_received", "marks received", "awarded", "awarded_score"]);
     if (ti < 0 || ci < 0 || mi < 0) {
       setFileError("Header must contain: team, criterion_name, max_score.");
       return;
@@ -145,6 +152,7 @@ export function TeamCriteriaPicker({ onChange }: PickerProps) {
         team: (cells[ti] ?? "").trim(),
         criterion: (cells[ci] ?? "").trim(),
         max: Number((cells[mi] ?? "").trim()),
+        score: si >= 0 && (cells[si] ?? "").trim() !== "" ? Number((cells[si] ?? "").trim()) : undefined,
       }))
     );
   };
@@ -178,7 +186,7 @@ export function TeamCriteriaPicker({ onChange }: PickerProps) {
           <Download className="h-3.5 w-3.5" />
           Template
         </Button>
-        <span className="text-[var(--ink-tertiary)]">Columns: team, criterion_name, max_score</span>
+        <span className="text-[var(--ink-tertiary)]">Columns: team, criterion_name, max_score, score (marks received, optional)</span>
       </div>
 
       <div className="max-w-[220px]">
@@ -204,7 +212,7 @@ export function TeamCriteriaPicker({ onChange }: PickerProps) {
                 <div className="text-[var(--ink-secondary)] truncate">{r.criterion || "(no criterion)"}</div>
               </div>
               <div className="shrink-0 flex items-center gap-2">
-                <span className="tabular-nums text-[var(--ink-secondary)]">max {Number.isNaN(r.max) ? "?" : r.max}</span>
+                <span className="tabular-nums text-[var(--ink-secondary)]">{r.score !== undefined ? `${Number.isNaN(r.score) ? "?" : r.score} / ` : "max "}{Number.isNaN(r.max) ? "?" : r.max}</span>
                 {r.problem ? (
                   <Badge variant="subtle" size="sm">
                     <span className="text-[var(--color-coral)]">Line {r.line}: {r.problem}</span>

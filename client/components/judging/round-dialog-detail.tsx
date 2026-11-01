@@ -119,7 +119,15 @@ export function RoundDetailDialog({
                     <div className="text-[var(--ink-secondary)] truncate">{t.criterion_name}</div>
                   </div>
                   <div className="shrink-0 text-right text-[var(--ink-secondary)] tabular-nums">
-                    out of <strong className="text-[var(--ink-primary)]">{t.max_score}</strong>
+                    {t.awarded_score != null ? (
+                      <>
+                        <strong className="text-[var(--ink-primary)]">{t.awarded_score}</strong> / {t.max_score}
+                      </>
+                    ) : (
+                      <>
+                        out of <strong className="text-[var(--ink-primary)]">{t.max_score}</strong>
+                      </>
+                    )}
                     <div>weight ×{t.weight}</div>
                   </div>
                 </div>

@@ -41,6 +41,7 @@ var (
 	ErrRoundHasScores     = errors.New("scores already exist for this round's team criteria; they cannot be re-imported")
 	ErrDuplicateTeamRow   = errors.New("each team may appear only once in the import")
 	ErrUnknownTeam        = errors.New("one or more teams do not exist")
+	ErrAwardedScoreRange  = errors.New("a team's score must be between 0 and its max score")
 )
 
 type Repository struct {
@@ -829,7 +830,7 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 		JOIN judging_panels p ON p.round_id = c.round_id
 		JOIN judging_slots s ON s.panel_id = p.id
 		LEFT JOIN judging_scores sc ON sc.slot_id = s.id AND sc.criterion_id = c.id AND sc.judge_id = $2
-		WHERE s.id = $1 AND (c.team_id IS NULL OR c.team_id = s.team_id)
+		WHERE s.id = $1 AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)
 		ORDER BY c.order_index ASC;
 	`
 	rows, err := r.db.Query(ctx, scoresQuery, slotID, judgeID)
@@ -1095,7 +1096,7 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 		FROM judging_criteria c
 		JOIN judging_panels p ON p.round_id = c.round_id
 		JOIN judging_slots s ON s.panel_id = p.id
-		WHERE s.id = $1 AND (c.team_id IS NULL OR c.team_id = s.team_id);
+		WHERE s.id = $1 AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id);
 	`
 	bRows, err := tx.Query(ctx, critBoundsQuery, slotID)
 	if err != nil {
@@ -1184,7 +1185,7 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 			JOIN judging_panels p ON p.id = s.panel_id
 			JOIN judging_criteria c ON c.round_id = p.round_id
 			WHERE s.id = sc.slot_id AND c.id = sc.criterion_id
-			  AND (c.team_id IS NULL OR c.team_id = s.team_id)
+			  AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)
 		  )`, slotID, judgeID); err != nil {
 		return fmt.Errorf("clean foreign score rows: %w", err)
 	}
@@ -1201,7 +1202,7 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 			) AS scored
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
-		JOIN judging_criteria c ON c.round_id = p.round_id AND (c.team_id IS NULL OR c.team_id = s.team_id)
+		JOIN judging_criteria c ON c.round_id = p.round_id AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)
 		LEFT JOIN judging_scores sc
 			ON sc.slot_id = s.id
 		   AND sc.judge_id = $2
@@ -1227,7 +1228,7 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 		  AND sc.judge_id = $2
 		  AND s.id = sc.slot_id
 		  AND c.id = sc.criterion_id
-		  AND (c.team_id IS NULL OR c.team_id = s.team_id)`, slotID, judgeID); err != nil {
+		  AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)`, slotID, judgeID); err != nil {
 		return fmt.Errorf("lock scorecard: %w", err)
 	}
 
@@ -1255,11 +1256,11 @@ func (r *Repository) GetPanelLockProgress(ctx context.Context, slotID string) ([
 			(SELECT COUNT(*)
 			 FROM judging_scores sc
 			 JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
-			      AND (c.team_id IS NULL OR c.team_id = s.team_id)
+			      AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)
 			 WHERE sc.slot_id = s.id AND sc.judge_id = u.id AND sc.is_locked = true)
 			>= (SELECT COUNT(*)
 			    FROM judging_criteria c
-			    WHERE c.round_id = p.round_id AND (c.team_id IS NULL OR c.team_id = s.team_id))
+			    WHERE c.round_id = p.round_id AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id))
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
@@ -1296,7 +1297,7 @@ func (r *Repository) CheckAllPanelJudgesLocked(ctx context.Context, slotID strin
 			FROM judging_criteria c
 			JOIN judging_panels p ON p.round_id = c.round_id
 			JOIN judging_slots s ON s.panel_id = p.id
-			WHERE s.id = $1 AND (c.team_id IS NULL OR c.team_id = s.team_id)
+			WHERE s.id = $1 AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)
 		),
 		locked_judges AS (
 			SELECT sc.judge_id
@@ -1304,7 +1305,7 @@ func (r *Repository) CheckAllPanelJudgesLocked(ctx context.Context, slotID strin
 			JOIN judging_slots s ON s.id = sc.slot_id
 			JOIN judging_panels p ON p.id = s.panel_id
 			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
-			     AND (c.team_id IS NULL OR c.team_id = s.team_id)
+			     AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)
 			WHERE sc.slot_id = $1 AND sc.is_locked = true
 			GROUP BY sc.judge_id
 			HAVING COUNT(DISTINCT c.id) >= (SELECT n FROM criteria_count)
@@ -1596,7 +1597,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
 			JOIN judging_scores sc ON sc.slot_id = s.id AND sc.is_locked = true
 			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
-			     AND (c.team_id IS NULL OR c.team_id = s.team_id)
+			     AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = s.team_id)
 			GROUP BY s.id, sc.criterion_id
 		),
 		slot_totals AS (
@@ -1615,6 +1616,10 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 						THEN ((ca.avg_score - c.min_score)::numeric / (c.max_score - c.min_score)::numeric) * c.weight
 						ELSE c.weight
 					END
+				), 0.00) + COALESCE((
+					SELECT ((ac.awarded_score - ac.min_score) / NULLIF(ac.max_score - ac.min_score, 0)::numeric) * ac.weight
+					FROM judging_criteria ac
+					WHERE ac.round_id = $1 AND ac.team_id = s.team_id AND ac.awarded_score IS NOT NULL
 				), 0.00) as total_weighted_score
 			FROM judging_slots s
 			JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
@@ -1678,7 +1683,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			FROM judging_scores sc
 			JOIN judging_slots sl ON sl.id = sc.slot_id
 			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = $2
-			     AND (c.team_id IS NULL OR c.team_id = sl.team_id)
+			     AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = sl.team_id)
 			WHERE sc.slot_id = $1 AND sc.is_locked = true
 			GROUP BY c.id, c.name, c.min_score, c.max_score, c.weight;
 		`, re.slotID, roundID)
@@ -1701,6 +1706,23 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 				}
 			}
 			critRows.Close()
+		}
+
+		// Pre-awarded team criterion: shown alongside the judged ones.
+		var awName string
+		var awMin, awMax int
+		var awWeight, awScore float64
+		if err := r.db.QueryRow(ctx, `
+			SELECT name, min_score, max_score, weight::float8, awarded_score::float8
+			FROM judging_criteria
+			WHERE round_id = $1 AND team_id = $2 AND awarded_score IS NOT NULL`, roundID, re.teamID,
+		).Scan(&awName, &awMin, &awMax, &awWeight, &awScore); err == nil {
+			critAverages[awName] = awScore
+			if awMax > awMin {
+				critWeighted[awName] = ((awScore - float64(awMin)) / float64(awMax-awMin)) * awWeight
+			} else {
+				critWeighted[awName] = awWeight
+			}
 		}
 
 		var avgRawScore float64
@@ -2190,6 +2212,12 @@ func (r *Repository) ImportTeamCriteria(ctx context.Context, roundID string, req
 		return ErrRoundFinished
 	}
 
+	for _, row := range req.Rows {
+		if row.Score != nil && (math.IsNaN(*row.Score) || math.IsInf(*row.Score, 0) || *row.Score > float64(row.MaxScore)) {
+			return ErrAwardedScoreRange
+		}
+	}
+
 	seen := make(map[string]struct{}, len(req.Rows))
 	teamIDs := make([]string, 0, len(req.Rows))
 	for _, row := range req.Rows {
@@ -2235,9 +2263,9 @@ func (r *Repository) ImportTeamCriteria(ctx context.Context, roundID string, req
 			return fmt.Errorf("insert roster team: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO judging_criteria (round_id, team_id, name, min_score, max_score, weight, order_index)
-			VALUES ($1, $2, $3, 0, $4, $5, $6)`,
-			roundID, row.TeamID, row.CriterionName, row.MaxScore, req.Weight, maxOrder+1); err != nil {
+			INSERT INTO judging_criteria (round_id, team_id, name, min_score, max_score, weight, order_index, awarded_score)
+			VALUES ($1, $2, $3, 0, $4, $5, $6, $7)`,
+			roundID, row.TeamID, row.CriterionName, row.MaxScore, req.Weight, maxOrder+1, row.Score); err != nil {
 			return fmt.Errorf("insert team criterion: %w", err)
 		}
 	}
@@ -2247,7 +2275,7 @@ func (r *Repository) ImportTeamCriteria(ctx context.Context, roundID string, req
 // GetRoundTeams lists the round's roster with each team's extra criterion.
 func (r *Repository) GetRoundTeams(ctx context.Context, roundID string) ([]RoundTeam, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT t.id, t.name, COALESCE(c.name, ''), COALESCE(c.max_score, 0), COALESCE(c.weight, 0)::float8
+		SELECT t.id, t.name, COALESCE(c.name, ''), COALESCE(c.max_score, 0), COALESCE(c.weight, 0)::float8, c.awarded_score::float8
 		FROM judging_round_teams rt
 		JOIN teams t ON t.id = rt.team_id
 		LEFT JOIN judging_criteria c ON c.round_id = rt.round_id AND c.team_id = rt.team_id
@@ -2260,7 +2288,7 @@ func (r *Repository) GetRoundTeams(ctx context.Context, roundID string) ([]Round
 	out := make([]RoundTeam, 0)
 	for rows.Next() {
 		var t RoundTeam
-		if err := rows.Scan(&t.TeamID, &t.TeamName, &t.CriterionName, &t.MaxScore, &t.Weight); err != nil {
+		if err := rows.Scan(&t.TeamID, &t.TeamName, &t.CriterionName, &t.MaxScore, &t.Weight, &t.AwardedScore); err != nil {
 			return nil, fmt.Errorf("scan roster: %w", err)
 		}
 		out = append(out, t)

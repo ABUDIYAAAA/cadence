@@ -104,7 +104,7 @@ func applyMigrationsRange(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 }
 
 func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 17)
+	pool, _ := newTestJudgingPool(t, 18)
 	repo := NewRepository(pool)
 	svc := NewService(repo, nil)
 	ctx := context.Background()
@@ -345,7 +345,7 @@ func TestScoringIntegrity_LegacyDataMigrationAndIsolation(t *testing.T) {
 	// Apply migrations up to 000013 (before 000014 database constraints) to simulate legacy corrupted data
 	pool, _ := newTestJudgingPool(t, 13)
 	// Per-team criteria columns/roster are independent of the teams v2 schema.
-	applyMigrationsRange(t, context.Background(), pool, 17, 17)
+	applyMigrationsRange(t, context.Background(), pool, 17, 18)
 	repo := NewRepository(pool)
 	ctx := context.Background()
 

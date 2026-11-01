@@ -204,7 +204,7 @@ func (h *Handler) HandleImportTeamCriteria(w http.ResponseWriter, r *http.Reques
 			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
 		case errors.Is(err, ErrRoundHasScores), errors.Is(err, ErrRoundFinished):
 			utils.ErrorJSON(w, http.StatusConflict, err.Error())
-		case errors.Is(err, ErrDuplicateTeamRow), errors.Is(err, ErrUnknownTeam):
+		case errors.Is(err, ErrDuplicateTeamRow), errors.Is(err, ErrUnknownTeam), errors.Is(err, ErrAwardedScoreRange):
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		default:
 			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to import team criteria")

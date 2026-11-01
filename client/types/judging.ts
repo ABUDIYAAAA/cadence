@@ -390,6 +390,8 @@ export interface TeamCriterionRow {
   team_id: string;
   criterion_name: string;
   max_score: number;
+  /** Pre-awarded mark (0..max_score). Judges don't score a criterion that has one. */
+  score?: number;
 }
 
 export interface ImportTeamCriteriaRequest {
@@ -403,4 +405,5 @@ export interface RoundTeam {
   criterion_name: string;
   max_score: number;
   weight: number;
+  awarded_score?: number | null;
 }

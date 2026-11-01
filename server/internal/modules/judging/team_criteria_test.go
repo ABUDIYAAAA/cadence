@@ -7,7 +7,7 @@ import (
 )
 
 func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
-	pool, _ := newTestJudgingPool(t, 17)
+	pool, _ := newTestJudgingPool(t, 18)
 	repo := NewRepository(pool)
 	svc := NewService(repo, nil)
 	ctx := context.Background()
@@ -51,12 +51,20 @@ func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("import: %v", err)
 	}
+	awarded := 24.0
+	over := 31.0
+	if err := repo.ImportTeamCriteria(ctx, roundID, ImportTeamCriteriaRequest{
+		Weight: 20,
+		Rows:   []TeamCriterionRow{{TeamID: teamB, CriterionName: "Software", MaxScore: 30, Score: &over}},
+	}); !errors.Is(err, ErrAwardedScoreRange) {
+		t.Fatalf("expected ErrAwardedScoreRange, got %v", err)
+	}
 	// Re-import is allowed while unscored and replaces the previous rows.
 	if err := repo.ImportTeamCriteria(ctx, roundID, ImportTeamCriteriaRequest{
 		Weight: 20,
 		Rows: []TeamCriterionRow{
 			{TeamID: teamA, CriterionName: "Hardware", MaxScore: 15},
-			{TeamID: teamB, CriterionName: "Software", MaxScore: 30},
+			{TeamID: teamB, CriterionName: "Software", MaxScore: 30, Score: &awarded},
 		},
 	}); err != nil {
 		t.Fatalf("re-import: %v", err)
@@ -123,5 +131,27 @@ func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
 	if err := svc.SubmitScores(ctx, slotA, judgeID, SubmitScoresRequest{Scores: []CriterionScoreInput{{CriterionID: ownID, Score: 16}}}); !errors.Is(err, ErrScoreOutOfRange) {
 		t.Fatalf("score above the team's max must be rejected, got %v", err)
 	}
-	_ = slotB
+
+	// Team B's criterion is pre-awarded: judges neither see nor score it.
+	db, err := repo.GetJudgeSlotDetails(ctx, slotB, judgeID)
+	if err != nil {
+		t.Fatalf("details B: %v", err)
+	}
+	if len(db.CriteriaScores) != 1 {
+		t.Fatalf("judge on team B should only see the shared criterion, got %d", len(db.CriteriaScores))
+	}
+	if err := svc.SubmitScores(ctx, slotB, judgeID, SubmitScoresRequest{Scores: []CriterionScoreInput{{CriterionID: otherID, Score: 5}}}); err == nil {
+		t.Fatal("scoring a pre-awarded criterion must be rejected")
+	}
+
+	// Its awarded score counts in the team's leaderboard total: 24/30 * weight 20 = 16.
+	lb, err := repo.GetAdminLeaderboard(ctx, roundID)
+	if err != nil {
+		t.Fatalf("leaderboard: %v", err)
+	}
+	for _, e := range lb.Leaderboard {
+		if e.TeamID == teamB && (e.TotalWeightedScore < 15.99 || e.TotalWeightedScore > 16.01) {
+			t.Fatalf("team B total want 16, got %v", e.TotalWeightedScore)
+		}
+	}
 }

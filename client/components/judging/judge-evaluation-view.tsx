@@ -261,6 +261,49 @@ export function JudgeEvaluationView() {
 }
 
 // Wrapper to fetch slot data and key the form by slotId
+const roundToTenth = (v: number) => Math.round(v * 10) / 10;
+
+// Typed score entry. Keeps a text draft so "7." or an empty field can be typed;
+// commits a clamped, one-decimal value to the form on change.
+function ScoreNumberInput({
+  value,
+  max,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  max: number;
+  disabled: boolean;
+  onCommit: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+
+  return (
+    <div className="flex items-center gap-1.5 text-xs font-mono text-[var(--ink-secondary)]">
+      <input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        max={max}
+        step={0.1}
+        value={shown}
+        disabled={disabled}
+        aria-label="Enter score"
+        onChange={(e) => {
+          const text = e.target.value;
+          setDraft(text);
+          const n = parseFloat(text);
+          if (!Number.isNaN(n)) onCommit(Math.min(max, Math.max(0, n)));
+        }}
+        onBlur={() => setDraft(null)}
+        className="w-20 p-1.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] text-xs font-semibold text-[var(--ink-primary)] focus:outline-none focus:border-[var(--color-blue)] focus:ring-1 focus:ring-[var(--color-blue)] disabled:opacity-50 disabled:cursor-not-allowed"
+      />
+      <span>/ {max}</span>
+    </div>
+  );
+}
+
 function JudgeSlotScorecardContainer({
   slotId,
   panel,
@@ -359,7 +402,7 @@ function JudgeSlotScorecardForm({
       ...prev,
       [criterionId]: {
         ...prev[criterionId],
-        score: val,
+        score: roundToTenth(val),
       },
     }));
   };
@@ -375,21 +418,17 @@ function JudgeSlotScorecardForm({
     }));
   };
 
-  // Compute live weighted total score
-  const weightedTotal = useMemo(() => {
+  // Live raw total (judges see points out of the max, never weightage)
+  const rawTotal = useMemo(() => {
     let sum = 0;
     slot.criteria_scores.forEach((c) => {
-      const current = formScores[c.criterion_id]?.score ?? 0;
-      if (c.max_score > 0) {
-        sum += (current / c.max_score) * c.weight;
-      }
+      sum += formScores[c.criterion_id]?.score ?? 0;
     });
-    return Math.round(sum * 100) / 100;
+    return roundToTenth(sum);
   }, [slot, formScores]);
 
-  // Total possible weight
-  const totalWeight = useMemo(() => {
-    return slot.criteria_scores.reduce((acc, c) => acc + c.weight, 0);
+  const maxTotal = useMemo(() => {
+    return slot.criteria_scores.reduce((acc, c) => acc + c.max_score, 0);
   }, [slot]);
 
   // 1. Action: Start Slot Pitch
@@ -659,7 +698,7 @@ function JudgeSlotScorecardForm({
           <div className="text-right rounded-[12px] border border-[var(--card-line)] p-2.5 px-3.5 bg-[var(--card-solid-subtle)] shrink-0">
             <div className="text-[11px] font-medium text-[var(--ink-tertiary)]">Scorecard rating</div>
             <div className="text-xl font-bold text-[var(--ink-primary)] font-mono">
-              {weightedTotal} <span className="text-xs text-[var(--ink-tertiary)] font-normal">/ {totalWeight} pts</span>
+              {rawTotal} <span className="text-xs text-[var(--ink-tertiary)] font-normal">/ {maxTotal} pts</span>
             </div>
           </div>
         </div>
@@ -679,8 +718,6 @@ function JudgeSlotScorecardForm({
           {slot.criteria_scores.map((c, idx) => {
             const currentScore = formScores[c.criterion_id]?.score ?? 0;
             const currentNotes = formScores[c.criterion_id]?.notes ?? "";
-            const weightedPoints =
-              c.max_score > 0 ? Math.round(((currentScore / c.max_score) * c.weight) * 100) / 100 : 0;
 
             return (
               <div
@@ -701,14 +738,9 @@ function JudgeSlotScorecardForm({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2.5 text-xs font-mono">
-                    <Badge variant="subtle" size="sm">
-                      Weight: {c.weight}%
-                    </Badge>
-                    <span className="text-[var(--ink-secondary)]">
-                      Contribution: <strong className="text-[var(--ink-primary)]">{weightedPoints} pts</strong>
-                    </span>
-                  </div>
+                  <Badge variant="subtle" size="sm">
+                    Max: {c.max_score} pts
+                  </Badge>
                 </div>
 
                 {/* Score Controls */}
@@ -736,7 +768,7 @@ function JudgeSlotScorecardForm({
                           type="range"
                           min={0}
                           max={c.max_score}
-                          step={1}
+                          step={0.1}
                           value={currentScore}
                           onChange={(e) => handleScoreChange(c.criterion_id, Number(e.target.value))}
                           // onChange never fires when the slider is already at the value the judge wants (0)
@@ -748,7 +780,7 @@ function JudgeSlotScorecardForm({
 
                         {/* Quick Stepper Chips */}
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {[0, Math.round(c.max_score * 0.25), Math.round(c.max_score * 0.5), Math.round(c.max_score * 0.75), c.max_score].map(
+                          {[0, roundToTenth(c.max_score * 0.25), roundToTenth(c.max_score * 0.5), roundToTenth(c.max_score * 0.75), c.max_score].map(
                             (presetVal) => (
                               <button
                                 key={presetVal}
@@ -766,6 +798,14 @@ function JudgeSlotScorecardForm({
                             )
                           )}
                         </div>
+
+                        {/* Exact value entry */}
+                        <ScoreNumberInput
+                          value={currentScore}
+                          max={c.max_score}
+                          disabled={!canScore}
+                          onCommit={(v) => handleScoreChange(c.criterion_id, v)}
+                        />
                       </div>
                     ) : (
                       <div className="p-2 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] font-mono text-xs font-bold text-[var(--ink-primary)]">
@@ -873,7 +913,7 @@ function JudgeSlotScorecardForm({
           <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid-subtle)] space-y-1">
             <div className="text-sm font-semibold text-[var(--ink-primary)]">{slot.team_name}</div>
             <div className="text-xs text-[var(--ink-secondary)]">
-              Total Score: <strong className="text-[var(--ink-primary)] font-mono">{weightedTotal} / {totalWeight} pts</strong>
+              Total Score: <strong className="text-[var(--ink-primary)] font-mono">{rawTotal} / {maxTotal} pts</strong>
             </div>
           </div>
 

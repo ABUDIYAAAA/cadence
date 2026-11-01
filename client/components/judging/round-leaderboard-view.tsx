@@ -5,9 +5,14 @@ import { useJudgingRounds, useAdminLeaderboard } from "@/hooks/use-judging";
 import { SectionToolbar, MetricGrid, Metric } from "./section-shell";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
-import { downloadCsv, slugify, toCsv } from "@/lib/csv";
-import type { AdminLeaderboardEntry, AdminLeaderboardResponse } from "@/types/judging";
+import { Download, FileSpreadsheet } from "lucide-react";
+import { downloadCsv, slugify } from "@/lib/csv";
+import { buildDetailedCsv, buildSummaryCsv, fmt } from "@/lib/judging-export";
+import { judgingService } from "@/services/judging.service";
+import { TeamBreakdownDialog } from "./team-breakdown-dialog";
+import { useToast } from "@/providers/toast-provider";
+import { apiErrorMessage } from "@/lib/utils";
+import type { AdminLeaderboardEntry } from "@/types/judging";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonCard } from "@/components/ui/skeleton";
@@ -20,59 +25,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const fmt = (n: number) => (Math.round(n * 100) / 100).toString();
-
 /** Sum of every locked judge's score; the stored score is their mean, so mean x judges locked. */
 const panelTotal = (e: { total_weighted_score: number; judges_evaluated_count: number }) =>
   e.total_weighted_score * e.judges_evaluated_count;
-
-/** Best average first; teams with no locked scorecards go last, then by name. */
-function byAverage(a: AdminLeaderboardEntry, b: AdminLeaderboardEntry) {
-  const aScored = a.judges_evaluated_count > 0;
-  const bScored = b.judges_evaluated_count > 0;
-  if (aScored !== bScored) return aScored ? -1 : 1;
-  return b.total_weighted_score - a.total_weighted_score || a.team_name.localeCompare(b.team_name);
-}
-
-function buildCsv(data: AdminLeaderboardResponse, entries: AdminLeaderboardEntry[], scope: "global" | "panel") {
-  const criteria = data.criteria.map((c) => c.name);
-  const header = [
-    "Rank",
-    ...(scope === "global" ? ["Overall rank"] : []),
-    "Team",
-    "Room",
-    "Panel",
-    "Avg score",
-    "Max score",
-    "Panel total",
-    "Max panel total",
-    "Judges locked",
-    "Judges on panel",
-    "Status",
-    ...criteria.map((n) => `${n} (avg)`),
-  ];
-  let rank = 0;
-  const rows = [...entries].sort(byAverage).map((e) => {
-    const scored = e.judges_evaluated_count > 0;
-    if (scored) rank += 1;
-    return [
-      scored ? rank : "",
-      ...(scope === "global" ? [scored ? e.rank : ""] : []),
-      e.team_name,
-      e.room,
-      e.panel_name,
-      scored ? fmt(e.total_weighted_score) : "",
-      fmt(e.max_possible_score),
-      scored ? fmt(panelTotal(e)) : "",
-      fmt(e.max_possible_score * e.total_judges_on_panel),
-      e.judges_evaluated_count,
-      e.total_judges_on_panel,
-      !scored ? "Not scored" : e.all_panel_judges_locked ? "Final" : "Provisional",
-      ...criteria.map((n) => (scored && n in e.criteria_averages ? fmt(e.criteria_averages[n]) : "")),
-    ];
-  });
-  return toCsv(header, rows);
-}
 
 /**
  * Round standings from locked scorecards. Polls, so each judge's lock appears within seconds.
@@ -81,6 +36,9 @@ function buildCsv(data: AdminLeaderboardResponse, entries: AdminLeaderboardEntry
 export function RoundLeaderboardView() {
   const { data: rounds = [], isLoading: roundsLoading } = useJudgingRounds();
   const [pickedRoundId, setPickedRoundId] = useState("");
+  const [openTeam, setOpenTeam] = useState<AdminLeaderboardEntry | null>(null);
+  const [exportingDetail, setExportingDetail] = useState(false);
+  const toast = useToast();
 
   // Default to the live round, else the newest
   const defaultRound = rounds.find((r) => r.status === "active") ?? rounds[0];
@@ -107,14 +65,28 @@ export function RoundLeaderboardView() {
 
   const exportGlobal = () => {
     if (!data) return;
-    downloadCsv(`${slugify(data.round_name)}-all-teams.csv`, buildCsv(data, entries, "global"));
+    downloadCsv(`${slugify(data.round_name)}-all-teams.csv`, buildSummaryCsv(data, entries, "global"));
+  };
+
+  // Fetched fresh at click time so the file always matches what judges have entered right now.
+  const exportDetailed = async () => {
+    if (!data) return;
+    setExportingDetail(true);
+    try {
+      const sheet = await judgingService.getScoreSheet(roundId);
+      downloadCsv(`${slugify(data.round_name)}-all-marks.csv`, buildDetailedCsv(sheet));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to export marks"));
+    } finally {
+      setExportingDetail(false);
+    }
   };
 
   const exportPanel = (key: string) => {
     if (!data || !key) return;
     const [room, name] = key.split("|");
     const rows = entries.filter((e) => e.room === room && e.panel_name === name);
-    downloadCsv(`${slugify(data.round_name)}-${slugify(`${room}-${name}`)}.csv`, buildCsv(data, rows, "panel"));
+    downloadCsv(`${slugify(data.round_name)}-${slugify(`${room}-${name}`)}.csv`, buildSummaryCsv(data, rows, "panel"));
   };
 
   return (
@@ -149,7 +121,19 @@ export function RoundLeaderboardView() {
           className="flex items-center gap-1.5 text-xs h-9"
         >
           <Download className="h-3.5 w-3.5" />
-          Export all
+          Export summary
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportDetailed}
+          isLoading={exportingDetail}
+          disabled={!data || entries.length === 0}
+          title="Every judge's mark on every criterion, with status and notes"
+          className="flex items-center gap-1.5 text-xs h-9"
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          Export all marks
         </Button>
         {panels.length > 0 && (
           <div className="w-44">
@@ -197,7 +181,9 @@ export function RoundLeaderboardView() {
                   <TableHead className="w-14">Rank</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Room</TableHead>
-                  <TableHead className="text-right">Avg score</TableHead>
+                  <TableHead className="text-right">Judged</TableHead>
+                  <TableHead className="text-right">Custom</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Panel total</TableHead>
                   <TableHead>Judges locked</TableHead>
                 </TableRow>
@@ -206,13 +192,38 @@ export function RoundLeaderboardView() {
                 {entries.map((e) => {
                   const unscored = e.judges_evaluated_count === 0;
                   return (
-                    <TableRow key={e.team_id}>
+                    <TableRow
+                      key={e.team_id}
+                      onClick={() => setOpenTeam(e)}
+                      className="cursor-pointer hover:bg-[var(--card-solid-subtle)]"
+                    >
                       <TableCell className="font-mono tabular-nums font-bold text-[var(--ink-primary)]">
                         {unscored ? <span className="text-[var(--ink-tertiary)]">—</span> : e.rank}
                       </TableCell>
-                      <TableCell className="font-semibold text-[var(--ink-primary)]">{e.team_name}</TableCell>
+                      <TableCell className="font-semibold text-[var(--ink-primary)]">
+                        <button
+                          type="button"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            setOpenTeam(e);
+                          }}
+                          className="cursor-pointer text-left underline-offset-2 hover:underline focus-visible:underline"
+                          title="See every judge's marks for this team"
+                        >
+                          {e.team_name}
+                        </button>
+                      </TableCell>
                       <TableCell className="text-[var(--ink-secondary)]">
                         {e.room} · {e.panel_name}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums text-[var(--ink-secondary)]">
+                        {unscored ? "—" : fmt(e.judged_score)}
+                      </TableCell>
+                      <TableCell
+                        className="text-right font-mono tabular-nums text-[var(--ink-secondary)]"
+                        title={e.custom_criterion ? `${e.custom_criterion}: ${e.custom_awarded ?? "no"} marks` : "No custom criterion"}
+                      >
+                        {e.custom_awarded != null ? fmt(e.custom_score) : <span className="text-[var(--ink-tertiary)]">—</span>}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {unscored ? (
@@ -257,6 +268,8 @@ export function RoundLeaderboardView() {
           )}
         </>
       )}
+
+      <TeamBreakdownDialog roundId={roundId} team={openTeam} onClose={() => setOpenTeam(null)} />
     </div>
   );
 }

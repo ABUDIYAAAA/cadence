@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AdminLeaderboardEntry } from "@/types/judging";
+import { TeamBreakdownDialog } from "./team-breakdown-dialog";
 
 const fmt = (n: number) => (Math.round(n * 100) / 100).toString();
 
@@ -37,7 +38,15 @@ function Bar({ pct, className = "bg-[var(--color-blue)]" }: { pct: number; class
   );
 }
 
-function TeamRows({ teams, max }: { teams: AdminLeaderboardEntry[]; max: number }) {
+function TeamRows({
+  teams,
+  max,
+  onSelect,
+}: {
+  teams: AdminLeaderboardEntry[];
+  max: number;
+  onSelect: (t: AdminLeaderboardEntry) => void;
+}) {
   return (
     <Table>
       <TableHeader>
@@ -51,9 +60,17 @@ function TeamRows({ teams, max }: { teams: AdminLeaderboardEntry[]; max: number 
       </TableHeader>
       <TableBody>
         {teams.map((t) => (
-          <TableRow key={t.team_id}>
+          <TableRow
+            key={t.team_id}
+            onClick={() => onSelect(t)}
+            className="cursor-pointer hover:bg-[var(--card-solid-subtle)]"
+          >
             <TableCell className="font-mono font-bold text-[var(--ink-primary)]">{t.rank}</TableCell>
-            <TableCell className="font-semibold text-[var(--ink-primary)]">{t.team_name}</TableCell>
+            <TableCell className="font-semibold text-[var(--ink-primary)]">
+              <button type="button" onClick={(ev) => { ev.stopPropagation(); onSelect(t); }} className="cursor-pointer text-left hover:underline focus-visible:underline" title="See every judge's marks for this team">
+                {t.team_name}
+              </button>
+            </TableCell>
             <TableCell className="text-[var(--ink-secondary)]">
               {t.room} · {t.panel_name}
             </TableCell>
@@ -78,6 +95,7 @@ function TeamRows({ teams, max }: { teams: AdminLeaderboardEntry[]; max: number 
 export function RoundAnalyticsView() {
   const { data: rounds = [], isLoading: roundsLoading } = useJudgingRounds();
   const [pickedRoundId, setPickedRoundId] = useState("");
+  const [openTeam, setOpenTeam] = useState<AdminLeaderboardEntry | null>(null);
 
   const defaultRound = rounds.find((r) => r.status === "active") ?? rounds[0];
   const roundId = pickedRoundId || defaultRound?.id || "";
@@ -156,7 +174,7 @@ export function RoundAnalyticsView() {
                   Teams appear once every judge on their panel has locked.
                 </div>
               ) : (
-                <TeamRows teams={data.top_teams} max={data.summary.max_possible_score} />
+                <TeamRows teams={data.top_teams} max={data.summary.max_possible_score} onSelect={setOpenTeam} />
               )}
             </Surface>
 
@@ -180,7 +198,7 @@ export function RoundAnalyticsView() {
               {data.bottom_teams.length > 0 && (
                 <>
                   <div className="text-sm font-semibold text-[var(--ink-primary)] pt-2">Lowest scoring</div>
-                  <TeamRows teams={data.bottom_teams} max={data.summary.max_possible_score} />
+                  <TeamRows teams={data.bottom_teams} max={data.summary.max_possible_score} onSelect={setOpenTeam} />
                 </>
               )}
             </Surface>
@@ -241,11 +259,15 @@ export function RoundAnalyticsView() {
                   <div className="flex items-baseline justify-between gap-3 text-xs">
                     <span className="font-semibold text-[var(--ink-primary)]">
                       {c.name}
-                      <span className="font-normal text-[var(--ink-tertiary)]"> · weight {fmt(c.weight)}</span>
+                      <span className="font-normal text-[var(--ink-tertiary)]">
+                        {" "}· weight {fmt(c.weight)}
+                        {c.custom ? " · custom, marks set by admin" : ""}
+                      </span>
                     </span>
                     <span className="font-mono text-[var(--ink-secondary)]">
-                      avg {fmt(c.avg_score)} / {c.max_score}
-                      {c.scores > 0 && ` · range ${fmt(c.lowest_score)}–${fmt(c.highest_score)}`}
+                      {c.scores === 0
+                        ? "no locked scores yet"
+                        : `avg ${fmt(c.avg_score)} / ${c.max_score} · ${c.scores} ${c.custom ? (c.scores === 1 ? "team" : "teams") : c.scores === 1 ? "score" : "scores"} · range ${fmt(c.lowest_score)}–${fmt(c.highest_score)}`}
                     </span>
                   </div>
                   <Bar pct={c.avg_pct * 100} />
@@ -316,6 +338,8 @@ export function RoundAnalyticsView() {
           </Surface>
         </>
       )}
+
+      <TeamBreakdownDialog roundId={roundId} team={openTeam} onClose={() => setOpenTeam(null)} />
     </div>
   );
 }

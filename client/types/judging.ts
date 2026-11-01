@@ -267,6 +267,13 @@ export interface AdminLeaderboardEntry {
   judges_evaluated_count: number;
   total_judges_on_panel: number;
   all_panel_judges_locked: boolean;
+  /** total_weighted_score = judged_score + custom_score. */
+  judged_score: number;
+  custom_score: number;
+  custom_criterion?: string;
+  custom_max?: number;
+  custom_weight?: number;
+  custom_awarded?: number | null;
 }
 
 export interface AdminLeaderboardResponse {
@@ -322,6 +329,8 @@ export interface CriterionAnalytics {
   lowest_score: number;
   highest_score: number;
   avg_pct: number;
+  /** Marks awarded by an admin (one per team) rather than scored by judges. */
+  custom?: boolean;
 }
 
 export interface JudgeCriterionAvg {
@@ -430,4 +439,32 @@ export interface RoundTeam {
   max_score: number;
   weight: number;
   awarded_score?: number | null;
+}
+
+/** One mark: a judge's score on a criterion for a team, or an admin-awarded custom mark (no judge). */
+export interface ScoreSheetRow {
+  team_id: string;
+  team_name: string;
+  room: string;
+  panel_name: string;
+  slot_status: string;
+  judge_id?: string;
+  judge_name?: string;
+  criterion_name: string;
+  kind: "judged" | "custom";
+  min_score: number;
+  max_score: number;
+  weight: number;
+  /** null while the judge hasn't entered it. */
+  score: number | null;
+  notes?: string | null;
+  locked: boolean;
+  scored_at?: string | null;
+}
+
+export interface ScoreSheetResponse {
+  round_id: string;
+  round_name: string;
+  status: string;
+  rows: ScoreSheetRow[];
 }

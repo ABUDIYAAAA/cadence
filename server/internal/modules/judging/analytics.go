@@ -61,6 +61,8 @@ type CriterionAnalytics struct {
 	LowestScore  float64 `json:"lowest_score"`
 	HighestScore float64 `json:"highest_score"`
 	AvgPct       float64 `json:"avg_pct"`
+	// Custom marks come from an admin (one per team) rather than from judges' scorecards.
+	Custom bool `json:"custom,omitempty"`
 }
 
 type JudgeCriterionAvg struct {
@@ -229,9 +231,11 @@ func (r *Repository) fillPanelAnalytics(ctx context.Context, roundID string, gra
 }
 
 func (r *Repository) fillCriteriaAnalytics(ctx context.Context, roundID string, out *RoundAnalyticsResponse) error {
+	// Judged criteria: the shared rubric, plus any team criterion that judges (not an admin) score.
+	// A criterion that several teams share by name is reported once, under its real name.
 	rows, err := r.db.Query(ctx, `
-		SELECT CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
-		       CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END,
+		SELECT CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team:' || c.name END,
+		       c.name,
 		       MIN(c.min_score), MAX(c.max_score), MAX(c.weight)::float8,
 		       COUNT(sc.id), COALESCE(AVG(sc.score), 0)::float8,
 		       COALESCE(MIN(sc.score), 0)::float8, COALESCE(MAX(sc.score), 0)::float8,
@@ -243,9 +247,8 @@ func (r *Repository) fillCriteriaAnalytics(ctx context.Context, roundID string, 
 			JOIN judging_slots s ON s.id = sc.slot_id
 			JOIN judging_panels p ON p.id = s.panel_id
 		) ON sc.criterion_id = c.id AND sc.is_locked = true AND p.round_id = c.round_id
-		WHERE c.round_id = $1
-		GROUP BY CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
-		         CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END
+		WHERE c.round_id = $1 AND c.awarded_score IS NULL
+		GROUP BY CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team:' || c.name END, c.name
 		ORDER BY MIN(c.order_index), 2`, roundID)
 	if err != nil {
 		return fmt.Errorf("query criteria analytics: %w", err)
@@ -259,7 +262,37 @@ func (r *Repository) fillCriteriaAnalytics(ctx context.Context, roundID string, 
 		}
 		out.Criteria = append(out.Criteria, c)
 	}
-	return rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Custom criteria with marks awarded by an admin: the marks are the data, one per team.
+	custom, err := r.db.Query(ctx, `
+		SELECT 'custom:' || c.name, c.name, MIN(c.min_score), MAX(c.max_score), MAX(c.weight)::float8,
+		       COUNT(*), AVG(c.awarded_score)::float8, MIN(c.awarded_score)::float8, MAX(c.awarded_score)::float8,
+		       COALESCE(AVG(CASE WHEN c.max_score > c.min_score
+		            THEN (c.awarded_score - c.min_score) / (c.max_score - c.min_score)::numeric END), 0)::float8
+		FROM judging_criteria c
+		WHERE c.round_id = $1 AND c.team_id IS NOT NULL AND c.awarded_score IS NOT NULL
+		  AND EXISTS (SELECT 1 FROM judging_slots s JOIN judging_panels p ON p.id = s.panel_id
+		              WHERE s.team_id = c.team_id AND p.round_id = c.round_id)
+		GROUP BY c.name
+		ORDER BY MIN(c.order_index), 2`, roundID)
+	if err != nil {
+		return fmt.Errorf("query custom criteria analytics: %w", err)
+	}
+	defer custom.Close()
+	for custom.Next() {
+		var c CriterionAnalytics
+		if err := custom.Scan(&c.CriterionID, &c.Name, &c.MinScore, &c.MaxScore, &c.Weight,
+			&c.Scores, &c.AvgScore, &c.LowestScore, &c.HighestScore, &c.AvgPct); err != nil {
+			return fmt.Errorf("scan custom criteria analytics: %w", err)
+		}
+		c.Custom = true
+		out.Criteria = append(out.Criteria, c)
+	}
+	return custom.Err()
 }
 
 func (r *Repository) fillJudgeAnalytics(ctx context.Context, roundID string, out *RoundAnalyticsResponse) error {
@@ -320,8 +353,8 @@ func (r *Repository) fillJudgeAnalytics(ctx context.Context, roundID string, out
 
 	crit, err := r.db.Query(ctx, `
 		SELECT sc.judge_id,
-		       CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
-		       CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END,
+		       CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team:' || c.name END,
+		       c.name,
 		       COUNT(*), AVG(sc.score)::float8,
 		       COALESCE(AVG(CASE WHEN c.max_score > c.min_score
 		            THEN (sc.score - c.min_score) / (c.max_score - c.min_score)::numeric END), 0)::float8
@@ -331,8 +364,7 @@ func (r *Repository) fillJudgeAnalytics(ctx context.Context, roundID string, out
 		JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
 		WHERE c.round_id = $1 AND sc.is_locked = true
 		GROUP BY sc.judge_id,
-		         CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
-		         CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END
+		         CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team:' || c.name END, c.name
 		ORDER BY MIN(c.order_index), 3`, roundID)
 	if err != nil {
 		return fmt.Errorf("query judge criteria analytics: %w", err)

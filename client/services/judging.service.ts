@@ -19,6 +19,7 @@ import {
   JudgeSlotDetails,
   MoveSlotRequest,
   UpdateSlotTimingRequest,
+  ScoreSheetResponse,
   SetTeamCriterionRequest,
   RoundDetail,
   RoundSummary,
@@ -225,6 +226,11 @@ export const judgingService = {
     const { data } = await apiClient.get<AdminLeaderboardResponse>(
       `/judging/rounds/${roundId}/leaderboard`
     );
+    return data;
+  },
+
+  async getScoreSheet(roundId: string): Promise<ScoreSheetResponse> {
+    const { data } = await apiClient.get<ScoreSheetResponse>(`/judging/rounds/${roundId}/scores`);
     return data;
   },
 

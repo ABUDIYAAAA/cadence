@@ -327,6 +327,14 @@ type AdminLeaderboardEntry struct {
 	JudgesEvaluatedCount   int                `json:"judges_evaluated_count"`
 	TotalJudgesOnPanel     int                `json:"total_judges_on_panel"`
 	AllPanelJudgesLocked   bool               `json:"all_panel_judges_locked"`
+	// TotalWeightedScore = JudgedScore + CustomScore. JudgedScore is the mean of the locked judges'
+	// weighted scores on the shared criteria; CustomScore is the team's own criterion, awarded by an admin.
+	JudgedScore     float64  `json:"judged_score"`
+	CustomScore     float64  `json:"custom_score"`
+	CustomCriterion string   `json:"custom_criterion,omitempty"`
+	CustomMax       int      `json:"custom_max,omitempty"`
+	CustomWeight    float64  `json:"custom_weight,omitempty"`
+	CustomAwarded   *float64 `json:"custom_awarded,omitempty"`
 }
 
 // AdminLeaderboardResponse complete round leaderboard for administrators.
@@ -375,4 +383,33 @@ type RoundTeam struct {
 	MaxScore      int      `json:"max_score"`
 	Weight        float64  `json:"weight"`
 	AwardedScore  *float64 `json:"awarded_score"`
+}
+
+// ScoreSheetRow is one mark: a judge's score for a criterion on a team, or an admin-awarded custom mark
+// (Kind "custom", no judge). Score is nil while that judge hasn't entered it, so pending work is visible.
+type ScoreSheetRow struct {
+	TeamID        string     `json:"team_id"`
+	TeamName      string     `json:"team_name"`
+	Room          string     `json:"room"`
+	PanelName     string     `json:"panel_name"`
+	SlotStatus    string     `json:"slot_status"`
+	JudgeID       string     `json:"judge_id,omitempty"`
+	JudgeName     string     `json:"judge_name,omitempty"`
+	CriterionName string     `json:"criterion_name"`
+	Kind          string     `json:"kind"` // "judged" or "custom"
+	MinScore      int        `json:"min_score"`
+	MaxScore      int        `json:"max_score"`
+	Weight        float64    `json:"weight"`
+	Score         *float64   `json:"score"`
+	Notes         *string    `json:"notes,omitempty"`
+	Locked        bool       `json:"locked"`
+	ScoredAt      *time.Time `json:"scored_at,omitempty"`
+}
+
+// ScoreSheetResponse is every mark in a round, for the team drill-down and detailed exports.
+type ScoreSheetResponse struct {
+	RoundID   string          `json:"round_id"`
+	RoundName string          `json:"round_name"`
+	Status    string          `json:"status"`
+	Rows      []ScoreSheetRow `json:"rows"`
 }

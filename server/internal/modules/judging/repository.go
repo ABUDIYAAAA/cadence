@@ -1750,7 +1750,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		// Fetch criteria averages and weighted scores for this slot
 		critAverages := make(map[string]float64)
 		critWeighted := make(map[string]float64)
-		var sumRawAvg float64
+		var sumRawAvg, judgedScore float64
 		var critCount int
 
 		critRows, err := r.db.Query(ctx, `
@@ -1778,6 +1778,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 						wScore = weight
 					}
 					critWeighted[cName] = wScore
+					judgedScore += wScore
 				}
 			}
 			critRows.Close()
@@ -1787,6 +1788,8 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		var awName string
 		var awMin, awMax int
 		var awWeight, awScore float64
+		var customScore float64
+		var custom *float64
 		if err := r.db.QueryRow(ctx, `
 			SELECT name, min_score, max_score, weight::float8, awarded_score::float8
 			FROM judging_criteria
@@ -1794,10 +1797,12 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		).Scan(&awName, &awMin, &awMax, &awWeight, &awScore); err == nil {
 			critAverages[awName] = awScore
 			if awMax > awMin {
-				critWeighted[awName] = ((awScore - float64(awMin)) / float64(awMax-awMin)) * awWeight
+				customScore = ((awScore - float64(awMin)) / float64(awMax-awMin)) * awWeight
 			} else {
-				critWeighted[awName] = awWeight
+				customScore = awWeight
 			}
+			critWeighted[awName] = customScore
+			custom = &awScore
 		}
 
 		var avgRawScore float64
@@ -1837,6 +1842,12 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			JudgesEvaluatedCount:   re.judgesEvaluatedCount,
 			TotalJudgesOnPanel:     re.totalJudgesOnPanel,
 			AllPanelJudgesLocked:   allLocked,
+			JudgedScore:            judgedScore,
+			CustomScore:            customScore,
+			CustomCriterion:        awName,
+			CustomMax:              awMax,
+			CustomWeight:           awWeight,
+			CustomAwarded:          custom,
 		})
 	}
 
@@ -2574,6 +2585,57 @@ func (r *Repository) GetRoundTeams(ctx context.Context, roundID string) ([]Round
 			return nil, fmt.Errorf("scan roster: %w", err)
 		}
 		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// GetScoreSheet lists every mark in a round: each panel judge's score (or blank, if still pending) for each
+// criterion that applies to the team, plus each team's admin-awarded custom mark.
+func (r *Repository) GetScoreSheet(ctx context.Context, roundID string) (*ScoreSheetResponse, error) {
+	out := &ScoreSheetResponse{RoundID: roundID, Rows: []ScoreSheetRow{}}
+	var status string
+	if err := r.db.QueryRow(ctx, `SELECT name, status::text FROM judging_rounds WHERE id = $1`, roundID).Scan(&out.RoundName, &status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrRoundNotFound
+		}
+		return nil, fmt.Errorf("fetch round: %w", err)
+	}
+	out.Status = status
+
+	rows, err := r.db.Query(ctx, `
+		SELECT s.team_id::text, tm.name, p.room, p.name, s.status::text,
+		       u.id::text, u.name, c.name, 'judged', c.min_score, c.max_score, c.weight::float8,
+		       sc.score::float8, sc.notes, COALESCE(sc.is_locked, false), sc.updated_at, c.order_index
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
+		JOIN teams tm ON tm.id = s.team_id
+		JOIN judging_panel_judges pj ON pj.panel_id = p.id
+		JOIN users u ON u.id = pj.judge_id
+		JOIN judging_criteria c ON c.round_id = p.round_id AND c.awarded_score IS NULL
+		     AND (c.team_id IS NULL OR c.team_id = s.team_id)
+		LEFT JOIN judging_scores sc ON sc.slot_id = s.id AND sc.judge_id = u.id AND sc.criterion_id = c.id
+		UNION ALL
+		SELECT s.team_id::text, tm.name, p.room, p.name, s.status::text,
+		       '', '', c.name, 'custom', c.min_score, c.max_score, c.weight::float8,
+		       c.awarded_score::float8, NULL, true, NULL, c.order_index
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id AND p.round_id = $1
+		JOIN teams tm ON tm.id = s.team_id
+		JOIN judging_criteria c ON c.round_id = p.round_id AND c.team_id = s.team_id AND c.awarded_score IS NOT NULL
+		ORDER BY 2, 1, 17, 8, 7`, roundID)
+	if err != nil {
+		return nil, fmt.Errorf("query score sheet: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row ScoreSheetRow
+		var order int
+		if err := rows.Scan(&row.TeamID, &row.TeamName, &row.Room, &row.PanelName, &row.SlotStatus,
+			&row.JudgeID, &row.JudgeName, &row.CriterionName, &row.Kind, &row.MinScore, &row.MaxScore, &row.Weight,
+			&row.Score, &row.Notes, &row.Locked, &row.ScoredAt, &order); err != nil {
+			return nil, fmt.Errorf("scan score sheet: %w", err)
+		}
+		out.Rows = append(out.Rows, row)
 	}
 	return out, rows.Err()
 }

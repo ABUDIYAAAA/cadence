@@ -246,6 +246,16 @@ export function useAdminLeaderboard(roundId: string) {
   });
 }
 
+/** Every judge's mark on every criterion (including pending ones) for a round. */
+export function useScoreSheet(roundId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...JUDGING_QUERY_KEY, "score-sheet", roundId],
+    queryFn: () => judgingService.getScoreSheet(roundId),
+    enabled: enabled && Boolean(roundId),
+    refetchInterval: enabled ? 1000 * 10 : false,
+  });
+}
+
 export function useRoundAnalytics(roundId: string) {
   return useQuery({
     queryKey: [...JUDGING_QUERY_KEY, "analytics", roundId],

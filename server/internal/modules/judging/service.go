@@ -215,6 +215,11 @@ func (s *Service) DeleteTeamCriterion(
 	return nil
 }
 
+// GetScoreSheet returns every mark in a round.
+func (s *Service) GetScoreSheet(ctx context.Context, roundID string) (*ScoreSheetResponse, error) {
+	return s.repo.GetScoreSheet(ctx, roundID)
+}
+
 // GetRoundTeams lists the round roster with each team's extra criterion.
 func (s *Service) GetRoundTeams(ctx context.Context, roundID string) ([]RoundTeam, error) {
 	return s.repo.GetRoundTeams(ctx, roundID)

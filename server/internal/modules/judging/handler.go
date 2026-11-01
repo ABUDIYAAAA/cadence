@@ -282,6 +282,20 @@ func teamCriterionError(w http.ResponseWriter, err error) {
 	}
 }
 
+// HandleGetScoreSheet returns every mark in a round, judge by judge, for drill-downs and exports.
+func (h *Handler) HandleGetScoreSheet(w http.ResponseWriter, r *http.Request) {
+	sheet, err := h.service.GetScoreSheet(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		if errors.Is(err, ErrRoundNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to load scores")
+		return
+	}
+	utils.JSON(w, http.StatusOK, sheet)
+}
+
 // HandleGetAssignedJudges lists judges already seated on a panel in the round.
 func (h *Handler) HandleGetAssignedJudges(w http.ResponseWriter, r *http.Request) {
 	roundID := chi.URLParam(r, "id")

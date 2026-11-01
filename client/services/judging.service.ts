@@ -2,6 +2,8 @@ import { apiClient } from "@/lib/api-client";
 import {
   AssignedJudge,
   RoundPanelOverview,
+  RoundTeam,
+  ImportTeamCriteriaRequest,
   AdminLeaderboardResponse,
   SubmissionGate,
   SubmissionsResponse,
@@ -154,6 +156,24 @@ export const judgingService = {
   async getRoundPanels(roundId: string): Promise<RoundPanelOverview[]> {
     const { data } = await apiClient.get<RoundPanelOverview[]>(
       `/judging/rounds/${roundId}/panels`
+    );
+    return data;
+  },
+
+  async getRoundTeams(roundId: string): Promise<RoundTeam[]> {
+    const { data } = await apiClient.get<RoundTeam[]>(
+      `/judging/rounds/${roundId}/teams`
+    );
+    return data;
+  },
+
+  async importTeamCriteria(
+    roundId: string,
+    payload: ImportTeamCriteriaRequest
+  ): Promise<MessageResponse> {
+    const { data } = await apiClient.post<MessageResponse>(
+      `/judging/rounds/${roundId}/team-criteria/import`,
+      payload
     );
     return data;
   },

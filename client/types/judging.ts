@@ -385,3 +385,22 @@ export interface CreatePanelResponse {
   panel_id: string;
   id?: string;
 }
+
+export interface TeamCriterionRow {
+  team_id: string;
+  criterion_name: string;
+  max_score: number;
+}
+
+export interface ImportTeamCriteriaRequest {
+  weight: number;
+  rows: TeamCriterionRow[];
+}
+
+export interface RoundTeam {
+  team_id: string;
+  team_name: string;
+  criterion_name: string;
+  max_score: number;
+  weight: number;
+}

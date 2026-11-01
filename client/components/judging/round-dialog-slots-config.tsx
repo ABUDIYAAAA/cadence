@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ConfigureSlotsRequest, RoundSummary } from "@/types/judging";
 import { useTeams } from "@/hooks/use-teams";
-import { useRoundPanels } from "@/hooks/use-judging";
+import { useRoundPanels, useRoundTeams } from "@/hooks/use-judging";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -28,13 +28,18 @@ export function RoundSlotsConfigDialog({
   const { data: roundPanels, isLoading: panelsLoading } = useRoundPanels(
     open ? round?.id : undefined
   );
+  const { data: roster } = useRoundTeams(open ? round?.id : undefined);
   const [panelId, setPanelId] = useState("");
   const [slottedTeamIds, setSlottedTeamIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   if (!round || !open) return null;
 
-  const availableTeams = teamsData?.data || [];
+  // When a team list was imported for this round, only those teams can be scheduled.
+  const rosterIds = new Set((roster ?? []).map((t) => t.team_id));
+  const availableTeams = (teamsData?.data || []).filter(
+    (t) => rosterIds.size === 0 || rosterIds.has(t.id)
+  );
   const panels = roundPanels ?? [];
   // A team plays once per round, so hide teams already scheduled in any of its panels.
   const scheduledIds = new Set(panels.flatMap((p) => p.team_ids));

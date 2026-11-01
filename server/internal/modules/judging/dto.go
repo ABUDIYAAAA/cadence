@@ -312,3 +312,26 @@ type AdminLeaderboardResponse struct {
 	MaxPossibleScore float64                 `json:"max_possible_score"`
 	AverageScore     float64                 `json:"average_score"`
 }
+
+// TeamCriterionRow is one team's extra criterion in a CSV import.
+type TeamCriterionRow struct {
+	TeamID        string `json:"team_id" validate:"required,uuid"`
+	CriterionName string `json:"criterion_name" validate:"required,max=150"`
+	MaxScore      int    `json:"max_score" validate:"required,min=1,max=999"`
+}
+
+// ImportTeamCriteriaRequest seeds a round's roster and each team's extra criterion.
+// Weight is shared by every team's criterion.
+type ImportTeamCriteriaRequest struct {
+	Weight float64            `json:"weight" validate:"required,gt=0"`
+	Rows   []TeamCriterionRow `json:"rows" validate:"required,min=1,dive"`
+}
+
+// RoundTeam is a roster team with its extra criterion.
+type RoundTeam struct {
+	TeamID        string  `json:"team_id"`
+	TeamName      string  `json:"team_name"`
+	CriterionName string  `json:"criterion_name"`
+	MaxScore      int     `json:"max_score"`
+	Weight        float64 `json:"weight"`
+}

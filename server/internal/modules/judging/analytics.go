@@ -230,7 +230,9 @@ func (r *Repository) fillPanelAnalytics(ctx context.Context, roundID string, gra
 
 func (r *Repository) fillCriteriaAnalytics(ctx context.Context, roundID string, out *RoundAnalyticsResponse) error {
 	rows, err := r.db.Query(ctx, `
-		SELECT c.id, c.name, c.min_score, c.max_score, c.weight::float8,
+		SELECT CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
+		       CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END,
+		       MIN(c.min_score), MAX(c.max_score), MAX(c.weight)::float8,
 		       COUNT(sc.id), COALESCE(AVG(sc.score), 0)::float8,
 		       COALESCE(MIN(sc.score), 0)::float8, COALESCE(MAX(sc.score), 0)::float8,
 		       COALESCE(AVG(CASE WHEN c.max_score > c.min_score
@@ -242,8 +244,9 @@ func (r *Repository) fillCriteriaAnalytics(ctx context.Context, roundID string, 
 			JOIN judging_panels p ON p.id = s.panel_id
 		) ON sc.criterion_id = c.id AND sc.is_locked = true AND p.round_id = c.round_id
 		WHERE c.round_id = $1
-		GROUP BY c.id, c.name, c.min_score, c.max_score, c.weight, c.order_index
-		ORDER BY c.order_index, c.name`, roundID)
+		GROUP BY CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
+		         CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END
+		ORDER BY MIN(c.order_index), 2`, roundID)
 	if err != nil {
 		return fmt.Errorf("query criteria analytics: %w", err)
 	}
@@ -316,7 +319,10 @@ func (r *Repository) fillJudgeAnalytics(ctx context.Context, roundID string, out
 	}
 
 	crit, err := r.db.Query(ctx, `
-		SELECT sc.judge_id, c.id, c.name, COUNT(*), AVG(sc.score)::float8,
+		SELECT sc.judge_id,
+		       CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
+		       CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END,
+		       COUNT(*), AVG(sc.score)::float8,
 		       COALESCE(AVG(CASE WHEN c.max_score > c.min_score
 		            THEN (sc.score - c.min_score) / (c.max_score - c.min_score)::numeric END), 0)::float8
 		FROM judging_scores sc
@@ -324,8 +330,10 @@ func (r *Repository) fillJudgeAnalytics(ctx context.Context, roundID string, out
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = p.round_id
 		WHERE c.round_id = $1 AND sc.is_locked = true
-		GROUP BY sc.judge_id, c.id, c.name, c.order_index
-		ORDER BY c.order_index, c.name`, roundID)
+		GROUP BY sc.judge_id,
+		         CASE WHEN c.team_id IS NULL THEN c.id::text ELSE 'team-criteria' END,
+		         CASE WHEN c.team_id IS NULL THEN c.name ELSE 'Team-specific criterion' END
+		ORDER BY MIN(c.order_index), 3`, roundID)
 	if err != nil {
 		return fmt.Errorf("query judge criteria analytics: %w", err)
 	}

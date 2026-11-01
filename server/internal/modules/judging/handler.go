@@ -179,6 +179,54 @@ func (h *Handler) HandleGetRoundPanels(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusOK, panels)
 }
 
+// HandleImportTeamCriteria seeds a round's roster and per-team criteria from parsed CSV rows.
+func (h *Handler) HandleImportTeamCriteria(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req ImportTeamCriteriaRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	roundID := chi.URLParam(r, "id")
+	if err := h.service.ImportTeamCriteria(r.Context(), roundID, req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent()); err != nil {
+		switch {
+		case errors.Is(err, ErrRoundNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, ErrRoundHasScores), errors.Is(err, ErrRoundFinished):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		case errors.Is(err, ErrDuplicateTeamRow), errors.Is(err, ErrUnknownTeam):
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to import team criteria")
+		}
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]any{
+		"message":    "Team criteria imported successfully",
+		"team_count": len(req.Rows),
+	})
+}
+
+// HandleGetRoundTeams lists a round's roster and each team's extra criterion.
+func (h *Handler) HandleGetRoundTeams(w http.ResponseWriter, r *http.Request) {
+	teams, err := h.service.GetRoundTeams(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to fetch round teams")
+		return
+	}
+	utils.JSON(w, http.StatusOK, teams)
+}
+
 // HandleGetAssignedJudges lists judges already seated on a panel in the round.
 func (h *Handler) HandleGetAssignedJudges(w http.ResponseWriter, r *http.Request) {
 	roundID := chi.URLParam(r, "id")
@@ -259,7 +307,7 @@ func (h *Handler) HandleConfigureSlots(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrPanelNotFound):
 			utils.ErrorJSON(w, http.StatusNotFound, "judging panel not found")
-		case errors.Is(err, ErrTeamSlotted), errors.Is(err, ErrPanelStarted):
+		case errors.Is(err, ErrTeamSlotted), errors.Is(err, ErrPanelStarted), errors.Is(err, ErrTeamNotInRound):
 			utils.ErrorJSON(w, http.StatusConflict, err.Error())
 		default:
 			utils.ErrorJSON(w, http.StatusBadRequest, "failed to configure slots: "+err.Error())

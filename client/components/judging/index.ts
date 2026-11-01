@@ -12,3 +12,4 @@ export { SubmissionView } from "./submission-view";
 export { ParticipantJudgingStatusView } from "./participant-status-view";
 export { JudgeEvaluationView } from "./judge-evaluation-view";
 export { RoundAnalyticsView } from "./round-analytics-view";
+export { RoundTeamImportDialog } from "./round-dialog-team-import";

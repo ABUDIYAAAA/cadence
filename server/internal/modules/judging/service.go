@@ -144,6 +144,35 @@ func (s *Service) GetRoundPanels(ctx context.Context, roundID string) ([]RoundPa
 	return s.repo.GetRoundPanels(ctx, roundID)
 }
 
+// ImportTeamCriteria seeds the round roster and each team's extra criterion.
+func (s *Service) ImportTeamCriteria(
+	ctx context.Context,
+	roundID string,
+	req ImportTeamCriteriaRequest,
+	actorID, actorEmail, actorRole string,
+	ip, userAgent string,
+) error {
+	if err := s.repo.ImportTeamCriteria(ctx, roundID, req); err != nil {
+		return err
+	}
+	s.recordAudit(
+		ctx,
+		audit.ActionJudgingTeamCriteriaImport,
+		audit.TargetJudgingRound,
+		&roundID,
+		fmt.Sprintf("Imported %d team criteria for round by %s", len(req.Rows), actorEmail),
+		&actorID, &actorEmail, &actorRole,
+		map[string]any{"round_id": roundID, "team_count": len(req.Rows), "weight": req.Weight},
+		&ip, &userAgent,
+	)
+	return nil
+}
+
+// GetRoundTeams lists the round roster with each team's extra criterion.
+func (s *Service) GetRoundTeams(ctx context.Context, roundID string) ([]RoundTeam, error) {
+	return s.repo.GetRoundTeams(ctx, roundID)
+}
+
 // GetAssignedJudges lists judges already assigned to a panel in the round.
 func (s *Service) GetAssignedJudges(ctx context.Context, roundID string) ([]AssignedJudge, error) {
 	return s.repo.GetAssignedJudges(ctx, roundID)

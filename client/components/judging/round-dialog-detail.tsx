@@ -1,13 +1,14 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { RoundSummary } from "@/types/judging";
-import { useJudgingRound, useRoundPanels } from "@/hooks/use-judging";
+import { useJudgingRound, useRoundPanels, useRoundTeams } from "@/hooks/use-judging";
 import { Dialog } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Play } from "lucide-react";
+import { Play, Upload } from "lucide-react";
+import { RoundTeamImportDialog } from "./round-dialog-team-import";
 
 interface RoundDetailDialogProps {
   round: RoundSummary | null;
@@ -50,6 +51,8 @@ export function RoundDetailDialog({
 }: RoundDetailDialogProps) {
   const { data: roundDetail, isLoading } = useJudgingRound(open ? round?.id || "" : "");
   const { data: rooms, isLoading: roomsLoading } = useRoundPanels(open ? round?.id : undefined);
+  const { data: roster, isLoading: rosterLoading } = useRoundTeams(open ? round?.id : undefined);
+  const [importOpen, setImportOpen] = useState(false);
 
   if (!round || !open) return null;
 
@@ -98,6 +101,37 @@ export function RoundDetailDialog({
             <Row label="Teams kept on deck per room">{round.buffer_size}</Row>
             <Row label="Created">{new Date(round.created_at).toLocaleString()}</Row>
           </div>
+        </Section>
+
+        <Section title={`Teams in this round${roster ? ` (${roster.length})` : ""}`}>
+          {rosterLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : !roster || roster.length === 0 ? (
+            <p className="rounded-[14px] border border-dashed border-[var(--card-line)] p-4 text-center italic text-[var(--ink-tertiary)]">
+              No team list yet. Any team can be added to a room.
+            </p>
+          ) : (
+            <div className="rounded-[14px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] bg-[var(--card-solid)]">
+              {roster.map((t) => (
+                <div key={t.team_id} className="flex items-center justify-between gap-3 px-3.5 py-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-[var(--ink-primary)] truncate">{t.team_name}</div>
+                    <div className="text-[var(--ink-secondary)] truncate">{t.criterion_name}</div>
+                  </div>
+                  <div className="shrink-0 text-right text-[var(--ink-secondary)] tabular-nums">
+                    out of <strong className="text-[var(--ink-primary)]">{t.max_score}</strong>
+                    <div>weight ×{t.weight}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {round.status !== "completed" && (
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)} className="gap-1.5 text-xs">
+              <Upload className="h-3.5 w-3.5" />
+              <span>{roster && roster.length > 0 ? "Re-import from CSV" : "Import from CSV"}</span>
+            </Button>
+          )}
         </Section>
 
         <Section title={`Rooms${rooms ? ` (${rooms.length})` : ""}`}>
@@ -159,6 +193,7 @@ export function RoundDetailDialog({
           )}
         </Section>
       </div>
+      <RoundTeamImportDialog round={round} open={importOpen} onClose={() => setImportOpen(false)} />
     </Dialog>
   );
 }

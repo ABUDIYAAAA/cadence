@@ -6,6 +6,7 @@ import {
   ConfigureSlotsRequest,
   CreatePanelRequest,
   CreateRoundRequest,
+  ImportTeamCriteriaRequest,
   MoveSlotRequest,
   SubmitScoresRequest,
   UpdateSlotLinksRequest,
@@ -302,6 +303,26 @@ export function useRoundPanels(roundId?: string) {
     queryKey: [...JUDGING_QUERY_KEY, "round-panels", roundId],
     queryFn: () => judgingService.getRoundPanels(roundId as string),
     enabled: Boolean(roundId),
+  });
+}
+
+export function useRoundTeams(roundId?: string) {
+  return useQuery({
+    queryKey: [...JUDGING_QUERY_KEY, "round-teams", roundId],
+    queryFn: () => judgingService.getRoundTeams(roundId as string),
+    enabled: Boolean(roundId),
+  });
+}
+
+export function useImportTeamCriteria() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roundId, payload }: { roundId: string; payload: ImportTeamCriteriaRequest }) =>
+      judgingService.importTeamCriteria(roundId, payload),
+    onSuccess: (_data, { roundId }) => {
+      queryClient.invalidateQueries({ queryKey: [...JUDGING_QUERY_KEY, "round-teams", roundId] });
+      queryClient.invalidateQueries({ queryKey: [...JUDGING_QUERY_KEY, "round-panels", roundId] });
+    },
   });
 }
 

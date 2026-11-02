@@ -255,6 +255,7 @@ export interface AdminLeaderboardEntry {
   rank: number;
   team_id: string;
   team_name: string;
+  member_names?: string[];
   panel_name: string;
   room: string;
   slot_status: string;

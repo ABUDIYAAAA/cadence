@@ -1821,6 +1821,20 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			entryRank = rank
 		}
 
+		memberNames := []string{}
+		if mRows, err := r.db.Query(ctx, `
+			SELECT name FROM users
+			WHERE team_id = $1 AND deleted_at IS NULL
+			ORDER BY created_at ASC, id ASC`, re.teamID); err == nil {
+			for mRows.Next() {
+				var n string
+				if err := mRows.Scan(&n); err == nil {
+					memberNames = append(memberNames, n)
+				}
+			}
+			mRows.Close()
+		}
+
 		allLocked := re.totalJudgesOnPanel > 0 && re.judgesEvaluatedCount >= re.totalJudgesOnPanel
 		if allLocked {
 			gradedCount++
@@ -1831,6 +1845,7 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			Rank:                   entryRank,
 			TeamID:                 re.teamID,
 			TeamName:               re.teamName,
+			MemberNames:            memberNames,
 			PanelName:              re.panelName,
 			Room:                   re.room,
 			SlotStatus:             re.slotStatus,

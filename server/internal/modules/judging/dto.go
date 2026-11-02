@@ -321,6 +321,7 @@ type AdminLeaderboardEntry struct {
 	Rank                   int                `json:"rank"`
 	TeamID                 string             `json:"team_id"`
 	TeamName               string             `json:"team_name"`
+	MemberNames            []string           `json:"member_names"`
 	PanelName              string             `json:"panel_name"`
 	Room                   string             `json:"room"`
 	SlotStatus             string             `json:"slot_status"`

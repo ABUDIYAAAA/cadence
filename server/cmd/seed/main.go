@@ -35,16 +35,17 @@ func main() {
 		log.Fatalf("[SEED ERROR] Failed to hash password: %v", err)
 	}
 
+	var userID string
 	var existingID string
 	checkQuery := `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`
 	err = pool.QueryRow(ctx, checkQuery, cfg.SeedAdminEmail).Scan(&existingID)
 
 	if err == nil {
+		userID = existingID
 		updateQuery := `
 			UPDATE users
 			SET password_hash = $1,
 			    name = $2,
-			    role = 'admin',
 			    is_password_configured = TRUE,
 			    is_active = TRUE,
 			    updated_at = CURRENT_TIMESTAMP
@@ -53,29 +54,31 @@ func main() {
 		if _, err := pool.Exec(ctx, updateQuery, string(hash), cfg.SeedAdminName, existingID); err != nil {
 			log.Fatalf("[SEED ERROR] Failed to update existing admin user: %v", err)
 		}
-		fmt.Println("==================================================")
-		fmt.Println(" [SEED] Admin user updated successfully")
-		fmt.Printf(" Email : %s\n", cfg.SeedAdminEmail)
-		fmt.Printf(" Name  : %s\n", cfg.SeedAdminName)
-		fmt.Println(" Role  : admin")
-		fmt.Println(" Status: password configured & active")
-		fmt.Println("==================================================")
-		return
+	} else {
+		insertQuery := `
+			INSERT INTO users (email, password_hash, name, is_password_configured, is_active)
+			VALUES ($1, $2, $3, TRUE, TRUE)
+			RETURNING id
+		`
+		if err := pool.QueryRow(ctx, insertQuery, cfg.SeedAdminEmail, string(hash), cfg.SeedAdminName).Scan(&userID); err != nil {
+			log.Fatalf("[SEED ERROR] Failed to insert admin user: %v", err)
+		}
 	}
 
-	insertQuery := `
-		INSERT INTO users (email, password_hash, name, role, is_password_configured, is_active)
-		VALUES ($1, $2, $3, 'admin', TRUE, TRUE)
+	// Map admin to default competition in user_competitions if the table exists
+	compRoleQuery := `
+		INSERT INTO user_competitions (user_id, competition_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'owner')
+		ON CONFLICT (competition_id, user_id) 
+		DO UPDATE SET role = 'owner', updated_at = CURRENT_TIMESTAMP
 	`
-	if _, err := pool.Exec(ctx, insertQuery, cfg.SeedAdminEmail, string(hash), cfg.SeedAdminName); err != nil {
-		log.Fatalf("[SEED ERROR] Failed to insert admin user: %v", err)
-	}
+	_, _ = pool.Exec(ctx, compRoleQuery, userID)
 
 	fmt.Println("==================================================")
-	fmt.Println(" [SEED] New admin user seeded successfully")
+	fmt.Println(" [SEED] Admin user seeded successfully")
 	fmt.Printf(" Email : %s\n", cfg.SeedAdminEmail)
 	fmt.Printf(" Name  : %s\n", cfg.SeedAdminName)
-	fmt.Println(" Role  : admin")
+	fmt.Println(" Role  : owner (in default competition)")
 	fmt.Println(" Status: password configured & active")
 	fmt.Println("==================================================")
 }

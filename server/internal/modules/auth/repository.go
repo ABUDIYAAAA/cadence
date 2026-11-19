@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,46 +15,6 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
-type User struct {
-	ID                   string
-	Email                string
-	PasswordHash         *string
-	Name                 string
-	PhoneNumber          *string
-	Role                 string
-	TeamID               *string
-	IsPasswordConfigured bool
-	IsActive             bool
-	TokenVersion         int
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-}
-
-type RefreshToken struct {
-	ID        string
-	UserID    string
-	DeviceID  string
-	TokenHash string
-	FamilyID  string
-	ParentID  *string
-	UserAgent *string
-	IPAddress *string
-	IsRevoked bool
-	ExpiresAt time.Time
-	CreatedAt time.Time
-	RevokedAt *time.Time
-}
-
-type ResetToken struct {
-	ID        string
-	UserID    string
-	TokenHash string
-	Purpose   string
-	ExpiresAt time.Time
-	UsedAt    *time.Time
-	CreatedAt time.Time
-}
-
 type Repository struct {
 	db *pgxpool.Pool
 }
@@ -66,14 +25,14 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, email, password_hash, name, phone_number, role, team_id,
+		SELECT id, email, password_hash, name, phone_number, team_id,
 		       is_password_configured, is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE LOWER(email) = LOWER($1)
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID,
+		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.TeamID,
 		&u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -87,14 +46,14 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) {
 	query := `
-		SELECT id, email, password_hash, name, phone_number, role, team_id,
+		SELECT id, email, password_hash, name, phone_number, team_id,
 		       is_password_configured, is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID,
+		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.TeamID,
 		&u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -104,6 +63,35 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) 
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
 	return &u, nil
+}
+
+// GetUserCompetitions retrieves all competitions and associated roles for a user.
+func (r *Repository) GetUserCompetitions(ctx context.Context, userID string) ([]UserCompetitionRole, error) {
+	query := `
+		SELECT c.id, c.slug, c.name, uc.role::text
+		FROM user_competitions uc
+		JOIN competitions c ON uc.competition_id = c.id
+		WHERE uc.user_id = $1
+		ORDER BY c.created_at DESC
+	`
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user competitions: %w", err)
+	}
+	defer rows.Close()
+
+	comps := make([]UserCompetitionRole, 0)
+	for rows.Next() {
+		var item UserCompetitionRole
+		if err := rows.Scan(&item.CompetitionID, &item.CompetitionSlug, &item.CompetitionName, &item.Role); err != nil {
+			return nil, fmt.Errorf("scan user competition: %w", err)
+		}
+		comps = append(comps, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user competitions: %w", err)
+	}
+	return comps, nil
 }
 
 func (r *Repository) UpdatePassword(ctx context.Context, userID, passwordHash string) error {

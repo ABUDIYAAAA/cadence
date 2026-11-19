@@ -56,7 +56,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAge
 	}
 
 	if !user.IsActive {
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: account %s is deactivated", req.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
+		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: account %s is deactivated", req.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 		return nil, "", "", ErrInactiveUser
 	}
 
@@ -66,7 +66,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAge
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
 		metrics.InstrumentAuthEvent("login", false)
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: invalid password for %s", req.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
+		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: invalid password for %s", req.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 		return nil, "", "", ErrInvalidCredentials
 	}
 
@@ -80,7 +80,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAge
 	}
 
 	metrics.InstrumentAuthEvent("login", true)
-	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s logged in successfully", user.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
+	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s logged in successfully", user.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 
 	return toUserResponse(user), accessToken, refreshToken, nil
 }
@@ -131,7 +131,7 @@ func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, d
 		return nil, "", "", err
 	}
 
-	s.recordAudit(ctx, audit.ActionAuthPasswordSetup, audit.TargetUser, &user.ID, fmt.Sprintf("User %s configured their initial password", user.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
+	s.recordAudit(ctx, audit.ActionAuthPasswordSetup, audit.TargetUser, &user.ID, fmt.Sprintf("User %s configured their initial password", user.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 
 	return toUserResponse(user), accessToken, refreshToken, nil
 }
@@ -149,7 +149,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email, deviceID, userAgent
 	}
 
 	if !user.IsActive {
-		s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset requested for deactivated account %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": false}, &deviceID, &sanitizedUA, &ip)
+		s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset requested for deactivated account %s", user.Email), &user.Email, nil, map[string]any{"account_found": true, "active": false}, &deviceID, &sanitizedUA, &ip)
 		return "", nil
 	}
 
@@ -174,7 +174,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email, deviceID, userAgent
 		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
 	}
 
-	s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset link requested for %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": true}, &deviceID, &sanitizedUA, &ip)
+	s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset link requested for %s", user.Email), &user.Email, nil, map[string]any{"account_found": true, "active": true}, &deviceID, &sanitizedUA, &ip)
 
 	return rawToken, nil
 }
@@ -215,7 +215,7 @@ func (s *Service) ResetPassword(ctx context.Context, req ResetPasswordRequest) e
 	// Invalidate all existing refresh sessions for instant logout on password change
 	_ = s.repo.RevokeAllUserTokens(ctx, user.ID)
 
-	s.recordAudit(ctx, audit.ActionAuthPasswordReset, audit.TargetUser, &user.ID, fmt.Sprintf("User %s reset their password", user.Email), &user.Email, &user.Role, nil, nil, nil, nil)
+	s.recordAudit(ctx, audit.ActionAuthPasswordReset, audit.TargetUser, &user.ID, fmt.Sprintf("User %s reset their password", user.Email), &user.Email, nil, nil, nil, nil, nil)
 
 	return nil
 }
@@ -295,14 +295,18 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*UserResponse, erro
 	if err != nil {
 		return nil, err
 	}
-	return toUserResponse(user), nil
+	resp := toUserResponse(user)
+	if comps, err := s.repo.GetUserCompetitions(ctx, userID); err == nil && comps != nil {
+		resp.Competitions = comps
+	}
+	return resp, nil
 }
 
 func (s *Service) createSession(ctx context.Context, user *User, deviceID string, familyID *string, parentID *string, userAgent, ip string) (string, string, error) {
 	accessToken, err := utils.GenerateAccessToken(
 		user.ID,
 		user.Email,
-		user.Role,
+		"",
 		user.TokenVersion,
 		s.cfg.JWTAccessSecret,
 		s.cfg.JWTAccessExpiry,
@@ -369,9 +373,9 @@ func toUserResponse(u *User) *UserResponse {
 		Email:                u.Email,
 		Name:                 u.Name,
 		PhoneNumber:          u.PhoneNumber,
-		Role:                 u.Role,
 		TeamID:               u.TeamID,
 		IsPasswordConfigured: u.IsPasswordConfigured,
+		Competitions:         make([]UserCompetitionRole, 0),
 		CreatedAt:            u.CreatedAt,
 	}
 }

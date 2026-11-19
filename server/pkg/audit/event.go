@@ -101,10 +101,19 @@ const (
 	// System actions (no human actor)
 	ActionSystemBackupFailed    = "system.backup_failed"
 	ActionSystemBackupRecovered = "system.backup_recovered"
+
+	// Competition actions
+	ActionCompetitionCreate            = "competition.create"
+	ActionCompetitionUpdate            = "competition.update"
+	ActionCompetitionTransferOwnership = "competition.transfer_ownership"
+	ActionCompetitionMemberAssign      = "competition.member_assign"
+	ActionCompetitionMemberRoleUpdate  = "competition.member_role_update"
+	ActionCompetitionMemberRemove      = "competition.member_remove"
 )
 
 // Standardized target type constants
 const (
+	TargetCompetition  = "competition"
 	TargetUser         = "user"
 	TargetTeam         = "team"
 	TargetSession      = "session"

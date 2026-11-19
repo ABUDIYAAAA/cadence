@@ -19,6 +19,7 @@ import (
 	"devclubxnst.com/cadence/internal/mailer"
 	"devclubxnst.com/cadence/internal/modules/audit"
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/competitions"
 	"devclubxnst.com/cadence/internal/modules/judging"
 	"devclubxnst.com/cadence/internal/modules/notifications"
 	"devclubxnst.com/cadence/internal/modules/teams"
@@ -209,9 +210,14 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		audit.RegisterRoutes(r, auditHandler, authMiddleware)
 	})
 
-	// Mount API v2 (self-serve teams with join codes and freezing)
+	// Mount API v2 (self-serve teams with join codes and freezing, and multi-tenant competitions)
+	competitionsRepo := competitions.NewRepository(dbPool)
+	competitionsService := competitions.NewService(competitionsRepo, redisClient, auditQueue)
+	competitionsHandler := competitions.NewHandler(competitionsService)
+
 	router.Route("/api/v2", func(r chi.Router) {
 		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
+		competitions.RegisterRoutes(r, competitionsHandler, competitionsRepo, redisClient, authMiddleware)
 	})
 
 	// Health check endpoint - returns system and dependency health status.

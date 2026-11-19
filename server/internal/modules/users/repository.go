@@ -37,11 +37,10 @@ func (r *Repository) CreateUserTx(
 	// Single statement so a duplicate never aborts the surrounding transaction:
 	// soft-deleted users are reactivated, already-active users yield no row.
 	query := `
-		INSERT INTO users (email, name, role, phone_number, is_password_configured, is_active)
-		VALUES (LOWER($1), $2, $3, $4, FALSE, TRUE)
+		INSERT INTO users (email, name, phone_number, is_password_configured, is_active)
+		VALUES (LOWER($1), $2, $3, FALSE, TRUE)
 		ON CONFLICT (email) DO UPDATE
 		SET name = EXCLUDED.name,
-		    role = EXCLUDED.role,
 		    phone_number = EXCLUDED.phone_number,
 		    is_password_configured = FALSE,
 		    is_active = TRUE,
@@ -52,21 +51,36 @@ func (r *Repository) CreateUserTx(
 		RETURNING id
 	`
 	var id string
-	err := tx.QueryRow(ctx, query, email, name, role, phone).Scan(&id)
+	err := tx.QueryRow(ctx, query, email, name, phone).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrUserAlreadyExists
 		}
 		return "", fmt.Errorf("insert user: %w", err)
 	}
+
+	// Insert into user_competitions default mapping
+	if role != "" {
+		compRoleQuery := `
+			INSERT INTO user_competitions (user_id, competition_id, role)
+			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::competition_role)
+			ON CONFLICT (competition_id, user_id) 
+			DO UPDATE SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
+		`
+		if _, err := tx.Exec(ctx, compRoleQuery, id, role); err != nil {
+			return "", fmt.Errorf("insert user competition mapping: %w", err)
+		}
+	}
+
 	return id, nil
 }
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
+		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
 		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
 		FROM users u
+		LEFT JOIN user_competitions uc ON u.id = uc.user_id
 		LEFT JOIN teams t ON u.team_id = t.id
 		WHERE u.id = $1 AND u.deleted_at IS NULL
 	`
@@ -92,9 +106,10 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
+		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
 		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
 		FROM users u
+		LEFT JOIN user_competitions uc ON u.id = uc.user_id
 		LEFT JOIN teams t ON u.team_id = t.id
 		WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL
 	`
@@ -130,7 +145,7 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	}
 
 	if filter.Role != "" {
-		conditions = append(conditions, fmt.Sprintf("u.role = $%d", argIndex))
+		conditions = append(conditions, fmt.Sprintf("uc.role = $%d", argIndex))
 		args = append(args, filter.Role)
 		argIndex++
 	}
@@ -169,7 +184,7 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 
 	whereClause := strings.Join(conditions, " AND ")
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users u LEFT JOIN tickets tk ON tk.user_id = u.id WHERE %s", whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users u LEFT JOIN user_competitions uc ON uc.user_id = u.id LEFT JOIN tickets tk ON tk.user_id = u.id WHERE %s", whereClause)
 	var totalCount int64
 	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
@@ -195,11 +210,12 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	}
 
 	query := fmt.Sprintf(`
-		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
+		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
 		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at,
 		       CASE WHEN tk.id IS NULL THEN 'no_pass' WHEN tk.is_checked_in THEN 'checked_in' ELSE 'not_checked_in' END,
 		       tk.checked_in_at, u.deleted_at
 		FROM users u
+		LEFT JOIN user_competitions uc ON u.id = uc.user_id
 		LEFT JOIN teams t ON u.team_id = t.id
 		LEFT JOIN tickets tk ON tk.user_id = u.id
 		WHERE %s
@@ -254,12 +270,6 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		argIndex++
 	}
 
-	if req.Role != nil {
-		sets = append(sets, fmt.Sprintf("role = $%d", argIndex))
-		args = append(args, *req.Role)
-		argIndex++
-	}
-
 	if req.IsActive != nil {
 		sets = append(sets, fmt.Sprintf("is_active = $%d", argIndex))
 		args = append(args, *req.IsActive)
@@ -271,13 +281,9 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		sets = append(sets, "token_version = token_version + 1")
 	}
 
-	if len(sets) == 0 {
+	if len(sets) == 0 && req.Role == nil {
 		return r.GetUserByID(ctx, id)
 	}
-
-	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
-	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d AND deleted_at IS NULL", strings.Join(sets, ", "), argIndex)
-	args = append(args, id)
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -285,12 +291,30 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 	}
 	defer tx.Rollback(ctx)
 
-	tag, err := tx.Exec(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("update user: %w", err)
+	if len(sets) > 0 {
+		sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
+		query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d AND deleted_at IS NULL", strings.Join(sets, ", "), argIndex)
+		args = append(args, id)
+
+		tag, err := tx.Exec(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("update user: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, ErrUserNotFound
+		}
 	}
-	if tag.RowsAffected() == 0 {
-		return nil, ErrUserNotFound
+
+	if req.Role != nil {
+		compRoleQuery := `
+			INSERT INTO user_competitions (user_id, competition_id, role)
+			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::competition_role)
+			ON CONFLICT (competition_id, user_id) 
+			DO UPDATE SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
+		`
+		if _, err := tx.Exec(ctx, compRoleQuery, id, *req.Role); err != nil {
+			return nil, fmt.Errorf("update user competition role: %w", err)
+		}
 	}
 
 	// If role changed or user was deactivated, revoke all outstanding refresh tokens in the same transaction

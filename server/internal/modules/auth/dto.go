@@ -29,14 +29,15 @@ type ResetPasswordRequest struct {
 
 // UserResponse represents the public user profile.
 type UserResponse struct {
-	ID                   string    `json:"id"`
-	Email                string    `json:"email"`
-	Name                 string    `json:"name"`
-	PhoneNumber          *string   `json:"phone_number,omitempty"`
-	Role                 string    `json:"role"`
-	TeamID               *string   `json:"team_id,omitempty"`
-	IsPasswordConfigured bool      `json:"is_password_configured"`
-	CreatedAt            time.Time `json:"created_at"`
+	ID                   string                `json:"id"`
+	Email                string                `json:"email"`
+	Name                 string                `json:"name"`
+	PhoneNumber          *string               `json:"phone_number,omitempty"`
+	Role                 string                `json:"role,omitempty"`
+	TeamID               *string               `json:"team_id,omitempty"`
+	IsPasswordConfigured bool                  `json:"is_password_configured"`
+	Competitions         []UserCompetitionRole `json:"competitions,omitempty"`
+	CreatedAt            time.Time             `json:"created_at"`
 }
 
 // AuthResponse is returned on successful authentication.

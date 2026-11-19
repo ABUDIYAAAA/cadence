@@ -147,7 +147,10 @@ func lockParticipant(ctx context.Context, tx pgx.Tx, userID string) (*string, er
 	var role string
 	var teamID *string
 	err := tx.QueryRow(ctx,
-		`SELECT role::text, team_id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, userID,
+		`SELECT COALESCE(uc.role::text, 'participant'), u.team_id 
+		 FROM users u
+		 LEFT JOIN user_competitions uc ON uc.user_id = u.id
+		 WHERE u.id = $1 AND u.deleted_at IS NULL FOR UPDATE OF u`, userID,
 	).Scan(&role, &teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -557,10 +560,11 @@ func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailRes
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id, email, name, phone_number, role, is_password_configured
-		FROM users
-		WHERE team_id = $1 AND deleted_at IS NULL
-		ORDER BY created_at ASC, id ASC`, id)
+		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant'), u.is_password_configured
+		FROM users u
+		LEFT JOIN user_competitions uc ON uc.user_id = u.id
+		WHERE u.team_id = $1 AND u.deleted_at IS NULL
+		ORDER BY u.created_at ASC, u.id ASC`, id)
 	if err != nil {
 		return nil, fmt.Errorf("fetch team members: %w", err)
 	}

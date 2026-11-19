@@ -154,7 +154,11 @@ func RequireCompetitionRoles(allowedRoles ...string) func(http.Handler) http.Han
 				return
 			}
 
-			if _, allowed := roleSet[compCtx.Role]; !allowed {
+			_, allowed := roleSet[compCtx.Role]
+			if !allowed && compCtx.Role == "owner" {
+				_, allowed = roleSet["admin"]
+			}
+			if !allowed {
 				utils.ErrorJSON(w, http.StatusForbidden, fmt.Sprintf("insufficient competition permissions; required one of %v", allowedRoles))
 				return
 			}

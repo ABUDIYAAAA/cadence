@@ -14,9 +14,15 @@ func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
 
 	var judgeID, teamA, teamB, teamC string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.tc@cadence.local', 'Judge TC', 'judge', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active, is_password_configured)
+		VALUES ('judge.tc@cadence.local', 'Judge TC', true, true) RETURNING id`).Scan(&judgeID); err != nil {
 		t.Fatalf("seed judge: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_competitions (user_id, competition_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
+		ON CONFLICT (competition_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
+		t.Fatalf("seed user competition: %v", err)
 	}
 	for code, dst := range map[string]*string{"TEAMA001": &teamA, "TEAMB002": &teamB, "TEAMC003": &teamC} {
 		if err := pool.QueryRow(ctx, `INSERT INTO teams (name, join_code) VALUES ($1, $1) RETURNING id`, code).Scan(dst); err != nil {
@@ -160,8 +166,14 @@ func TestTeamCriteria_OffRosterTeamWithManualMarks(t *testing.T) {
 
 	var judgeID, imported, extra string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.or@cadence.local', 'Judge OR', 'judge', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active, is_password_configured)
+		VALUES ('judge.or@cadence.local', 'Judge OR', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_competitions (user_id, competition_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
+		ON CONFLICT (competition_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
 		t.Fatal(err)
 	}
 	for code, dst := range map[string]*string{"IMPORT01": &imported, "EXTRA002": &extra} {

@@ -17,8 +17,14 @@ func TestAnalytics_CustomCriterionAddsToTotalsAndIsTransparent(t *testing.T) {
 	mkJudge := func(email string) string {
 		var id string
 		if err := pool.QueryRow(ctx, `
-			INSERT INTO users (email, name, role, is_active, is_password_configured)
-			VALUES ($1, $1, 'judge', true, true) RETURNING id`, email).Scan(&id); err != nil {
+			INSERT INTO users (email, name, is_active, is_password_configured)
+			VALUES ($1, $1, true, true) RETURNING id`, email).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO user_competitions (user_id, competition_id, role)
+			VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
+			ON CONFLICT (competition_id, user_id) DO UPDATE SET role = 'judge'`, id); err != nil {
 			t.Fatal(err)
 		}
 		return id

@@ -359,8 +359,9 @@ func (r *Repository) CreatePanel(ctx context.Context, req CreatePanelRequest) (s
 	// Panels are staffed by judges only.
 	var judges int
 	if err := tx.QueryRow(ctx, `
-		SELECT COUNT(DISTINCT id) FROM users
-		WHERE id = ANY($1::uuid[]) AND role = 'judge' AND deleted_at IS NULL`,
+		SELECT COUNT(DISTINCT u.id) FROM users u
+		JOIN user_competitions uc ON uc.user_id = u.id
+		WHERE u.id = ANY($1::uuid[]) AND uc.role = 'judge' AND u.deleted_at IS NULL`,
 		req.JudgeIDs).Scan(&judges); err != nil {
 		return "", fmt.Errorf("verify judges: %w", err)
 	}
@@ -429,8 +430,9 @@ func (r *Repository) SetPanelJudges(ctx context.Context, panelID string, judgeID
 
 	var judges int
 	if err := tx.QueryRow(ctx, `
-		SELECT COUNT(DISTINCT id) FROM users
-		WHERE id = ANY($1::uuid[]) AND role = 'judge' AND deleted_at IS NULL`, unique).Scan(&judges); err != nil {
+		SELECT COUNT(DISTINCT u.id) FROM users u
+		JOIN user_competitions uc ON uc.user_id = u.id
+		WHERE u.id = ANY($1::uuid[]) AND uc.role = 'judge' AND u.deleted_at IS NULL`, unique).Scan(&judges); err != nil {
 		return nil, nil, fmt.Errorf("verify judges: %w", err)
 	}
 	if judges != len(unique) {

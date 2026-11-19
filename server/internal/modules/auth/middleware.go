@@ -98,7 +98,11 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
-			if _, allowed := roleSet[claims.Role]; !allowed {
+			_, allowed := roleSet[claims.Role]
+			if !allowed && claims.Role == "owner" {
+				_, allowed = roleSet["admin"]
+			}
+			if !allowed {
 				utils.ErrorJSON(w, http.StatusForbidden, "insufficient permissions")
 				return
 			}

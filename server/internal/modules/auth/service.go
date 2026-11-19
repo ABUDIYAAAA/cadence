@@ -79,10 +79,12 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAge
 		return nil, "", "", err
 	}
 
+	comps, _ := s.repo.GetUserCompetitions(ctx, user.ID)
+
 	metrics.InstrumentAuthEvent("login", true)
 	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s logged in successfully", user.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 
-	return toUserResponse(user), accessToken, refreshToken, nil
+	return toUserResponse(user, comps), accessToken, refreshToken, nil
 }
 
 func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
@@ -133,7 +135,8 @@ func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, d
 
 	s.recordAudit(ctx, audit.ActionAuthPasswordSetup, audit.TargetUser, &user.ID, fmt.Sprintf("User %s configured their initial password", user.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 
-	return toUserResponse(user), accessToken, refreshToken, nil
+	comps, _ := s.repo.GetUserCompetitions(ctx, user.ID)
+	return toUserResponse(user, comps), accessToken, refreshToken, nil
 }
 
 func (s *Service) ForgotPassword(ctx context.Context, email, deviceID, userAgent, ip string) (string, error) {
@@ -295,18 +298,28 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*UserResponse, erro
 	if err != nil {
 		return nil, err
 	}
-	resp := toUserResponse(user)
-	if comps, err := s.repo.GetUserCompetitions(ctx, userID); err == nil && comps != nil {
-		resp.Competitions = comps
-	}
-	return resp, nil
+	comps, _ := s.repo.GetUserCompetitions(ctx, userID)
+	return toUserResponse(user, comps), nil
 }
 
 func (s *Service) createSession(ctx context.Context, user *User, deviceID string, familyID *string, parentID *string, userAgent, ip string) (string, string, error) {
+	var defaultRole string
+	if comps, err := s.repo.GetUserCompetitions(ctx, user.ID); err == nil && len(comps) > 0 {
+		for _, c := range comps {
+			if c.CompetitionID == "00000000-0000-0000-0000-000000000001" {
+				defaultRole = c.Role
+				break
+			}
+		}
+		if defaultRole == "" {
+			defaultRole = comps[0].Role
+		}
+	}
+
 	accessToken, err := utils.GenerateAccessToken(
 		user.ID,
 		user.Email,
-		"",
+		defaultRole,
 		user.TokenVersion,
 		s.cfg.JWTAccessSecret,
 		s.cfg.JWTAccessExpiry,
@@ -367,15 +380,30 @@ func (s *Service) recordAudit(
 	})
 }
 
-func toUserResponse(u *User) *UserResponse {
+func toUserResponse(u *User, comps []UserCompetitionRole) *UserResponse {
+	var role string
+	for _, c := range comps {
+		if c.CompetitionID == "00000000-0000-0000-0000-000000000001" {
+			role = c.Role
+			break
+		}
+	}
+	if role == "" && len(comps) > 0 {
+		role = comps[0].Role
+	}
+	if comps == nil {
+		comps = make([]UserCompetitionRole, 0)
+	}
+
 	return &UserResponse{
 		ID:                   u.ID,
 		Email:                u.Email,
 		Name:                 u.Name,
 		PhoneNumber:          u.PhoneNumber,
+		Role:                 role,
 		TeamID:               u.TeamID,
 		IsPasswordConfigured: u.IsPasswordConfigured,
-		Competitions:         make([]UserCompetitionRole, 0),
+		Competitions:         comps,
 		CreatedAt:            u.CreatedAt,
 	}
 }

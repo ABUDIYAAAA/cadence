@@ -354,6 +354,8 @@ func ResetState(t *testing.T) {
 	// 2. Truncate all Postgres tables
 	truncateSQL := `
 		TRUNCATE TABLE
+			user_competitions,
+			competitions,
 			notification_recipients,
 			notifications,
 			push_subscriptions,
@@ -397,13 +399,33 @@ func ResetState(t *testing.T) {
 		t.Fatalf("[ResetState] unexpected status clearing Mailpit messages: %d", resp.StatusCode)
 	}
 
-	// 5. Seed deterministic root administrator account
+	// 5. Seed deterministic root administrator account and default competition
 	insertAdminSQL := `
-		INSERT INTO users (email, password_hash, name, role, is_password_configured, is_active)
-		VALUES ($1, $2, $3, 'admin', TRUE, TRUE)
+		INSERT INTO users (email, password_hash, name, is_password_configured, is_active)
+		VALUES ($1, $2, $3, TRUE, TRUE)
+		RETURNING id
 	`
-	if _, err := testApp.DB.Exec(ctx, insertAdminSQL, TestAdminEmail, adminSeedHash, TestAdminName); err != nil {
+	var adminID string
+	if err := testApp.DB.QueryRow(ctx, insertAdminSQL, TestAdminEmail, adminSeedHash, TestAdminName).Scan(&adminID); err != nil {
 		t.Fatalf("[ResetState] failed to seed root admin user: %v", err)
+	}
+
+	seedCompSQL := `
+		INSERT INTO competitions (id, name, slug, description)
+		VALUES ('00000000-0000-0000-0000-000000000001', 'DevClub Hack', 'devclub-hack', 'Default seeded competition')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+	`
+	if _, err := testApp.DB.Exec(ctx, seedCompSQL); err != nil {
+		t.Fatalf("[ResetState] failed to seed competition: %v", err)
+	}
+
+	seedUserCompSQL := `
+		INSERT INTO user_competitions (user_id, competition_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'owner')
+		ON CONFLICT (competition_id, user_id) DO UPDATE SET role = 'owner'
+	`
+	if _, err := testApp.DB.Exec(ctx, seedUserCompSQL, adminID); err != nil {
+		t.Fatalf("[ResetState] failed to seed user competition role: %v", err)
 	}
 }
 

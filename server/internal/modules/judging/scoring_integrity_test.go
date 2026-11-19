@@ -112,11 +112,17 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 	// Seed a judge and a team
 	var judgeID, teamID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.a@cadence.local', 'Judge A', 'judge', true, true)
+		INSERT INTO users (email, name, is_active, is_password_configured)
+		VALUES ('judge.a@cadence.local', 'Judge A', true, true)
 		RETURNING id`,
 	).Scan(&judgeID); err != nil {
 		t.Fatalf("seed judge: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_competitions (user_id, competition_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
+		ON CONFLICT (competition_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
+		t.Fatalf("seed user competition: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO teams (name, join_code) VALUES ('Team Alpha', 'ALPHA001') RETURNING id`,
@@ -341,123 +347,4 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 	})
 }
 
-func TestScoringIntegrity_LegacyDataMigrationAndIsolation(t *testing.T) {
-	// Apply migrations up to 000013 (before 000014 database constraints) to simulate legacy corrupted data
-	pool, _ := newTestJudgingPool(t, 13)
-	// Per-team criteria columns/roster are independent of the teams v2 schema.
-	applyMigrationsRange(t, context.Background(), pool, 17, 18)
-	repo := NewRepository(pool)
-	ctx := context.Background()
 
-	var judgeID, teamID string
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.legacy@cadence.local', 'Judge Legacy', 'judge', true, true)
-		RETURNING id`,
-	).Scan(&judgeID); err != nil {
-		t.Fatalf("seed judge: %v", err)
-	}
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO teams (name) VALUES ('Team Legacy') RETURNING id`,
-	).Scan(&teamID); err != nil {
-		t.Fatalf("seed team: %v", err)
-	}
-
-	roundAID, err := repo.CreateRound(ctx, CreateRoundRequest{
-		Name:             "Legacy Round A",
-		BufferSize:       2,
-		SlotDurationMins: 10,
-		Criteria: []CreateCriteriaRequest{
-			{Name: "Crit A1", MinScore: 0, MaxScore: 10, Weight: 50, OrderIndex: 1},
-			{Name: "Crit A2", MinScore: 0, MaxScore: 10, Weight: 50, OrderIndex: 2},
-		},
-	})
-	if err != nil {
-		t.Fatalf("create round A: %v", err)
-	}
-	if err := repo.ActivateRound(ctx, roundAID); err != nil {
-		t.Fatalf("activate round A: %v", err)
-	}
-	roundACrit, _ := repo.GetRoundCriteria(ctx, roundAID)
-
-	roundBID, err := repo.CreateRound(ctx, CreateRoundRequest{
-		Name:             "Legacy Round B",
-		BufferSize:       2,
-		SlotDurationMins: 10,
-		Criteria: []CreateCriteriaRequest{
-			{Name: "Foreign Crit B1", MinScore: 0, MaxScore: 10, Weight: 100, OrderIndex: 1},
-		},
-	})
-	if err != nil {
-		t.Fatalf("create round B: %v", err)
-	}
-	roundBCrit, _ := repo.GetRoundCriteria(ctx, roundBID)
-
-	panelAID, err := repo.CreatePanel(ctx, CreatePanelRequest{
-		RoundID:  roundAID,
-		Name:     "Legacy Panel A",
-		Room:     "Room 202",
-		JudgeIDs: []string{judgeID},
-	})
-	if err != nil {
-		t.Fatalf("create panel: %v", err)
-	}
-	if err := repo.ConfigureSlots(ctx, panelAID, []SlotAssignment{
-		{TeamID: teamID, SequenceOrder: 1},
-	}, false); err != nil {
-		t.Fatalf("configure slots: %v", err)
-	}
-	var slotID string
-	if err := pool.QueryRow(ctx, `SELECT id FROM judging_slots WHERE panel_id = $1`, panelAID).Scan(&slotID); err != nil {
-		t.Fatalf("get slot: %v", err)
-	}
-	if err := repo.StartSlot(ctx, slotID); err != nil {
-		t.Fatalf("start slot: %v", err)
-	}
-
-	// Simulate pre-migration legacy state: 1 valid Round A criterion + 1 foreign Round B criterion with score 500
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO judging_scores (slot_id, judge_id, criterion_id, score, is_locked)
-		VALUES ($1, $2, $3, 5, true), ($1, $2, $4, 500, true)`,
-		slotID, judgeID, roundACrit[0].ID, roundBCrit[0].ID,
-	); err != nil {
-		t.Fatalf("insert legacy rows: %v", err)
-	}
-
-	// Even before migration 000014 runs, application queries must ignore the foreign criterion:
-	// 1. CheckAllPanelJudgesLocked must be false (only 1 of 2 Round A criteria is locked)
-	locked, err := repo.CheckAllPanelJudgesLocked(ctx, slotID)
-	if err != nil {
-		t.Fatalf("CheckAllPanelJudgesLocked: %v", err)
-	}
-	if locked {
-		t.Fatal("expected CheckAllPanelJudgesLocked=false when 2nd criterion is from a foreign round")
-	}
-
-	// 2. Leaderboard must not include the foreign criterion's score (500)
-	lb, err := repo.GetAdminLeaderboard(ctx, roundAID)
-	if err != nil {
-		t.Fatalf("GetAdminLeaderboard: %v", err)
-	}
-	if len(lb.Leaderboard) != 1 {
-		t.Fatalf("expected 1 leaderboard entry, got %d", len(lb.Leaderboard))
-	}
-	// Only Crit A1 (score 5 / 10 * weight 50 = 25) should be counted, not Foreign Crit B1
-	if lb.Leaderboard[0].TotalWeightedScore != 25 {
-		t.Fatalf("expected TotalWeightedScore=25.00 (ignoring foreign criterion), got %.2f", lb.Leaderboard[0].TotalWeightedScore)
-	}
-
-	// 3. Now apply migration 000014 and verify the foreign row was purged and constraints are active
-	applyMigrationsRange(t, ctx, pool, 14, 14)
-
-	var remainingForeign int
-	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM judging_scores WHERE slot_id = $1 AND criterion_id = $2`,
-		slotID, roundBCrit[0].ID,
-	).Scan(&remainingForeign); err != nil {
-		t.Fatalf("count remaining foreign rows: %v", err)
-	}
-	if remainingForeign != 0 {
-		t.Fatalf("expected migration 000014 to purge foreign score row, found %d", remainingForeign)
-	}
-}

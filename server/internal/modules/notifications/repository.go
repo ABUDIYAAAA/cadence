@@ -90,7 +90,7 @@ func (r *Repository) GetEligibleRecipientIDs(ctx context.Context, targetType str
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("role target_id is required")
 		}
-		query = `SELECT id::text FROM users WHERE role = $1::user_role AND deleted_at IS NULL;`
+		query = `SELECT u.id::text FROM users u JOIN user_competitions uc ON uc.user_id = u.id WHERE uc.role = $1::competition_role AND u.deleted_at IS NULL;`
 		args = append(args, *targetID)
 	case "user":
 		if targetID == nil || *targetID == "" {

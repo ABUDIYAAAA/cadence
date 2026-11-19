@@ -91,11 +91,12 @@ func (r *Repository) GetTicketByCode(ctx context.Context, ticketCode string) (*T
 	query := `
 		SELECT 
 			t.id, t.user_id, t.ticket_code, t.is_checked_in, t.checked_in_at, t.checked_in_by, t.email_sent_at,
-			u.name, u.email, u.role::text, u.phone_number, u.team_id,
+			u.name, u.email, COALESCE(uc.role::text, 'participant'), u.phone_number, u.team_id,
 			tm.name,
 			v.name
 		FROM tickets t
 		JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
+		LEFT JOIN user_competitions uc ON uc.user_id = u.id
 		LEFT JOIN teams tm ON tm.id = u.team_id
 		LEFT JOIN users v ON v.id = t.checked_in_by
 		WHERE t.ticket_code = $1;
@@ -210,6 +211,7 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 			COALESCE(t.is_checked_in, false)
 		FROM users u
 		LEFT JOIN tickets t ON t.user_id = u.id
+		LEFT JOIN user_competitions uc ON uc.user_id = u.id
 		WHERE u.deleted_at IS NULL
 	`
 	args := []any{}
@@ -228,7 +230,7 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 	}
 
 	if req.Role != nil && *req.Role != "" {
-		baseQuery += fmt.Sprintf(" AND u.role = $%d::user_role", argIdx)
+		baseQuery += fmt.Sprintf(" AND uc.role = $%d::competition_role", argIdx)
 		args = append(args, *req.Role)
 		argIdx++
 	}

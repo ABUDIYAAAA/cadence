@@ -1,18 +1,10 @@
-import { apiClient } from "@/lib/api-client";
-import {
-  AuthResponse,
-  ForgotPasswordRequest,
-  LoginRequest,
-  MessageResponse,
-  ResetPasswordRequest,
-  SetupPasswordRequest,
-  UserResponse,
-} from "@/types/auth";
+import { API_BASE_URL, apiClient } from "@/lib/api-client";
+import { buildGoogleLoginUrl } from "@/lib/oauth-callback";
+import { MessageResponse, UserResponse } from "@/types/auth";
 
 export const authService = {
-  async login(payload: LoginRequest): Promise<AuthResponse> {
-    const { data } = await apiClient.post<AuthResponse>("/auth/login", payload);
-    return data;
+  getGoogleLoginUrl(redirectPath?: string | null): string {
+    return buildGoogleLoginUrl(API_BASE_URL, redirectPath);
   },
 
   async me(): Promise<UserResponse> {
@@ -22,35 +14,6 @@ export const authService = {
 
   async logout(): Promise<MessageResponse> {
     const { data } = await apiClient.post<MessageResponse>("/auth/logout");
-    return data;
-  },
-
-  async refresh(): Promise<MessageResponse> {
-    const { data } = await apiClient.post<MessageResponse>("/auth/refresh");
-    return data;
-  },
-
-  async setupPassword(payload: SetupPasswordRequest): Promise<MessageResponse> {
-    const { data } = await apiClient.post<MessageResponse>(
-      "/auth/setup-password",
-      payload
-    );
-    return data;
-  },
-
-  async forgotPassword(payload: ForgotPasswordRequest): Promise<MessageResponse> {
-    const { data } = await apiClient.post<MessageResponse>(
-      "/auth/forgot-password",
-      payload
-    );
-    return data;
-  },
-
-  async resetPassword(payload: ResetPasswordRequest): Promise<MessageResponse> {
-    const { data } = await apiClient.post<MessageResponse>(
-      "/auth/reset-password",
-      payload
-    );
     return data;
   },
 };

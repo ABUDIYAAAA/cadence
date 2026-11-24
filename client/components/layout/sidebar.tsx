@@ -181,7 +181,7 @@ function UserChip({
 
 export function Sidebar() {
 	const pathname = usePathname();
-	const { user } = useAuth();
+	const { user, role, isAdmin, isDev } = useAuth();
 	const [isOpenMobile, setIsOpenMobile] = useState(false);
 
 	// Listen for toggle events from the Navbar mobile button
@@ -200,7 +200,8 @@ export function Sidebar() {
 		return () => window.removeEventListener('keydown', onKey);
 	}, [isOpenMobile]);
 
-	const dashboardHref = user ? getDashboardRoute(user.role) : '/dashboard';
+	const effectiveRole = role ?? user?.role;
+	const dashboardHref = effectiveRole ? getDashboardRoute(effectiveRole) : '/dashboard';
 
 	const allNavItems: NavItem[] = [
 		{ label: 'Overview', href: dashboardHref, icon: LayoutDashboard },
@@ -208,49 +209,53 @@ export function Sidebar() {
 			label: 'Users',
 			href: '/dashboard/users',
 			icon: Users,
-			roles: ['admin', 'volunteer'],
+			roles: ['owner', 'admin', 'volunteer'],
 		},
 		{
 			label: 'Teams',
 			href: '/dashboard/teams',
 			icon: Layers,
-			roles: ['admin', 'volunteer', 'judge'],
+			roles: ['owner', 'admin', 'volunteer', 'judge'],
 		},
 		{
 			label: 'Broadcasts',
 			href: '/dashboard/admin/notifications',
 			icon: Bell,
-			roles: ['admin'],
+			roles: ['owner', 'admin'],
 		},
 		{
 			label: 'Judging',
 			href: '/dashboard/judging',
 			icon: Award,
-			roles: ['admin', 'judge', 'volunteer', 'participant'],
+			roles: ['owner', 'admin', 'judge', 'volunteer', 'participant'],
 		},
 		{
 			label: 'Tickets',
 			href: '/dashboard/tickets',
 			icon: Ticket,
-			roles: ['admin', 'volunteer', 'participant'],
+			roles: ['owner', 'admin', 'volunteer', 'participant'],
 		},
 		{
 			label: 'Audit log',
 			href: '/dashboard/audit',
 			icon: FileText,
-			roles: ['admin'],
+			roles: ['owner', 'admin'],
 		},
 		{
 			label: 'Metrics',
 			href: 'https://grafana.cadence.devclubxnst.com/',
 			icon: Activity,
-			roles: ['admin'],
+			roles: ['owner', 'admin'],
 			external: true,
 		},
 	];
 
 	const visibleNavItems = allNavItems.filter(
-		(item) => !item.roles || (user?.role && item.roles.includes(user.role)),
+		(item) =>
+			!item.roles ||
+			isDev ||
+			(effectiveRole && item.roles.includes(effectiveRole)) ||
+			(isAdmin && item.roles.includes('admin')),
 	);
 
 	const isActive = (item: NavItem) => {

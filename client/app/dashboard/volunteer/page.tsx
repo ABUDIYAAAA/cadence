@@ -14,17 +14,17 @@ import { VolunteerScheduleView } from "@/components/judging";
 
 export default function VolunteerDashboardPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const isVolunteer = user?.role === "volunteer" || user?.role === "admin";
+  const { user, role, isAdmin, isVolunteer: hasVolunteerRole, isAuthenticated, isLoading } = useAuth();
+  const isVolunteer = hasVolunteerRole || isAdmin;
 
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) {
       router.replace("/login");
-    } else if (user.role !== "volunteer" && user.role !== "admin") {
-      router.replace(getDashboardRoute(user.role));
+    } else if (!isVolunteer) {
+      router.replace(getDashboardRoute(role ?? user.role));
     }
-  }, [isLoading, isAuthenticated, user, router]);
+  }, [isLoading, isAuthenticated, user, isVolunteer, role, router]);
 
   const { data: rawSchedule, isLoading: scheduleLoading } = useVolunteerSchedule();
   const schedule = Array.isArray(rawSchedule) ? rawSchedule : [];

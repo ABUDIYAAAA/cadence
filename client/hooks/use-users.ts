@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getTenantScope } from "@/lib/api-client";
 import { usersService } from "@/services/users.service";
 import {
   BulkCreateUsersRequest,
@@ -12,18 +13,34 @@ import {
 
 export const USERS_QUERY_KEY = ["users"] as const;
 
-export function useUsers(filters?: UserFilter, options?: { enabled?: boolean }) {
+export function useUsers(
+  filters?: UserFilter,
+  options?: { enabled?: boolean }
+) {
+  const { eventSlug } = getTenantScope();
   return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "list", filters],
+    queryKey: [...USERS_QUERY_KEY, "list", eventSlug, filters],
     queryFn: () => usersService.list(filters),
     enabled: options?.enabled ?? true,
   });
 }
 
-/** Fetches every user by walking all pages (the API caps page size at 100). */
-export function useAllUsers(options?: { enabled?: boolean }) {
+export function usePlatformUsers(
+  filters?: UserFilter,
+  options?: { enabled?: boolean }
+) {
   return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "all"],
+    queryKey: [...USERS_QUERY_KEY, "platform", filters],
+    queryFn: () => usersService.listPlatform(filters),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+/** Fetches every user in the active scope by walking all pages (the API caps page size at 100). */
+export function useAllUsers(options?: { enabled?: boolean }) {
+  const { eventSlug } = getTenantScope();
+  return useQuery({
+    queryKey: [...USERS_QUERY_KEY, "all", eventSlug],
     queryFn: async () => {
       const all: UserDetailResponse[] = [];
       let page = 1;
@@ -40,19 +57,23 @@ export function useAllUsers(options?: { enabled?: boolean }) {
   });
 }
 
-export function useUser(id: string) {
-  return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "detail", id],
-    queryFn: () => usersService.getById(id),
-    enabled: Boolean(id),
-  });
-}
-
 export function useCreateUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (payload: CreateUserRequest) => usersService.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
+  });
+}
+
+export function useCreatePlatformUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CreateUserRequest) =>
+      usersService.createPlatform(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
     },
@@ -65,6 +86,18 @@ export function useBulkCreateUsers() {
   return useMutation({
     mutationFn: (payload: BulkCreateUsersRequest) =>
       usersService.bulkCreate(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
+  });
+}
+
+export function useBulkCreatePlatformUsers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: BulkCreateUsersRequest) =>
+      usersService.bulkCreatePlatform(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
     },
@@ -108,11 +141,22 @@ export function useReactivateUser() {
   });
 }
 
-export function useTriggerResetPassword() {
+export function useBlacklistUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => usersService.triggerResetPassword(id),
+    mutationFn: (id: string) => usersService.blacklist(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
+  });
+}
+
+export function useUnblacklistUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => usersService.unblacklist(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
     },

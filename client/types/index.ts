@@ -1,5 +1,7 @@
 export * from "./api";
 export * from "./auth";
+export * from "./events";
+export * from "./competitions";
 export * from "./users";
 export * from "./teams";
 export * from "./tickets";

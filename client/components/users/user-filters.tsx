@@ -9,16 +9,42 @@ import { UserFilter } from "@/types/users";
 
 interface UserFiltersProps {
   filters: UserFilter;
-  /** Admins can also browse removed accounts. */
+  mode?: "event" | "platform";
+  /** Platform devs can also browse soft-deleted users. */
   canViewRemoved?: boolean;
   onChange: (filters: UserFilter) => void;
   onReset: () => void;
 }
 
-export function UserFilters({ filters, canViewRemoved = false, onChange, onReset }: UserFiltersProps) {
+export function UserFilters({
+  filters,
+  mode = "event",
+  canViewRemoved = false,
+  onChange,
+  onReset,
+}: UserFiltersProps) {
   const hasActiveFilters = Boolean(
-    filters.search || filters.role || filters.is_active !== undefined || filters.deleted
+    filters.search ||
+      filters.role ||
+      filters.is_active !== undefined ||
+      filters.is_banned !== undefined ||
+      filters.deleted
   );
+
+  const statusValue =
+    mode === "event"
+      ? filters.is_banned === undefined
+        ? ""
+        : filters.is_banned
+        ? "banned"
+        : "active"
+      : filters.deleted
+      ? "removed"
+      : filters.is_active === undefined
+      ? ""
+      : filters.is_active
+      ? "active"
+      : "inactive";
 
   return (
     <div className="space-y-3 font-sans">
@@ -28,7 +54,9 @@ export function UserFilters({ filters, canViewRemoved = false, onChange, onReset
           <Input
             placeholder="Search by name or email..."
             value={filters.search || ""}
-            onChange={(e) => onChange({ ...filters, search: e.target.value, page: 1 })}
+            onChange={(e) =>
+              onChange({ ...filters, search: e.target.value, page: 1 })
+            }
             className="pl-8 text-xs"
           />
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[var(--ink-tertiary)] pointer-events-none" />
@@ -57,6 +85,7 @@ export function UserFilters({ filters, canViewRemoved = false, onChange, onReset
             className="text-xs"
           >
             <option value="">All Roles</option>
+            {mode === "event" && <option value="owner">Owner</option>}
             <option value="admin">Admin</option>
             <option value="judge">Judge</option>
             <option value="volunteer">Volunteer</option>
@@ -67,36 +96,54 @@ export function UserFilters({ filters, canViewRemoved = false, onChange, onReset
         {/* Status Filter */}
         <div>
           <Select
-            value={
-              filters.deleted
-                ? "removed"
-                : filters.is_active === undefined
-                ? ""
-                : filters.is_active
-                ? "active"
-                : "inactive"
-            }
+            value={statusValue}
             onChange={(e) => {
               const val = e.target.value;
-              onChange({
-                ...filters,
-                deleted: val === "removed" ? true : undefined,
-                is_active:
-                  val === "active" ? true : val === "inactive" ? false : undefined,
-                page: 1,
-              });
+              if (mode === "event") {
+                onChange({
+                  ...filters,
+                  is_banned:
+                    val === "banned"
+                      ? true
+                      : val === "active"
+                      ? false
+                      : undefined,
+                  is_active: undefined,
+                  deleted: undefined,
+                  page: 1,
+                });
+              } else {
+                onChange({
+                  ...filters,
+                  deleted: val === "removed" ? true : undefined,
+                  is_active:
+                    val === "active"
+                      ? true
+                      : val === "inactive"
+                      ? false
+                      : undefined,
+                  is_banned: undefined,
+                  page: 1,
+                });
+              }
             }}
             className="text-xs"
           >
             <option value="">All Statuses</option>
             <option value="active">Active Only</option>
-            <option value="inactive">Inactive Only</option>
-            {canViewRemoved && <option value="removed">Removed</option>}
+            {mode === "event" ? (
+              <option value="banned">Banned in Event</option>
+            ) : (
+              <>
+                <option value="inactive">Blacklisted / Inactive</option>
+                {canViewRemoved && <option value="removed">Removed</option>}
+              </>
+            )}
           </Select>
         </div>
 
         {/* Reset Action */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center">
           {hasActiveFilters && (
             <Button
               variant="outline"

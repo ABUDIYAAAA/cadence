@@ -10,6 +10,7 @@ import {
   useMyTeam,
   useRegenerateMyCode,
   useRenameMyTeam,
+  useTransferTeamLeadership,
 } from "@/hooks/use-teams";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -38,6 +39,7 @@ export function MyTeamView() {
   const renameTeam = useRenameMyTeam();
   const regenerateCode = useRegenerateMyCode();
   const kickMember = useKickMember();
+  const transferLeadership = useTransferTeamLeadership();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -157,6 +159,15 @@ export function MyTeamView() {
     }
   };
 
+  const handleTransferLeadership = async (userId: string, name: string) => {
+    try {
+      await transferLeadership.mutateAsync({ new_leader_id: userId });
+      toast.success(`${name} is now the team leader.`, "Leadership transferred");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to transfer leadership"), "Error");
+    }
+  };
+
   const handleLeave = async () => {
     try {
       await leaveTeam.mutateAsync();
@@ -242,17 +253,30 @@ export function MyTeamView() {
                 </Badge>
               )}
               {isLeader && !member.is_leader && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-[var(--color-coral)]"
-                  disabled={frozen || kickMember.isPending}
-                  onClick={() => handleKick(member.id, member.name)}
-                  title={`Remove ${member.name}`}
-                  aria-label={`Remove ${member.name} from the team`}
-                >
-                  <UserMinus className="h-3.5 w-3.5" />
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] gap-1"
+                    disabled={frozen || transferLeadership.isPending || kickMember.isPending}
+                    onClick={() => handleTransferLeadership(member.id, member.name)}
+                    title={`Transfer team leadership to ${member.name}`}
+                  >
+                    <Crown className="h-3 w-3" />
+                    Make lead
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-[var(--color-coral)]"
+                    disabled={frozen || kickMember.isPending || transferLeadership.isPending}
+                    onClick={() => handleKick(member.id, member.name)}
+                    title={`Remove ${member.name}`}
+                    aria-label={`Remove ${member.name} from the team`}
+                  >
+                    <UserMinus className="h-3.5 w-3.5" />
+                  </Button>
+                </>
               )}
             </div>
           </li>

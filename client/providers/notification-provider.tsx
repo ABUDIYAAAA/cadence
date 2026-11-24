@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "./auth-provider";
+import { useTenant } from "./tenant-provider";
 import { useToast } from "./toast-provider";
 import {
   isPushSupported,
@@ -43,6 +44,7 @@ export function NotificationProvider({
   children: React.ReactNode;
 }) {
   const { isAuthenticated, user } = useAuth();
+  const { eventSlug } = useTenant();
   const toast = useToast();
   const queryClient = useQueryClient();
 
@@ -84,9 +86,9 @@ export function NotificationProvider({
     };
   }, [queryClient]);
 
-  // When authenticated, check status and sync
+  // When authenticated inside an active event, check status and sync
   useEffect(() => {
-    if (!isAuthenticated || !user || !isSupported) {
+    if (!isAuthenticated || !user || !isSupported || !eventSlug) {
       return;
     }
 
@@ -112,7 +114,7 @@ export function NotificationProvider({
         }
       }
     });
-  }, [isAuthenticated, user, isSupported]);
+  }, [isAuthenticated, user, isSupported, eventSlug]);
 
   const handleEnablePush = useCallback(async (): Promise<boolean> => {
     setIsLoading(true);

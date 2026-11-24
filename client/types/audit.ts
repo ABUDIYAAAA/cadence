@@ -3,6 +3,8 @@ import { PaginatedResponse } from "./api";
 export interface AuditLogFilter {
   page?: number;
   limit?: number;
+  event_id?: string;
+  competition_id?: string;
   action?: string;
   actor_id?: string;
   target_type?: string;
@@ -14,6 +16,8 @@ export interface AuditLogFilter {
 
 export interface AuditLogResponse {
   id: string;
+  event_id?: string | null;
+  competition_id?: string | null;
   actor_id?: string | null;
   actor_email?: string | null;
   actor_role?: string | null;

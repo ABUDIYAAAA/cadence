@@ -6,8 +6,6 @@ import {
   Crown,
   UserPlus,
   Trash2,
-  CheckCircle2,
-  Clock,
   Layers,
 } from "lucide-react";
 import { useTeam } from "@/hooks/use-teams";
@@ -211,7 +209,6 @@ export function TeamDetailDialog({
                     <TableRow>
                       <TableHead>Member</TableHead>
                       <TableHead>Role</TableHead>
-                      <TableHead>Password Setup</TableHead>
                       {canManage && <TableHead className="text-right">Manage</TableHead>}
                     </TableRow>
                   </TableHeader>
@@ -253,21 +250,6 @@ export function TeamDetailDialog({
                             <Badge variant="subtle" size="sm">
                               {member.role}
                             </Badge>
-                          </TableCell>
-
-                          {/* Password configured */}
-                          <TableCell>
-                            {member.is_password_configured ? (
-                              <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-blue)] font-medium">
-                                <CheckCircle2 className="h-3 w-3" />
-                                Configured
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-tertiary)]">
-                                <Clock className="h-3 w-3" />
-                                Pending
-                              </span>
-                            )}
                           </TableCell>
 
                           {/* Manage actions */}

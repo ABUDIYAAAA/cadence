@@ -8,6 +8,7 @@ import {
   TeamDetailResponse,
   TeamFilter,
   TeamSettings,
+  TransferLeadershipRequest,
   UpdateTeamRequest,
   UpdateTeamSettingsRequest,
 } from "@/types/teams";
@@ -57,6 +58,16 @@ export const teamsService = {
   async kickMember(userId: string): Promise<TeamDetailResponse> {
     const { data } = await apiClientV2.delete<TeamDetailResponse>(
       `/teams/my-team/members/${userId}`
+    );
+    return data;
+  },
+
+  async transferLeadership(
+    payload: TransferLeadershipRequest
+  ): Promise<TeamDetailResponse> {
+    const { data } = await apiClientV2.post<TeamDetailResponse>(
+      "/teams/my-team/transfer-leadership",
+      payload
     );
     return data;
   },

@@ -1,13 +1,33 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from "axios";
 import { ApiError } from "@/types/api";
 import { getQueryClient } from "@/lib/query-client";
+import {
+  clearTenantScope,
+  getSavedCompetitionForEvent,
+  getTenantScope,
+  resolveScopedPath,
+  setTenantScope,
+  subscribeTenantScope,
+  TenantScope,
+} from "./tenant-scope";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
+export {
+  clearTenantScope,
+  getSavedCompetitionForEvent,
+  getTenantScope,
+  resolveScopedPath,
+  setTenantScope,
+  subscribeTenantScope,
+};
+export type { TenantScope };
 
-// Teams moved to API v2; everything else still lives on v1.
-const API_V2_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL_V2 || API_BASE_URL.replace(/\/v1\/?$/, "/v2");
+const rawBaseUrl =
+  process.env.NEXT_PUBLIC_API_URL_V2 ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8080/api/v2";
+
+// Unified API v2 base URL (auto-upgrades legacy /v1 env values to /v2).
+export const API_BASE_URL = rawBaseUrl.replace(/\/v1\/?$/, "/v2");
 
 function createClient(baseURL: string): AxiosInstance {
   return axios.create({
@@ -21,7 +41,15 @@ function createClient(baseURL: string): AxiosInstance {
 }
 
 export const apiClient: AxiosInstance = createClient(API_BASE_URL);
-export const apiClientV2: AxiosInstance = createClient(API_V2_BASE_URL);
+export const apiClientV2: AxiosInstance = apiClient;
+
+// Request interceptor: rewrite relative feature paths to active event/competition scope.
+apiClient.interceptors.request.use((config) => {
+  if (config.url) {
+    config.url = resolveScopedPath(config.url, getTenantScope());
+  }
+  return config;
+});
 
 let isRefreshing = false;
 let failedQueue: Array<{
@@ -49,11 +77,10 @@ function isNonRefreshableAuthRoute(url?: string): boolean {
   if (!url) return false;
   return (
     url.includes("/auth/login") ||
+    url.includes("/auth/google/login") ||
+    url.includes("/auth/google/callback") ||
     url.includes("/auth/refresh") ||
-    url.includes("/auth/logout") ||
-    url.includes("/auth/forgot-password") ||
-    url.includes("/auth/setup-password") ||
-    url.includes("/auth/reset-password")
+    url.includes("/auth/logout")
   );
 }
 
@@ -61,18 +88,11 @@ function isPublicAuthPage(pathname: string): boolean {
   return (
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth/login") ||
-    pathname.startsWith("/setup-password") ||
-    pathname.startsWith("/auth/setup-password") ||
-    pathname.startsWith("/reset-password") ||
-    pathname.startsWith("/auth/reset-password") ||
-    pathname.startsWith("/forgot-password") ||
-    pathname.startsWith("/auth/forgot-password") ||
+    pathname.startsWith("/auth/callback") ||
     pathname === "/"
   );
 }
 
-// Response interceptor: handle automatic token refresh and format errors.
-// Shared by the v1 and v2 clients; a retried request keeps its own baseURL.
 const handleResponseError = async (
   error: AxiosError<{
     error?: string;
@@ -80,72 +100,71 @@ const handleResponseError = async (
     details?: Record<string, string>;
   }>
 ) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & {
-      _retry?: boolean;
-    };
+  const originalRequest = error.config as InternalAxiosRequestConfig & {
+    _retry?: boolean;
+  };
 
-    if (
-      error.response?.status === 401 &&
-      originalRequest &&
-      !originalRequest._retry &&
-      !isNonRefreshableAuthRoute(originalRequest.url)
-    ) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
+  if (
+    error.response?.status === 401 &&
+    originalRequest &&
+    !originalRequest._retry &&
+    !isNonRefreshableAuthRoute(originalRequest.url)
+  ) {
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      })
+        .then(() => {
+          originalRequest._retry = true;
+          return apiClient(originalRequest);
         })
-          .then(() => {
-            originalRequest._retry = true;
-            return apiClient(originalRequest);
-          })
-          .catch((err) => Promise.reject(err));
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      try {
-        // Direct call without interceptors to avoid circular refresh loops
-        await axios.post(
-          `${API_BASE_URL}/auth/refresh`,
-          {},
-          { withCredentials: true }
-        );
-
-        processQueue(null);
-        return apiClient(originalRequest);
-      } catch (refreshErr) {
-        processQueue(refreshErr);
-
-        // Mark user as unauthenticated in cache.
-        // NOTE: NEVER call qc.clear() here because active mounted query observers
-        // (like useCurrentUser in AuthProvider) will instantly refetch /auth/me,
-        // creating a rapid 35ms infinite refresh loop!
-        try {
-          const qc = getQueryClient();
-          qc.setQueryData(["auth", "me"], null);
-        } catch {}
-
-        // If the refresh token is truly invalid/expired, redirect to login only for protected pages
-        if (
-          typeof window !== "undefined" &&
-          !isPublicAuthPage(window.location.pathname)
-        ) {
-          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-          window.location.href = "/login";
-        }
-
-        return Promise.reject(formatApiError(error));
-      } finally {
-        isRefreshing = false;
-      }
+        .catch((err) => Promise.reject(err));
     }
 
-    return Promise.reject(formatApiError(error));
+    originalRequest._retry = true;
+    isRefreshing = true;
+
+    try {
+      // Direct call without interceptors to avoid circular refresh loops
+      await axios.post(
+        `${API_BASE_URL}/auth/refresh`,
+        {},
+        { withCredentials: true }
+      );
+
+      processQueue(null);
+      return apiClient(originalRequest);
+    } catch (refreshErr) {
+      processQueue(refreshErr);
+
+      // Mark user as unauthenticated in cache.
+      // NOTE: NEVER call qc.clear() here because active mounted query observers
+      // (like useCurrentUser in AuthProvider) will instantly refetch /auth/me,
+      // creating a rapid 35ms infinite refresh loop!
+      try {
+        clearTenantScope();
+        const qc = getQueryClient();
+        qc.setQueryData(["auth", "me"], null);
+      } catch {}
+
+      if (
+        typeof window !== "undefined" &&
+        !isPublicAuthPage(window.location.pathname)
+      ) {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.href = "/login";
+      }
+
+      return Promise.reject(formatApiError(error));
+    } finally {
+      isRefreshing = false;
+    }
+  }
+
+  return Promise.reject(formatApiError(error));
 };
 
 apiClient.interceptors.response.use((response) => response, handleResponseError);
-apiClientV2.interceptors.response.use((response) => response, handleResponseError);
 
 export function formatApiError(
   error: AxiosError<{

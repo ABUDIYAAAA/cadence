@@ -8,6 +8,7 @@ import {
   JoinTeamRequest,
   RenameTeamRequest,
   TeamFilter,
+  TransferLeadershipRequest,
   UpdateTeamRequest,
   UpdateTeamSettingsRequest,
 } from "@/types/teams";
@@ -106,6 +107,15 @@ export function useKickMember() {
   const invalidate = useInvalidateTeams();
   return useMutation({
     mutationFn: (userId: string) => teamsService.kickMember(userId),
+    onSuccess: invalidate,
+  });
+}
+
+export function useTransferTeamLeadership() {
+  const invalidate = useInvalidateTeams();
+  return useMutation({
+    mutationFn: (payload: TransferLeadershipRequest) =>
+      teamsService.transferLeadership(payload),
     onSuccess: invalidate,
   });
 }

@@ -1,9 +1,22 @@
 "use client";
 
-import React, { createContext, useContext, useCallback, useMemo } from "react";
+import React, {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { UserResponse, UserRole } from "@/types/auth";
 import { useCurrentUser, useLogout } from "@/hooks/use-auth";
+import {
+  clearTenantScope,
+  getTenantScope,
+  subscribeTenantScope,
+} from "@/lib/api-client";
+import { resolveEffectivePermissions } from "@/lib/auth-routes";
 import { unsubscribePush } from "@/lib/push-notifications";
 
 interface AuthContextType {
@@ -11,6 +24,9 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   role: UserRole | null;
+  effectiveRole: UserRole | null;
+  isDev: boolean;
+  isOwner: boolean;
   isAdmin: boolean;
   isJudge: boolean;
   isVolunteer: boolean;
@@ -25,14 +41,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: userData, isLoading, isError, refetch } = useCurrentUser();
   const logoutMutation = useLogout();
+  const [activeEventSlug, setActiveEventSlug] = useState<string | null>(
+    () => getTenantScope().eventSlug
+  );
+
+  useEffect(() => {
+    return subscribeTenantScope((scope) => {
+      setActiveEventSlug(scope.eventSlug);
+    });
+  }, []);
 
   // If there's an auth error (e.g. 401 unauthenticated), user is null
-  const user = isError ? null : userData ?? null;
-  const role = user?.role ?? null;
-  const isAdmin = role === "admin";
-  const isJudge = role === "judge";
-  const isVolunteer = role === "volunteer";
-  const isParticipant = role === "participant";
+  const rawUser = isError ? null : userData ?? null;
+  const permissions = useMemo(
+    () => resolveEffectivePermissions(rawUser, activeEventSlug),
+    [rawUser, activeEventSlug]
+  );
+
+  const role: UserRole | null =
+    permissions.effectiveRole ?? rawUser?.role ?? null;
+
+  const user = useMemo<UserResponse | null>(() => {
+    if (!rawUser) return null;
+    return {
+      ...rawUser,
+      role: (role ?? "participant") as UserRole,
+    };
+  }, [rawUser, role]);
 
   const handleLogout = useCallback(async () => {
     // 1. Attempt push notification cleanup with strict 400ms timeout
@@ -46,8 +81,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // 2. Clear any session-scoped notification prompt flags
+      // 2. Clear any session-scoped notification prompt flags and active tenant scope
       sessionStorage.removeItem("cadence_push_prompt_dismissed");
+      clearTenantScope();
     } catch {}
 
     try {
@@ -70,14 +106,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       isAuthenticated: Boolean(user),
       role,
-      isAdmin,
-      isJudge,
-      isVolunteer,
-      isParticipant,
+      effectiveRole: permissions.effectiveRole,
+      isDev: permissions.isDev,
+      isOwner: permissions.isOwner,
+      isAdmin: permissions.isAdmin,
+      isJudge: permissions.isJudge,
+      isVolunteer: permissions.isVolunteer,
+      isParticipant: permissions.isParticipant,
       logout: handleLogout,
       refetchUser,
     }),
-    [user, isLoading, role, isAdmin, isJudge, isVolunteer, isParticipant, handleLogout, refetchUser]
+    [user, isLoading, role, permissions, handleLogout, refetchUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

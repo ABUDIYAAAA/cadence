@@ -3,6 +3,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useUsers } from "@/hooks/use-users";
+import { useTenant } from "@/providers/tenant-provider";
 import { UserDetailResponse } from "@/types/users";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,7 @@ interface ParticipantPickerProps {
 /** Type-to-search picker for participants who are not on a team yet. */
 export function ParticipantPicker({ value, onChange, disabled, error }: ParticipantPickerProps) {
   const listId = useId();
+  const { activeCompetition } = useTenant();
   const rootRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -36,7 +38,14 @@ export function ParticipantPicker({ value, onChange, disabled, error }: Particip
   }, []);
 
   const { data, isFetching } = useUsers(
-    { role: "participant", no_team: true, is_active: true, search: debounced, limit: 8 },
+    {
+      role: "participant",
+      no_team: true,
+      competition_id: activeCompetition?.id,
+      is_active: true,
+      search: debounced,
+      limit: 8,
+    },
     { enabled: open && !value }
   );
   const results = data?.data ?? [];

@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notificationsService } from "@/services/notifications.service";
+import { useTenant } from "@/providers/tenant-provider";
 import {
   BroadcastNotificationRequest,
   SubscribeRequest,
@@ -11,18 +12,22 @@ import {
 export const NOTIFICATIONS_QUERY_KEY = ["notifications"] as const;
 
 export function useNotificationInbox(page = 1, limit = 20) {
+  const { eventSlug } = useTenant();
   return useQuery({
-    queryKey: [...NOTIFICATIONS_QUERY_KEY, "inbox", page, limit],
+    queryKey: [...NOTIFICATIONS_QUERY_KEY, eventSlug, "inbox", page, limit],
     queryFn: () => notificationsService.getInbox(page, limit),
     refetchInterval: 1000 * 30, // poll for in-app unread alerts
+    enabled: Boolean(eventSlug),
   });
 }
 
 export function useVAPIDPublicKey() {
+  const { eventSlug } = useTenant();
   return useQuery({
-    queryKey: [...NOTIFICATIONS_QUERY_KEY, "vapid-key"],
+    queryKey: [...NOTIFICATIONS_QUERY_KEY, eventSlug, "vapid-key"],
     queryFn: () => notificationsService.getVAPIDPublicKey(),
     staleTime: Infinity,
+    enabled: Boolean(eventSlug),
   });
 }
 
@@ -56,16 +61,18 @@ export function useBroadcastNotification() {
       notificationsService.broadcast(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [...NOTIFICATIONS_QUERY_KEY, "history"],
+        queryKey: NOTIFICATIONS_QUERY_KEY,
       });
     },
   });
 }
 
 export function useAdminNotificationHistory(page = 1, limit = 20) {
+  const { eventSlug } = useTenant();
   return useQuery({
-    queryKey: [...NOTIFICATIONS_QUERY_KEY, "history", page, limit],
+    queryKey: [...NOTIFICATIONS_QUERY_KEY, eventSlug, "history", page, limit],
     queryFn: () => notificationsService.getAdminHistory(page, limit),
+    enabled: Boolean(eventSlug),
   });
 }
 

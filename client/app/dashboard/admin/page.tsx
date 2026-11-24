@@ -96,14 +96,13 @@ function Stat({
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { user, role, isAdmin, isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) router.replace("/login");
-    else if (user.role !== "admin") router.replace(getDashboardRoute(user.role));
-  }, [isLoading, isAuthenticated, user, router]);
+    else if (!isAdmin) router.replace(getDashboardRoute(role ?? user.role));
+  }, [isLoading, isAuthenticated, user, isAdmin, role, router]);
 
   const analytics = useTicketAnalytics();
   const users = useUsers({ page: 1, limit: 1 });

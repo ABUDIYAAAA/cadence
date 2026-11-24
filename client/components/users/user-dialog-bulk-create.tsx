@@ -128,7 +128,7 @@ export function UserBulkCreateDialog({
       open={open}
       onClose={handleClose}
       title="Bulk Import Users (CSV)"
-      description="Seed accounts from a CSV. No emails are sent; people set their own password with Forgot password."
+      description="Import users from a CSV. They sign in with Google using their registered email address."
       footer={
         <div className="flex justify-end gap-2">
           <Button

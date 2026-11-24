@@ -12,15 +12,15 @@ import { ParticipantJudgingStatusView, SubmissionView } from "@/components/judgi
 
 export default function ParticipantDashboardPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, role, isParticipant, isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) router.replace("/login");
-    else if (user.role !== "participant") router.replace(getDashboardRoute(user.role));
-  }, [isLoading, isAuthenticated, user, router]);
+    else if (!isParticipant) router.replace(getDashboardRoute(role ?? user.role));
+  }, [isLoading, isAuthenticated, user, isParticipant, role, router]);
 
-  if (isLoading || !user || user.role !== "participant") {
+  if (isLoading || !user || !isParticipant) {
     return (
       <div className="space-y-4">
         <SkeletonCard />

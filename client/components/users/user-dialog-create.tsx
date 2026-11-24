@@ -15,6 +15,8 @@ interface UserCreateDialogProps {
   isLoading: boolean;
   /** Volunteers can only add participants, so the role picker is hidden for them. */
   participantOnly?: boolean;
+  /** Only Event owners (or global devs) can assign the admin role. */
+  canAssignAdmin?: boolean;
 }
 
 export function UserCreateDialog({
@@ -23,6 +25,7 @@ export function UserCreateDialog({
   onSubmit,
   isLoading,
   participantOnly = false,
+  canAssignAdmin = true,
 }: UserCreateDialogProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -109,7 +112,7 @@ export function UserCreateDialog({
         </div>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-3 font-mono">
+      <form onSubmit={handleSubmit} className="space-y-3 font-sans">
         <Input
           label="Full Name *"
           placeholder="e.g. Alex Morgan"
@@ -126,7 +129,7 @@ export function UserCreateDialog({
         <Input
           label="Email Address *"
           type="email"
-          placeholder="alex@example.com"
+          placeholder="alex@event.com"
           value={email}
           onChange={(e) => {
             setEmail(e.target.value);
@@ -148,7 +151,7 @@ export function UserCreateDialog({
               <option value="participant">Participant</option>
               <option value="judge">Judge</option>
               <option value="volunteer">Volunteer</option>
-              <option value="admin">Admin</option>
+              {canAssignAdmin && <option value="admin">Admin</option>}
             </Select>
           )}
 
@@ -163,7 +166,7 @@ export function UserCreateDialog({
         </div>
 
         <p className="text-xs text-[var(--ink-secondary)]">
-          No email is sent. They set their own password from the sign-in page using &quot;Forgot password&quot;.
+          They sign in with Google using this email address to access the event.
         </p>
       </form>
     </Dialog>

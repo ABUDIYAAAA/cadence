@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/providers/query-provider";
 import { AuthProvider } from "@/providers/auth-provider";
+import { TenantProvider } from "@/providers/tenant-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 import { NotificationProvider } from "@/providers/notification-provider";
 import { Navbar } from "@/components/layout/navbar";
@@ -61,12 +62,14 @@ export default function RootLayout({
       >
         <QueryProvider>
           <AuthProvider>
-            <ToastProvider>
-              <NotificationProvider>
-                <Navbar />
-                <main className="flex-1">{children}</main>
-              </NotificationProvider>
-            </ToastProvider>
+            <TenantProvider>
+              <ToastProvider>
+                <NotificationProvider>
+                  <Navbar />
+                  <main className="flex-1">{children}</main>
+                </NotificationProvider>
+              </ToastProvider>
+            </TenantProvider>
           </AuthProvider>
         </QueryProvider>
       </body>

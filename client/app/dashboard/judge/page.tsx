@@ -25,17 +25,17 @@ import { MetricGrid, Metric } from "@/components/judging/section-shell";
 
 export default function JudgeDashboardPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const isJudge = user?.role === "judge" || user?.role === "admin";
+  const { user, role, isAdmin, isJudge: hasJudgeRole, isAuthenticated, isLoading } = useAuth();
+  const isJudge = hasJudgeRole || isAdmin;
 
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) {
       router.replace("/login");
-    } else if (user.role !== "judge" && user.role !== "admin") {
-      router.replace(getDashboardRoute(user.role));
+    } else if (!isJudge) {
+      router.replace(getDashboardRoute(role ?? user.role));
     }
-  }, [isLoading, isAuthenticated, user, router]);
+  }, [isLoading, isAuthenticated, user, isJudge, role, router]);
 
   const { data: rawPanels, isLoading: panelsLoading } = useJudgePanels();
   const panels = Array.isArray(rawPanels) ? rawPanels : [];

@@ -339,11 +339,6 @@ export default function UsersPage() {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               {mode === "event" ? "Event members" : "Platform users"}
             </h1>
-            {mode === "event" && activeEvent && (
-              <Badge variant="blue" size="sm">
-                {activeEvent.event_name}
-              </Badge>
-            )}
             {usersResponse?.total_count !== undefined && (
               <Badge variant="subtle" size="sm">
                 {usersResponse.total_count}{" "}

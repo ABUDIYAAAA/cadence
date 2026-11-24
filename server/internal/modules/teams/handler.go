@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/competitions"
 	"devclubxnst.com/cadence/internal/ratelimit"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/go-chi/chi/v5"
@@ -49,6 +50,8 @@ func writeError(w http.ResponseWriter, err error, fallback string) {
 		utils.ErrorJSON(w, http.StatusConflict, "you are not in a team")
 	case errors.Is(err, ErrNotLeader):
 		utils.ErrorJSON(w, http.StatusForbidden, "only the team leader can do this")
+	case errors.Is(err, ErrUserIsBanned):
+		utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this competition")
 	case errors.Is(err, ErrNotParticipant):
 		utils.ErrorJSON(w, http.StatusBadRequest, "only participants can be on a team")
 	case errors.Is(err, ErrLeaderNotMember), errors.Is(err, ErrCannotKickSelf):
@@ -56,6 +59,16 @@ func writeError(w http.ResponseWriter, err error, fallback string) {
 	default:
 		utils.ErrorJSON(w, http.StatusInternalServerError, fallback)
 	}
+}
+
+func resolveCompetitionID(r *http.Request) string {
+	if compCtx, ok := competitions.FromContext(r.Context()); ok && compCtx.CompetitionID != "" {
+		return compCtx.CompetitionID
+	}
+	if comp, ok := competitions.GetCompetition(r.Context()); ok && comp.ID != "" {
+		return comp.ID
+	}
+	return DefaultCompetitionID
 }
 
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -91,7 +104,7 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	team, err := h.service.CreateTeam(r.Context(), userID, req)
+	team, err := h.service.CreateTeam(r.Context(), resolveCompetitionID(r), userID, req)
 	if err != nil {
 		writeError(w, err, "failed to create team")
 		return
@@ -118,7 +131,7 @@ func (h *Handler) HandleJoin(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	team, err := h.service.JoinTeam(r.Context(), userID, req)
+	team, err := h.service.JoinTeam(r.Context(), resolveCompetitionID(r), userID, req)
 	if err != nil {
 		writeError(w, err, "failed to join team")
 		return
@@ -132,7 +145,7 @@ func (h *Handler) HandleLeave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.service.LeaveTeam(r.Context(), userID); err != nil {
+	if err := h.service.LeaveTeam(r.Context(), resolveCompetitionID(r), userID); err != nil {
 		writeError(w, err, "failed to leave team")
 		return
 	}
@@ -149,7 +162,7 @@ func (h *Handler) HandleRenameOwn(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	team, err := h.service.RenameOwnTeam(r.Context(), userID, req)
+	team, err := h.service.RenameOwnTeam(r.Context(), resolveCompetitionID(r), userID, req)
 	if err != nil {
 		writeError(w, err, "failed to rename team")
 		return
@@ -163,7 +176,7 @@ func (h *Handler) HandleRegenerateOwnCode(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	team, err := h.service.RegenerateOwnCode(r.Context(), userID)
+	team, err := h.service.RegenerateOwnCode(r.Context(), resolveCompetitionID(r), userID)
 	if err != nil {
 		writeError(w, err, "failed to regenerate join code")
 		return
@@ -177,9 +190,27 @@ func (h *Handler) HandleKick(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	team, err := h.service.KickMember(r.Context(), userID, chi.URLParam(r, "userId"))
+	team, err := h.service.KickMember(r.Context(), resolveCompetitionID(r), userID, chi.URLParam(r, "userId"))
 	if err != nil {
 		writeError(w, err, "failed to remove member")
+		return
+	}
+	utils.JSON(w, http.StatusOK, team)
+}
+
+// HandleTransferLeadership lets the team leader transfer leadership to another member.
+func (h *Handler) HandleTransferLeadership(w http.ResponseWriter, r *http.Request) {
+	userID, ok := callerID(w, r)
+	if !ok {
+		return
+	}
+	var req TransferLeadershipRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	team, err := h.service.TransferLeadership(r.Context(), resolveCompetitionID(r), userID, req)
+	if err != nil {
+		writeError(w, err, "failed to transfer leadership")
 		return
 	}
 	utils.JSON(w, http.StatusOK, team)
@@ -191,7 +222,7 @@ func (h *Handler) HandleMyTeam(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	team, err := h.service.GetMyTeam(r.Context(), userID)
+	team, err := h.service.GetMyTeam(r.Context(), resolveCompetitionID(r), userID)
 	if err != nil {
 		if errors.Is(err, ErrTeamNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "you are not in a team yet")
@@ -211,7 +242,8 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(query.Get("page"))
 	limit, _ := strconv.Atoi(query.Get("limit"))
 
-	filter := TeamFilter{Page: page, Limit: limit, Search: query.Get("search")}
+	compID := resolveCompetitionID(r)
+	filter := TeamFilter{CompetitionID: &compID, Page: page, Limit: limit, Search: query.Get("search")}
 
 	// Judges only see teams assigned to their panels.
 	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role == "judge" {
@@ -277,7 +309,7 @@ func (h *Handler) HandleAddMember(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if err := h.service.AddMember(r.Context(), chi.URLParam(r, "id"), req.UserID); err != nil {
+	if err := h.service.AddMember(r.Context(), resolveCompetitionID(r), chi.URLParam(r, "id"), req.UserID); err != nil {
 		writeError(w, err, "failed to add member")
 		return
 	}
@@ -286,7 +318,7 @@ func (h *Handler) HandleAddMember(w http.ResponseWriter, r *http.Request) {
 
 // HandleRemoveMember removes a user from a team.
 func (h *Handler) HandleRemoveMember(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.RemoveMember(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "userId")); err != nil {
+	if err := h.service.RemoveMember(r.Context(), resolveCompetitionID(r), chi.URLParam(r, "id"), chi.URLParam(r, "userId")); err != nil {
 		writeError(w, err, "failed to remove member from team")
 		return
 	}

@@ -17,6 +17,11 @@ type RenameTeamRequest struct {
 	Name string `json:"name" validate:"required,min=2,max=100"`
 }
 
+// TransferLeadershipRequest is sent by a team leader to transfer leadership to another member.
+type TransferLeadershipRequest struct {
+	NewLeaderID string `json:"new_leader_id" validate:"required,uuid"`
+}
+
 // UpdateTeamRequest defines staff-editable team properties.
 // MaxSize of 0 clears the per-team override.
 type UpdateTeamRequest struct {
@@ -56,6 +61,7 @@ type TeamMemberSummary struct {
 // TeamResponse represents the summary view of a team in listing endpoints.
 type TeamResponse struct {
 	ID               string    `json:"id"`
+	CompetitionID    string    `json:"competition_id"`
 	Name             string    `json:"name"`
 	JoinCode         string    `json:"join_code,omitempty"`
 	LeaderID         *string   `json:"leader_id,omitempty"`
@@ -73,6 +79,7 @@ type TeamResponse struct {
 // TeamDetailResponse represents the full team view with all members.
 type TeamDetailResponse struct {
 	ID               string              `json:"id"`
+	CompetitionID    string              `json:"competition_id"`
 	Name             string              `json:"name"`
 	JoinCode         string              `json:"join_code,omitempty"`
 	Leader           *TeamMemberSummary  `json:"leader,omitempty"`
@@ -87,9 +94,10 @@ type TeamDetailResponse struct {
 
 // TeamFilter defines pagination and search options for teams.
 type TeamFilter struct {
-	Page   int    `json:"page"`
-	Limit  int    `json:"limit"`
-	Search string `json:"search"`
+	CompetitionID *string `json:"-"`
+	Page          int     `json:"page"`
+	Limit         int     `json:"limit"`
+	Search        string  `json:"search"`
 	// JudgeID restricts results to teams scheduled in panels this judge is assigned to.
 	JudgeID *string `json:"-"`
 }

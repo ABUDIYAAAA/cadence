@@ -494,7 +494,8 @@ func (r *Repository) GetMemberRole(ctx context.Context, competitionID, userID st
 	return role, isBanned, nil
 }
 
-// BanMember sets is_banned=TRUE on the user's membership. Competition owners cannot be banned.
+// BanMember sets is_banned=TRUE on the user's membership and evicts them from any team in this competition.
+// Competition owners cannot be banned.
 func (r *Repository) BanMember(ctx context.Context, competitionID, targetUserID string) error {
 	var role string
 	err := r.db.QueryRow(ctx, `SELECT role::text FROM user_competitions WHERE competition_id = $1 AND user_id = $2`, competitionID, targetUserID).Scan(&role)
@@ -508,13 +509,73 @@ func (r *Repository) BanMember(ctx context.Context, competitionID, targetUserID 
 		return errors.New("cannot ban the competition owner")
 	}
 
-	_, err = r.db.Exec(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin ban member tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
 		UPDATE user_competitions
 		SET is_banned = TRUE, banned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 		WHERE competition_id = $1 AND user_id = $2
 	`, competitionID, targetUserID)
 	if err != nil {
 		return fmt.Errorf("ban member: %w", err)
+	}
+
+	if err := evictUserFromCompetitionTeam(ctx, tx, competitionID, targetUserID); err != nil {
+		return fmt.Errorf("evict banned member from team: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+func evictUserFromCompetitionTeam(ctx context.Context, tx pgx.Tx, competitionID, userID string) error {
+	var teamID string
+	var leaderID *string
+	err := tx.QueryRow(ctx, `
+		SELECT t.id, t.leader_id
+		FROM teams t
+		JOIN users u ON u.team_id = t.id
+		WHERE u.id = $1 AND t.competition_id = $2
+		FOR UPDATE OF t
+	`, userID, competitionID).Scan(&teamID, &leaderID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+
+	res, err := tx.Exec(ctx, `UPDATE users SET team_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND team_id = $2`, userID, teamID)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return nil
+	}
+
+	var remaining int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE team_id = $1 AND deleted_at IS NULL`, teamID).Scan(&remaining); err != nil {
+		return err
+	}
+
+	if remaining == 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM teams WHERE id = $1`, teamID); err != nil {
+			return fmt.Errorf("delete empty team: %w", err)
+		}
+		return nil
+	}
+
+	if leaderID != nil && *leaderID == userID {
+		if _, err := tx.Exec(ctx, `
+			UPDATE teams SET updated_at = CURRENT_TIMESTAMP, leader_id = (
+				SELECT id FROM users WHERE team_id = $1 AND deleted_at IS NULL
+				ORDER BY created_at ASC, id ASC LIMIT 1
+			) WHERE id = $1`, teamID); err != nil {
+			return fmt.Errorf("transfer team leadership: %w", err)
+		}
 	}
 	return nil
 }

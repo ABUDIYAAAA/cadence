@@ -15,6 +15,7 @@ func RegisterRoutes(
 	repo *Repository,
 	rdb *redis.Client,
 	authMiddleware func(http.Handler) http.Handler,
+	extraScopedRoutes ...func(chi.Router),
 ) {
 	// Global competition creation - restricted to devs only
 	r.Route("/competitions", func(r chi.Router) {
@@ -38,6 +39,13 @@ func RegisterRoutes(
 			// Member identity in this competition
 			r.Get("/me", h.HandleGetMyMembership)
 			r.Get("/members", h.HandleListMembers)
+
+			// Mount any extra competition-scoped routes (e.g. teams)
+			for _, fn := range extraScopedRoutes {
+				if fn != nil {
+					fn(r)
+				}
+			}
 
 			// Member operations (owner, admin, volunteer read access to competition users)
 			r.Group(func(r chi.Router) {

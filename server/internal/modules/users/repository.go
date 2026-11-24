@@ -341,11 +341,8 @@ func (r *Repository) SoftDeleteUser(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Clear leadership if this user is a team leader
-	_, err = tx.Exec(ctx, "UPDATE teams SET leader_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE leader_id = $1", id)
-	if err != nil {
-		return fmt.Errorf("clear team leadership: %w", err)
-	}
+	// Evict from any team, reassigning leadership or cleaning up empty teams
+	_ = evictUserFromTeamTx(ctx, tx, id)
 
 	// Soft-delete user and detach from team
 	delQuery := `
@@ -394,5 +391,70 @@ func (r *Repository) RestoreUser(ctx context.Context, id string) error {
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound
 	}
+	return nil
+}
+
+// EvictUserFromAnyTeam evicts a user from whatever team they currently belong to.
+// If the user was the team leader, leadership transfers to the earliest-joined remaining member.
+// If no members remain, the team is deleted.
+func (r *Repository) EvictUserFromAnyTeam(ctx context.Context, userID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin evict team tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := evictUserFromTeamTx(ctx, tx, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func evictUserFromTeamTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	var teamID *string
+	err := tx.QueryRow(ctx, `SELECT team_id FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&teamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if teamID == nil {
+		return nil
+	}
+
+	var leaderID *string
+	err = tx.QueryRow(ctx, `SELECT leader_id FROM teams WHERE id = $1 FOR UPDATE`, *teamID).Scan(&leaderID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE users SET team_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, userID)
+	if err != nil {
+		return err
+	}
+
+	var remaining int
+	err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE team_id = $1 AND deleted_at IS NULL`, *teamID).Scan(&remaining)
+	if err != nil {
+		return err
+	}
+
+	if remaining == 0 {
+		_, err = tx.Exec(ctx, `DELETE FROM teams WHERE id = $1`, *teamID)
+		if err != nil {
+			return err
+		}
+	} else if leaderID != nil && *leaderID == userID {
+		_, err = tx.Exec(ctx, `
+			UPDATE teams SET updated_at = CURRENT_TIMESTAMP, leader_id = (
+				SELECT id FROM users WHERE team_id = $1 AND deleted_at IS NULL
+				ORDER BY created_at ASC, id ASC LIMIT 1
+			) WHERE id = $1`, *teamID)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

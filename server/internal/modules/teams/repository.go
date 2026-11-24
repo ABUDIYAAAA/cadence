@@ -28,9 +28,12 @@ var (
 	ErrNotLeader         = errors.New("only the team leader can do this")
 	ErrLeaderNotMember   = errors.New("leader must be a member of the team")
 	ErrCannotKickSelf    = errors.New("use leave to remove yourself from the team")
+	ErrUserIsBanned      = errors.New("you are banned from this competition")
 )
 
 const (
+	DefaultCompetitionID = "00000000-0000-0000-0000-000000000001"
+
 	settingFrozenAll   = "teams.frozen_all"
 	settingMaxTeamSize = "teams.max_size"
 
@@ -143,20 +146,27 @@ func (r *Repository) SetMaxTeamSize(ctx context.Context, size int, updatedBy str
 // ---- participant flows ----
 
 // lockParticipant locks the user row and returns their current team (nil when none).
-func lockParticipant(ctx context.Context, tx pgx.Tx, userID string) (*string, error) {
+func lockParticipant(ctx context.Context, tx pgx.Tx, compID, userID string) (*string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	var role string
+	var isBanned bool
 	var teamID *string
 	err := tx.QueryRow(ctx,
-		`SELECT COALESCE(uc.role::text, 'participant'), u.team_id 
+		`SELECT COALESCE(uc.role::text, 'participant'), COALESCE(uc.is_banned, FALSE), u.team_id 
 		 FROM users u
-		 LEFT JOIN user_competitions uc ON uc.user_id = u.id
-		 WHERE u.id = $1 AND u.deleted_at IS NULL FOR UPDATE OF u`, userID,
-	).Scan(&role, &teamID)
+		 LEFT JOIN user_competitions uc ON uc.user_id = u.id AND uc.competition_id = $1
+		 WHERE u.id = $2 AND u.deleted_at IS NULL FOR UPDATE OF u`, compID, userID,
+	).Scan(&role, &isBanned, &teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("lock user: %w", err)
+	}
+	if isBanned {
+		return nil, ErrUserIsBanned
 	}
 	if role != "participant" {
 		return nil, ErrNotParticipant
@@ -195,11 +205,11 @@ func (t teamLock) effectiveFrozen(s SettingsResponse) bool {
 	return t.Frozen || s.FrozenAll
 }
 
-// lockTeam locks a team row by id or by join code.
-func lockTeam(ctx context.Context, tx pgx.Tx, where string, arg string) (*teamLock, error) {
+// lockTeam locks a team row by where condition and arguments.
+func lockTeam(ctx context.Context, tx pgx.Tx, where string, args ...any) (*teamLock, error) {
 	var t teamLock
 	err := tx.QueryRow(ctx,
-		`SELECT id, leader_id, is_frozen, max_size FROM teams WHERE `+where+` FOR UPDATE`, arg,
+		`SELECT id, leader_id, is_frozen, max_size FROM teams WHERE `+where+` FOR UPDATE`, args...,
 	).Scan(&t.ID, &t.LeaderID, &t.Frozen, &t.MaxSize)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -220,14 +230,17 @@ func memberCount(ctx context.Context, tx pgx.Tx, teamID string) (int, error) {
 }
 
 // CreateTeam creates a team led by userID and returns its id.
-func (r *Repository) CreateTeam(ctx context.Context, userID, name string) (string, error) {
+func (r *Repository) CreateTeam(ctx context.Context, compID, userID, name string) (string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin create team tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	current, err := lockParticipant(ctx, tx, userID)
+	current, err := lockParticipant(ctx, tx, compID, userID)
 	if err != nil {
 		return "", err
 	}
@@ -254,8 +267,8 @@ func (r *Repository) CreateTeam(ctx context.Context, userID, name string) (strin
 			return "", fmt.Errorf("begin savepoint: %w", err)
 		}
 		err = sp.QueryRow(ctx,
-			`INSERT INTO teams (name, leader_id, join_code, created_by) VALUES ($1, $2, $3, $2) RETURNING id`,
-			strings.TrimSpace(name), userID, code).Scan(&teamID)
+			`INSERT INTO teams (competition_id, name, leader_id, join_code, created_by) VALUES ($1, $2, $3, $4, $3) RETURNING id`,
+			compID, strings.TrimSpace(name), userID, code).Scan(&teamID)
 		if err == nil {
 			if err := sp.Commit(ctx); err != nil {
 				return "", fmt.Errorf("release savepoint: %w", err)
@@ -263,10 +276,10 @@ func (r *Repository) CreateTeam(ctx context.Context, userID, name string) (strin
 			break
 		}
 		_ = sp.Rollback(ctx)
-		if isConstraint(err, "teams_name_key") {
+		if isConstraint(err, "teams_name_key") || isConstraint(err, "teams_competition_id_name_key") {
 			return "", ErrTeamAlreadyExists
 		}
-		if isConstraint(err, "teams_join_code_key") && attempt < joinCodeRetries {
+		if (isConstraint(err, "teams_join_code_key") || isConstraint(err, "teams_competition_id_join_code_key")) && attempt < joinCodeRetries {
 			continue
 		}
 		return "", fmt.Errorf("insert team: %w", err)
@@ -283,15 +296,18 @@ func (r *Repository) CreateTeam(ctx context.Context, userID, name string) (strin
 	return teamID, nil
 }
 
-// JoinByCode adds userID to the team that owns the code and returns the team id.
-func (r *Repository) JoinByCode(ctx context.Context, userID, code string) (string, error) {
+// JoinByCode adds userID to the team that owns the code within compID and returns the team id.
+func (r *Repository) JoinByCode(ctx context.Context, compID, userID, code string) (string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin join tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	current, err := lockParticipant(ctx, tx, userID)
+	current, err := lockParticipant(ctx, tx, compID, userID)
 	if err != nil {
 		return "", err
 	}
@@ -299,7 +315,7 @@ func (r *Repository) JoinByCode(ctx context.Context, userID, code string) (strin
 		return "", ErrAlreadyInTeam
 	}
 
-	team, err := lockTeam(ctx, tx, "join_code = $1", normalizeCode(code))
+	team, err := lockTeam(ctx, tx, "competition_id = $1 AND join_code = $2", compID, normalizeCode(code))
 	if err != nil {
 		if errors.Is(err, ErrTeamNotFound) {
 			return "", ErrInvalidCode
@@ -369,21 +385,24 @@ func removeMemberTx(ctx context.Context, tx pgx.Tx, team *teamLock, userID strin
 }
 
 // LeaveTeam removes userID from their team and returns the team id they left.
-func (r *Repository) LeaveTeam(ctx context.Context, userID string) (string, error) {
+func (r *Repository) LeaveTeam(ctx context.Context, compID, userID string) (string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin leave tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	current, err := lockParticipant(ctx, tx, userID)
+	current, err := lockParticipant(ctx, tx, compID, userID)
 	if err != nil {
 		return "", err
 	}
 	if current == nil {
 		return "", ErrNotInTeam
 	}
-	team, err := lockTeam(ctx, tx, "id = $1", *current)
+	team, err := lockTeam(ctx, tx, "competition_id = $1 AND id = $2", compID, *current)
 	if err != nil {
 		return "", err
 	}
@@ -404,16 +423,19 @@ func (r *Repository) LeaveTeam(ctx context.Context, userID string) (string, erro
 }
 
 // leaderTeamTx locks the caller's team and verifies they lead it.
-func (r *Repository) leaderTeamTx(ctx context.Context, tx pgx.Tx, userID string) (*teamLock, SettingsResponse, error) {
+func (r *Repository) leaderTeamTx(ctx context.Context, tx pgx.Tx, compID, userID string) (*teamLock, SettingsResponse, error) {
 	var zero SettingsResponse
-	current, err := lockParticipant(ctx, tx, userID)
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
+	current, err := lockParticipant(ctx, tx, compID, userID)
 	if err != nil {
 		return nil, zero, err
 	}
 	if current == nil {
 		return nil, zero, ErrNotInTeam
 	}
-	team, err := lockTeam(ctx, tx, "id = $1", *current)
+	team, err := lockTeam(ctx, tx, "competition_id = $1 AND id = $2", compID, *current)
 	if err != nil {
 		return nil, zero, err
 	}
@@ -428,14 +450,17 @@ func (r *Repository) leaderTeamTx(ctx context.Context, tx pgx.Tx, userID string)
 }
 
 // RenameOwnTeam renames the team led by userID.
-func (r *Repository) RenameOwnTeam(ctx context.Context, userID, name string) (string, error) {
+func (r *Repository) RenameOwnTeam(ctx context.Context, compID, userID, name string) (string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin rename tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	team, settings, err := r.leaderTeamTx(ctx, tx, userID)
+	team, settings, err := r.leaderTeamTx(ctx, tx, compID, userID)
 	if err != nil {
 		return "", err
 	}
@@ -445,7 +470,7 @@ func (r *Repository) RenameOwnTeam(ctx context.Context, userID, name string) (st
 	if _, err := tx.Exec(ctx,
 		`UPDATE teams SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
 		strings.TrimSpace(name), team.ID); err != nil {
-		if isConstraint(err, "teams_name_key") {
+		if isConstraint(err, "teams_name_key") || isConstraint(err, "teams_competition_id_name_key") {
 			return "", ErrTeamAlreadyExists
 		}
 		return "", fmt.Errorf("rename team: %w", err)
@@ -457,14 +482,17 @@ func (r *Repository) RenameOwnTeam(ctx context.Context, userID, name string) (st
 }
 
 // RegenerateOwnCode issues a fresh join code for the team led by userID.
-func (r *Repository) RegenerateOwnCode(ctx context.Context, userID string) (string, error) {
+func (r *Repository) RegenerateOwnCode(ctx context.Context, compID, userID string) (string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin regenerate tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	team, _, err := r.leaderTeamTx(ctx, tx, userID)
+	team, _, err := r.leaderTeamTx(ctx, tx, compID, userID)
 	if err != nil {
 		return "", err
 	}
@@ -493,7 +521,7 @@ func regenerateCodeTx(ctx context.Context, tx pgx.Tx, teamID string) error {
 			return sp.Commit(ctx)
 		}
 		_ = sp.Rollback(ctx)
-		if !isConstraint(err, "teams_join_code_key") {
+		if !isConstraint(err, "teams_join_code_key") && !isConstraint(err, "teams_competition_id_join_code_key") {
 			return fmt.Errorf("regenerate join code: %w", err)
 		}
 	}
@@ -501,7 +529,10 @@ func regenerateCodeTx(ctx context.Context, tx pgx.Tx, teamID string) error {
 }
 
 // KickMember lets the leader remove another member from their team.
-func (r *Repository) KickMember(ctx context.Context, leaderID, targetID string) (string, error) {
+func (r *Repository) KickMember(ctx context.Context, compID, leaderID, targetID string) (string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	if leaderID == targetID {
 		return "", ErrCannotKickSelf
 	}
@@ -517,7 +548,7 @@ func (r *Repository) KickMember(ctx context.Context, leaderID, targetID string) 
 		}
 		return "", err
 	}
-	team, settings, err := r.leaderTeamTx(ctx, tx, leaderID)
+	team, settings, err := r.leaderTeamTx(ctx, tx, compID, leaderID)
 	if err != nil {
 		return "", err
 	}
@@ -533,6 +564,108 @@ func (r *Repository) KickMember(ctx context.Context, leaderID, targetID string) 
 	return team.ID, nil
 }
 
+// TransferLeadership transfers leadership of a team to another active member.
+func (r *Repository) TransferLeadership(ctx context.Context, compID, currentLeaderID, newLeaderID string) (string, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
+	if currentLeaderID == newLeaderID {
+		return "", nil
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("begin transfer leadership tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	team, _, err := r.leaderTeamTx(ctx, tx, compID, currentLeaderID)
+	if err != nil {
+		return "", err
+	}
+
+	var isMember bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND team_id = $2 AND deleted_at IS NULL)`,
+		newLeaderID, team.ID).Scan(&isMember)
+	if err != nil || !isMember {
+		return "", ErrLeaderNotMember
+	}
+
+	var isBanned bool
+	_ = tx.QueryRow(ctx,
+		`SELECT COALESCE(is_banned, FALSE) FROM user_competitions WHERE competition_id = $1 AND user_id = $2`,
+		compID, newLeaderID).Scan(&isBanned)
+	if isBanned {
+		return "", ErrUserIsBanned
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE teams SET leader_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+		newLeaderID, team.ID); err != nil {
+		return "", fmt.Errorf("update team leader: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("commit transfer leadership: %w", err)
+	}
+	return team.ID, nil
+}
+
+// EvictUserFromTeamTx evicts userID from their team in compID within an existing transaction.
+// If the user was leader, leadership is automatically transferred to the earliest-joined remaining member.
+// If no members remain, the team is deleted.
+func (r *Repository) EvictUserFromTeamTx(ctx context.Context, tx pgx.Tx, compID, userID string) (teamID string, remaining int, newLeaderID *string, err error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
+
+	var t teamLock
+	err = tx.QueryRow(ctx, `
+		SELECT t.id, t.leader_id, t.is_frozen, t.max_size
+		FROM teams t
+		JOIN users u ON u.team_id = t.id
+		WHERE u.id = $1 AND t.competition_id = $2
+		FOR UPDATE OF t
+	`, userID, compID).Scan(&t.ID, &t.LeaderID, &t.Frozen, &t.MaxSize)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", 0, nil, nil
+		}
+		return "", 0, nil, fmt.Errorf("find team for eviction: %w", err)
+	}
+
+	rem, err := removeMemberTx(ctx, tx, &t, userID)
+	if err != nil {
+		return "", 0, nil, err
+	}
+
+	var updatedLeaderID *string
+	if rem > 0 {
+		_ = tx.QueryRow(ctx, `SELECT leader_id FROM teams WHERE id = $1`, t.ID).Scan(&updatedLeaderID)
+	}
+
+	return t.ID, rem, updatedLeaderID, nil
+}
+
+// EvictUserFromTeam evicts userID from their team in compID.
+func (r *Repository) EvictUserFromTeam(ctx context.Context, compID, userID string) (string, int, *string, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", 0, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	teamID, rem, newLeader, err := r.EvictUserFromTeamTx(ctx, tx, compID, userID)
+	if err != nil {
+		return "", 0, nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", 0, nil, err
+	}
+	return teamID, rem, newLeader, nil
+}
+
 // ---- reads ----
 
 func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailResponse, error) {
@@ -544,9 +677,9 @@ func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailRes
 	var resp TeamDetailResponse
 	var leaderID *string
 	err = r.db.QueryRow(ctx, `
-		SELECT id, name, join_code, leader_id, is_frozen, max_size, created_at, updated_at
+		SELECT id, competition_id, name, join_code, leader_id, is_frozen, max_size, created_at, updated_at
 		FROM teams WHERE id = $1`, id,
-	).Scan(&resp.ID, &resp.Name, &resp.JoinCode, &leaderID, &resp.IsFrozen, &resp.MaxSize, &resp.CreatedAt, &resp.UpdatedAt)
+	).Scan(&resp.ID, &resp.CompetitionID, &resp.Name, &resp.JoinCode, &leaderID, &resp.IsFrozen, &resp.MaxSize, &resp.CreatedAt, &resp.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTeamNotFound
@@ -562,9 +695,9 @@ func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailRes
 	rows, err := r.db.Query(ctx, `
 		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant')
 		FROM users u
-		LEFT JOIN user_competitions uc ON uc.user_id = u.id
+		LEFT JOIN user_competitions uc ON uc.user_id = u.id AND uc.competition_id = $2
 		WHERE u.team_id = $1 AND u.deleted_at IS NULL
-		ORDER BY u.created_at ASC, u.id ASC`, id)
+		ORDER BY u.created_at ASC, u.id ASC`, id, resp.CompetitionID)
 	if err != nil {
 		return nil, fmt.Errorf("fetch team members: %w", err)
 	}
@@ -586,9 +719,17 @@ func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailRes
 	return &resp, rows.Err()
 }
 
-func (r *Repository) GetTeamByUserID(ctx context.Context, userID string) (*TeamDetailResponse, error) {
+func (r *Repository) GetTeamByUserID(ctx context.Context, compID, userID string) (*TeamDetailResponse, error) {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	var teamID *string
-	err := r.db.QueryRow(ctx, "SELECT team_id FROM users WHERE id = $1 AND deleted_at IS NULL", userID).Scan(&teamID)
+	err := r.db.QueryRow(ctx, `
+		SELECT u.team_id 
+		FROM users u
+		JOIN teams t ON t.id = u.team_id
+		WHERE u.id = $1 AND t.competition_id = $2 AND u.deleted_at IS NULL
+	`, userID, compID).Scan(&teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTeamNotFound
@@ -633,6 +774,12 @@ func (r *Repository) ListTeams(ctx context.Context, filter TeamFilter) ([]TeamRe
 	var args []any
 	argIndex := 1
 
+	if filter.CompetitionID != nil && *filter.CompetitionID != "" {
+		conditions = append(conditions, fmt.Sprintf("t.competition_id = $%d", argIndex))
+		args = append(args, *filter.CompetitionID)
+		argIndex++
+	}
+
 	if filter.Search != "" {
 		conditions = append(conditions, fmt.Sprintf("(LOWER(t.name) LIKE $%d OR t.join_code = UPPER($%d))", argIndex, argIndex+1))
 		args = append(args, "%"+strings.ToLower(filter.Search)+"%", strings.TrimSpace(filter.Search))
@@ -666,13 +813,13 @@ func (r *Repository) ListTeams(ctx context.Context, filter TeamFilter) ([]TeamRe
 	}
 
 	query := fmt.Sprintf(`
-		SELECT t.id, t.name, t.join_code, t.leader_id, u.name, u.email,
+		SELECT t.id, t.competition_id, t.name, t.join_code, t.leader_id, u.name, u.email,
 		       COUNT(m.id) AS member_count, t.is_frozen, t.max_size, t.created_at, t.updated_at
 		FROM teams t
 		LEFT JOIN users u ON t.leader_id = u.id AND u.deleted_at IS NULL
 		LEFT JOIN users m ON t.id = m.team_id AND m.deleted_at IS NULL
 		%s
-		GROUP BY t.id, t.name, t.join_code, t.leader_id, u.name, u.email, t.is_frozen, t.max_size, t.created_at, t.updated_at
+		GROUP BY t.id, t.competition_id, t.name, t.join_code, t.leader_id, u.name, u.email, t.is_frozen, t.max_size, t.created_at, t.updated_at
 		ORDER BY t.created_at DESC
 		LIMIT $%d OFFSET $%d
 	`, whereClause, argIndex, argIndex+1)
@@ -688,7 +835,7 @@ func (r *Repository) ListTeams(ctx context.Context, filter TeamFilter) ([]TeamRe
 	for rows.Next() {
 		var t TeamResponse
 		if err := rows.Scan(
-			&t.ID, &t.Name, &t.JoinCode, &t.LeaderID, &t.LeaderName, &t.LeaderEmail,
+			&t.ID, &t.CompetitionID, &t.Name, &t.JoinCode, &t.LeaderID, &t.LeaderName, &t.LeaderEmail,
 			&t.MemberCount, &t.IsFrozen, &t.MaxSize, &t.CreatedAt, &t.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan team row: %w", err)
@@ -810,8 +957,11 @@ func (r *Repository) DeleteTeam(ctx context.Context, id string) error {
 	return tx.Commit(ctx)
 }
 
-// AddMember lets staff place a participant who has no team into teamID.
-func (r *Repository) AddMember(ctx context.Context, teamID, userID string) error {
+// AddMember lets staff place a participant who has no team into teamID within compID.
+func (r *Repository) AddMember(ctx context.Context, compID, teamID, userID string) error {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin add member tx: %w", err)
@@ -819,11 +969,11 @@ func (r *Repository) AddMember(ctx context.Context, teamID, userID string) error
 	defer tx.Rollback(ctx)
 
 	// Lock order is always user then team, matching join/leave.
-	current, err := lockParticipant(ctx, tx, userID)
+	current, err := lockParticipant(ctx, tx, compID, userID)
 	if err != nil {
 		return err
 	}
-	team, err := lockTeam(ctx, tx, "id = $1", teamID)
+	team, err := lockTeam(ctx, tx, "competition_id = $1 AND id = $2", compID, teamID)
 	if err != nil {
 		return err
 	}
@@ -849,7 +999,10 @@ func (r *Repository) AddMember(ctx context.Context, teamID, userID string) error
 }
 
 // RemoveMember lets staff remove a member; leadership transfer and empty-team cleanup still apply.
-func (r *Repository) RemoveMember(ctx context.Context, teamID, userID string) error {
+func (r *Repository) RemoveMember(ctx context.Context, compID, teamID, userID string) error {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin remove member tx: %w", err)
@@ -859,7 +1012,7 @@ func (r *Repository) RemoveMember(ctx context.Context, teamID, userID string) er
 	if err := lockUser(ctx, tx, userID); err != nil {
 		return err
 	}
-	team, err := lockTeam(ctx, tx, "id = $1", teamID)
+	team, err := lockTeam(ctx, tx, "competition_id = $1 AND id = $2", compID, teamID)
 	if err != nil {
 		return err
 	}

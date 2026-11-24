@@ -370,10 +370,11 @@ func ResetState(t *testing.T) {
 			scan_sessions,
 			tickets,
 			audit_logs,
-			password_reset_tokens,
+			user_competitions,
 			refresh_tokens,
 			users,
-			teams
+			teams,
+			competitions
 		RESTART IDENTITY CASCADE;
 	`
 	if _, err := testApp.DB.Exec(ctx, truncateSQL); err != nil {

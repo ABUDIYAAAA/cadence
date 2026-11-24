@@ -49,67 +49,77 @@ func (s *Service) record(ctx context.Context, action, teamID, description string
 
 // ---- participant flows ----
 
-func (s *Service) CreateTeam(ctx context.Context, userID string, req CreateTeamRequest) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.CreateTeam(ctx, userID, req.Name)
+func (s *Service) CreateTeam(ctx context.Context, compID, userID string, req CreateTeamRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.CreateTeam(ctx, compID, userID, req.Name)
 	if err != nil {
 		return nil, err
 	}
 	s.record(ctx, audit.ActionTeamCreate, teamID, fmt.Sprintf("Created team %s", req.Name),
-		map[string]any{"name": req.Name, "leader_id": userID})
+		map[string]any{"name": req.Name, "leader_id": userID, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) JoinTeam(ctx context.Context, userID string, req JoinTeamRequest) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.JoinByCode(ctx, userID, req.Code)
+func (s *Service) JoinTeam(ctx context.Context, compID, userID string, req JoinTeamRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.JoinByCode(ctx, compID, userID, req.Code)
 	if err != nil {
 		return nil, err
 	}
 	s.record(ctx, audit.ActionTeamJoin, teamID, fmt.Sprintf("User %s joined team %s", userID, teamID),
-		map[string]any{"user_id": userID})
+		map[string]any{"user_id": userID, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) LeaveTeam(ctx context.Context, userID string) error {
-	teamID, err := s.repo.LeaveTeam(ctx, userID)
+func (s *Service) LeaveTeam(ctx context.Context, compID, userID string) error {
+	teamID, err := s.repo.LeaveTeam(ctx, compID, userID)
 	if err != nil {
 		return err
 	}
 	s.record(ctx, audit.ActionTeamLeave, teamID, fmt.Sprintf("User %s left team %s", userID, teamID),
-		map[string]any{"user_id": userID})
+		map[string]any{"user_id": userID, "competition_id": compID})
 	return nil
 }
 
-func (s *Service) RenameOwnTeam(ctx context.Context, userID string, req RenameTeamRequest) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.RenameOwnTeam(ctx, userID, req.Name)
+func (s *Service) RenameOwnTeam(ctx context.Context, compID, userID string, req RenameTeamRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.RenameOwnTeam(ctx, compID, userID, req.Name)
 	if err != nil {
 		return nil, err
 	}
 	s.record(ctx, audit.ActionTeamUpdate, teamID, fmt.Sprintf("Renamed team to %s", req.Name),
-		map[string]any{"name": req.Name})
+		map[string]any{"name": req.Name, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) RegenerateOwnCode(ctx context.Context, userID string) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.RegenerateOwnCode(ctx, userID)
+func (s *Service) RegenerateOwnCode(ctx context.Context, compID, userID string) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.RegenerateOwnCode(ctx, compID, userID)
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamRegenCode, teamID, "Regenerated team join code", nil)
+	s.record(ctx, audit.ActionTeamRegenCode, teamID, "Regenerated team join code", map[string]any{"competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) KickMember(ctx context.Context, leaderID, targetID string) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.KickMember(ctx, leaderID, targetID)
+func (s *Service) KickMember(ctx context.Context, compID, leaderID, targetID string) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.KickMember(ctx, compID, leaderID, targetID)
 	if err != nil {
 		return nil, err
 	}
 	s.record(ctx, audit.ActionTeamKick, teamID, fmt.Sprintf("Removed member %s from team %s", targetID, teamID),
-		map[string]any{"user_id": targetID})
+		map[string]any{"user_id": targetID, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) GetMyTeam(ctx context.Context, userID string) (*TeamDetailResponse, error) {
-	return s.repo.GetTeamByUserID(ctx, userID)
+func (s *Service) TransferLeadership(ctx context.Context, compID, leaderID string, req TransferLeadershipRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.TransferLeadership(ctx, compID, leaderID, req.NewLeaderID)
+	if err != nil {
+		return nil, err
+	}
+	s.record(ctx, audit.ActionTeamUpdate, teamID, fmt.Sprintf("Transferred team leadership to %s", req.NewLeaderID),
+		map[string]any{"new_leader_id": req.NewLeaderID, "competition_id": compID})
+	return s.repo.GetTeamByID(ctx, teamID)
+}
+
+func (s *Service) GetMyTeam(ctx context.Context, compID, userID string) (*TeamDetailResponse, error) {
+	return s.repo.GetTeamByUserID(ctx, compID, userID)
 }
 
 // ---- reads ----
@@ -197,21 +207,21 @@ func (s *Service) DeleteTeam(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) AddMember(ctx context.Context, teamID, userID string) error {
-	if err := s.repo.AddMember(ctx, teamID, userID); err != nil {
+func (s *Service) AddMember(ctx context.Context, compID, teamID, userID string) error {
+	if err := s.repo.AddMember(ctx, compID, teamID, userID); err != nil {
 		return err
 	}
 	s.record(ctx, audit.ActionTeamAddMember, teamID, fmt.Sprintf("Added member %s to team %s", userID, teamID),
-		map[string]any{"user_id": userID, "team_id": teamID})
+		map[string]any{"user_id": userID, "team_id": teamID, "competition_id": compID})
 	return nil
 }
 
-func (s *Service) RemoveMember(ctx context.Context, teamID, userID string) error {
-	if err := s.repo.RemoveMember(ctx, teamID, userID); err != nil {
+func (s *Service) RemoveMember(ctx context.Context, compID, teamID, userID string) error {
+	if err := s.repo.RemoveMember(ctx, compID, teamID, userID); err != nil {
 		return err
 	}
 	s.record(ctx, audit.ActionTeamRemoveMember, teamID, fmt.Sprintf("Removed member %s from team %s", userID, teamID),
-		map[string]any{"user_id": userID, "team_id": teamID})
+		map[string]any{"user_id": userID, "team_id": teamID, "competition_id": compID})
 	return nil
 }
 

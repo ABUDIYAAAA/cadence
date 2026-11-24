@@ -217,7 +217,11 @@ func NewApplication(ctx context.Context) (*Application, error) {
 
 	router.Route("/api/v2", func(r chi.Router) {
 		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
-		competitions.RegisterRoutes(r, competitionsHandler, competitionsRepo, redisClient, authMiddleware)
+		competitions.RegisterRoutes(r, competitionsHandler, competitionsRepo, redisClient, authMiddleware, func(scoped chi.Router) {
+			scoped.Route("/teams", func(tr chi.Router) {
+				teams.RegisterScopedRoutes(tr, teamsHandler)
+			})
+		})
 	})
 
 	// Health check endpoint - returns system and dependency health status.

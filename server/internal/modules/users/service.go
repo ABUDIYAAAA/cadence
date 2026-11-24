@@ -347,12 +347,14 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	return nil
 }
 
-// BlacklistUser sets is_active=FALSE, writes instant Redis revocation, and purges accessible competitions.
+// BlacklistUser sets is_active=FALSE, writes instant Redis revocation, purges accessible competitions, and evicts from team.
 func (s *Service) BlacklistUser(ctx context.Context, id string) error {
 	active := false
 	if _, err := s.repo.UpdateUser(ctx, id, UpdateUserRequest{IsActive: &active}); err != nil {
 		return err
 	}
+
+	_ = s.repo.EvictUserFromAnyTeam(ctx, id)
 
 	if s.redis != nil {
 		_ = s.redis.Set(ctx, fmt.Sprintf("blocked:user:%s", id), "blacklisted", 24*time.Hour).Err()

@@ -254,7 +254,7 @@ func sanitizeInlineStyle(style string) string {
 }
 
 // RenderCustomTicketEmailHTML sanitizes customHTML, substitutes HTML-escaped {{name}} and {{event_name}}
-// placeholders, and wraps the content in a responsive email layout with the QR code block.
+// placeholders, and wraps the content in a responsive email layout (the QR code is sent as a file attachment, not inline).
 func RenderCustomTicketEmailHTML(customHTML, recipientName, eventName string) string {
 	safeBody := SanitizeEmailHTML(customHTML)
 	escapedName := stdhtml.EscapeString(recipientName)
@@ -270,19 +270,6 @@ func RenderCustomTicketEmailHTML(customHTML, recipientName, eventName string) st
 	)
 	renderedBody := replacer.Replace(safeBody)
 
-	// If the custom HTML doesn't already reference cid:ticket_qr.png, append the QR code card below the custom body.
-	qrSection := ""
-	if !strings.Contains(renderedBody, "cid:ticket_qr.png") {
-		qrSection = `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;"><tr><td align="center">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-          <td style="background-color:#FFFFFF;border:1px solid #E2E8F0;border-radius:16px;padding:14px;">
-            <img src="cid:ticket_qr.png" width="220" height="220" alt="Entry QR code" style="display:block;width:220px;height:220px;border:0;">
-          </td>
-        </tr></table>
-      </td></tr></table>`
-	}
-
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -296,11 +283,11 @@ func RenderCustomTicketEmailHTML(customHTML, recipientName, eventName string) st
 <tr><td align="center" style="padding:40px 16px;">
   <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
     <tr><td style="background-color:#FFFFFF;border:1px solid #E2E8F0;border-radius:16px;padding:32px 28px;font-size:14px;line-height:22px;color:#0F172A;">
-      %s%s
+      %s
     </td></tr>
   </table>
 </td></tr>
 </table>
 </body>
-</html>`, escapedEvent, renderedBody, qrSection)
+</html>`, escapedEvent, renderedBody)
 }

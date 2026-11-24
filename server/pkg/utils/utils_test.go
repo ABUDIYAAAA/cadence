@@ -234,7 +234,7 @@ func TestSanitizeEmailHTMLAndRender(t *testing.T) {
 		}
 	})
 
-	t.Run("escapes dynamic {{name}} and {{event_name}} placeholders and embeds QR", func(t *testing.T) {
+	t.Run("escapes dynamic {{name}} and {{event_name}} placeholders without inline QR", func(t *testing.T) {
 		custom := `<p>Hi {{name}}, welcome to {{event_name}}!</p>`
 		rendered := RenderCustomTicketEmailHTML(custom, `<script>evil()</script>Alice`, `DevClub & "Friends"`)
 
@@ -244,8 +244,8 @@ func TestSanitizeEmailHTMLAndRender(t *testing.T) {
 		if !strings.Contains(rendered, "&lt;script&gt;evil()&lt;/script&gt;Alice") {
 			t.Fatalf("expected escaped recipient name in rendered email, got: %s", rendered)
 		}
-		if !strings.Contains(rendered, "cid:ticket_qr.png") {
-			t.Fatalf("expected QR image cid:ticket_qr.png in rendered email")
+		if strings.Contains(rendered, "cid:ticket_qr.png") {
+			t.Fatalf("expected NO inline cid:ticket_qr.png in rendered email")
 		}
 	})
 }

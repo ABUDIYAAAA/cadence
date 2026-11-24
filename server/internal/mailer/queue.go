@@ -158,7 +158,7 @@ func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName string,
 }
 
 // SendCustomTicketEmail enqueues an entry pass email with an optional custom subject and pre-sanitized HTML body,
-// attaching the QR code PNG both inline (cid:ticket_qr.png) and as a standard downloadable attachment.
+// attaching the QR code PNG as a standard file attachment (not inline).
 func (q *Queue) SendCustomTicketEmail(
 	ctx context.Context,
 	ticketID, to, name, eventName, customSubject, renderedHTML string,
@@ -176,12 +176,6 @@ func (q *Queue) SendCustomTicketEmail(
 		Attachments: []Attachment{
 			{
 				Filename:    "ticket_qr.png",
-				ContentType: "image/png",
-				Data:        qrPNG,
-				Inline:      true,
-			},
-			{
-				Filename:    "entry_pass_qr.png",
 				ContentType: "image/png",
 				Data:        qrPNG,
 				Inline:      false,

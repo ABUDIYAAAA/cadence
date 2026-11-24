@@ -39,7 +39,7 @@ func TestJudgeCannotAccessUsersEndpoints(t *testing.T) {
 
 	for _, tc := range roles {
 		t.Run(tc.name+" GET /users", func(t *testing.T) {
-			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
+			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", "user", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
 			if err != nil {
 				t.Fatalf("failed to generate access token: %v", err)
 			}
@@ -64,7 +64,7 @@ func TestJudgeCannotAccessUsersEndpoints(t *testing.T) {
 		})
 
 		t.Run(tc.name+" GET /users/{id}", func(t *testing.T) {
-			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
+			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", "user", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
 			if err != nil {
 				t.Fatalf("failed to generate access token: %v", err)
 			}

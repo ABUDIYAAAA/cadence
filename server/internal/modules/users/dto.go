@@ -50,22 +50,21 @@ type UserFilter struct {
 
 // UserDetailResponse is the complete user view returned to administrators.
 type UserDetailResponse struct {
-	ID                   string    `json:"id"`
-	Email                string    `json:"email"`
-	Name                 string    `json:"name"`
-	PhoneNumber          *string   `json:"phone_number,omitempty"`
-	Role                 string    `json:"role"`
-	TeamID               *string   `json:"team_id,omitempty"`
-	TeamName             *string   `json:"team_name,omitempty"`
-	IsLeader             bool      `json:"is_leader"`
-	IsPasswordConfigured bool      `json:"is_password_configured"`
-	IsActive             bool      `json:"is_active"`
-	TokenVersion         int       `json:"token_version"`
-	CreatedAt            time.Time `json:"created_at"`
-	// Set only by the list endpoint: "checked_in", "not_checked_in" or "no_pass".
+	ID            string     `json:"id"`
+	Email         string     `json:"email"`
+	Name          string     `json:"name"`
+	PhoneNumber   *string    `json:"phone_number,omitempty"`
+	GlobalRole    string     `json:"global_role"`
+	AvatarURL     *string    `json:"avatar_url,omitempty"`
+	Role          string     `json:"role"`
+	TeamID        *string    `json:"team_id,omitempty"`
+	TeamName      *string    `json:"team_name,omitempty"`
+	IsLeader      bool       `json:"is_leader"`
+	IsActive      bool       `json:"is_active"`
+	TokenVersion  int        `json:"token_version"`
+	CreatedAt     time.Time  `json:"created_at"`
 	CheckinStatus string     `json:"checkin_status,omitempty"`
 	CheckedInAt   *time.Time `json:"checked_in_at,omitempty"`
-	// Set only when listing removed users.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 

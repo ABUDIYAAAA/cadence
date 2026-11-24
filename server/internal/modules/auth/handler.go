@@ -1,12 +1,13 @@
 package auth
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +21,6 @@ type Handler struct {
 	service       *Service
 	cookieManager *utils.CookieManager
 	cfg           *config.Config
-	loginGuard    *ratelimit.LoginGuard
 	limiter       *ratelimit.Limiter
 }
 
@@ -35,214 +35,117 @@ func NewHandler(
 		service:       service,
 		cookieManager: cookieManager,
 		cfg:           cfg,
-		loginGuard:    loginGuard,
 		limiter:       limiter,
 	}
 }
 
-const maxAuthBodyBytes = 16 << 10 // 16 KiB cap on authentication request payloads
+type oauthStatePayload struct {
+	Nonce    string `json:"nonce"`
+	Redirect string `json:"redirect"`
+}
 
-// Forgot-password sends an email, so it is throttled per target address (so nobody can mail-bomb a
-// mailbox) and per device. A thousand people each requesting one link stays far below both.
-const (
-	forgotPasswordWindow       = 15 * time.Minute
-	forgotPasswordMaxPerEmail  = 5
-	forgotPasswordMaxPerDevice = 10
-)
+// HandleGoogleLogin initiates Google OAuth flow by generating a secure state and redirecting.
+func (h *Handler) HandleGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	returnPath := r.URL.Query().Get("redirect")
+	if returnPath == "" || !strings.HasPrefix(returnPath, "/") {
+		returnPath = "/"
+	}
 
-// HandleLogin authenticates the user and sets signed access & refresh cookies bound to this device.
-func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+	rawNonce, err := utils.GenerateRandomToken(24)
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to generate authentication state")
 		return
 	}
 
-	if errs := utils.ValidateStruct(req); len(errs) > 0 {
-		utils.ValidationErrorJSON(w, errs)
+	statePayload := oauthStatePayload{
+		Nonce:    rawNonce,
+		Redirect: returnPath,
+	}
+	stateJSON, _ := json.Marshal(statePayload)
+	encodedState := base64.RawURLEncoding.EncodeToString(stateJSON)
+
+	// Store signed state cookie (10 minute expiry)
+	h.cookieManager.SetSignedCookie(w, "oauth_state", encodedState, 10*time.Minute)
+
+	authURL := h.service.GetGoogleAuthURL(encodedState)
+
+	if r.URL.Query().Get("format") == "json" || strings.Contains(r.Header.Get("Accept"), "application/json") {
+		utils.JSON(w, http.StatusOK, GoogleAuthURLResponse{URL: authURL})
 		return
+	}
+
+	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
+}
+
+// HandleGoogleCallback processes the OAuth redirect from Google, authenticates the user, and sets cookies.
+func (h *Handler) HandleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+	// Check for Google error response (e.g. user denied consent)
+	if errParam := r.URL.Query().Get("error"); errParam != "" {
+		logger.FromContext(r.Context()).Warn("google oauth denied or returned error", slog.String("error", errParam))
+		h.clearOAuthCookie(w)
+		utils.ErrorJSON(w, http.StatusBadRequest, fmt.Sprintf("google authentication failed: %s", errParam))
+		return
+	}
+
+	stateParam := r.URL.Query().Get("state")
+	codeParam := r.URL.Query().Get("code")
+	if stateParam == "" || codeParam == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "missing state or code parameter")
+		return
+	}
+
+	// Validate signed state cookie against parameter
+	cookieState, err := h.cookieManager.GetSignedCookie(r, "oauth_state")
+	if err != nil || cookieState != stateParam {
+		h.clearOAuthCookie(w)
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid or expired oauth state parameter; please try logging in again")
+		return
+	}
+	h.clearOAuthCookie(w)
+
+	var statePayload oauthStatePayload
+	if stateBytes, err := base64.RawURLEncoding.DecodeString(stateParam); err == nil {
+		_ = json.Unmarshal(stateBytes, &statePayload)
+	}
+	redirectPath := statePayload.Redirect
+	if redirectPath == "" || !strings.HasPrefix(redirectPath, "/") {
+		redirectPath = "/"
 	}
 
 	deviceID := ratelimit.GetDeviceID(r.Context())
 	userAgent := r.UserAgent()
 	ip := getClientIP(r)
 
-	// Check device + target email + client IP failed login rate limit
-	if h.loginGuard != nil {
-		allowed, ttl, err := h.loginGuard.CheckAllowed(r.Context(), deviceID, req.Email, ip)
-		if err == nil && !allowed {
-			w.Header().Set("Retry-After", strconv.FormatInt(int64(ttl.Seconds()), 10))
-			utils.ErrorJSON(w, http.StatusTooManyRequests, "too many failed login attempts for this account on this device; please try again later")
-			return
-		}
-	}
-
-	user, accessToken, refreshToken, err := h.service.Login(r.Context(), req, deviceID, userAgent, ip)
+	user, accessToken, refreshToken, err := h.service.HandleGoogleCallback(r.Context(), codeParam, deviceID, userAgent, ip)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrInvalidCredentials):
-			if h.loginGuard != nil {
-				_ = h.loginGuard.RecordFailure(r.Context(), deviceID, req.Email, ip)
-			}
-			utils.ErrorJSON(w, http.StatusUnauthorized, "invalid email or password")
-		case errors.Is(err, ErrPasswordNotSet):
-			utils.ErrorJSON(w, http.StatusForbidden, "password not set yet; use \"Forgot password\" to set one")
 		case errors.Is(err, ErrInactiveUser):
 			utils.ErrorJSON(w, http.StatusForbidden, "user account is deactivated")
+		case errors.Is(err, ErrOAuthExchangeFailed):
+			utils.ErrorJSON(w, http.StatusBadGateway, "failed to exchange authorization token with Google")
+		case errors.Is(err, ErrOAuthProfileFailed):
+			utils.ErrorJSON(w, http.StatusBadGateway, "failed to retrieve profile from Google")
 		default:
-			logger.FromContext(r.Context()).Error("login internal error", slog.Any("error", err))
-			utils.ErrorJSON(w, http.StatusInternalServerError, "internal server error")
-		}
-		return
-	}
-
-	// Clear failed login counter upon successful authentication
-	if h.loginGuard != nil {
-		_ = h.loginGuard.ResetSuccess(r.Context(), deviceID, req.Email)
-	}
-
-	h.setAuthCookies(w, accessToken, refreshToken)
-
-	utils.JSON(w, http.StatusOK, AuthResponse{
-		User:    *user,
-		Message: "logged in successfully",
-	})
-}
-
-// HandleSetupPassword handles first-landing password setup via setup token.
-func (h *Handler) HandleSetupPassword(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
-	var req SetupPasswordRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if errs := utils.ValidateStruct(req); len(errs) > 0 {
-		utils.ValidationErrorJSON(w, errs)
-		return
-	}
-
-	deviceID := ratelimit.GetDeviceID(r.Context())
-	userAgent := r.UserAgent()
-	ip := getClientIP(r)
-
-	user, accessToken, refreshToken, err := h.service.SetupPassword(r.Context(), req, deviceID, userAgent, ip)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrTokenNotFound):
-			utils.ErrorJSON(w, http.StatusNotFound, "invalid or expired setup token")
-		case errors.Is(err, ErrTokenAlreadyUsed):
-			utils.ErrorJSON(w, http.StatusGone, "setup token has already been used")
-		case errors.Is(err, ErrTokenExpired):
-			utils.ErrorJSON(w, http.StatusGone, "setup token has expired")
-		default:
-			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to configure password")
+			logger.FromContext(r.Context()).Error("google callback internal error", slog.Any("error", err))
+			utils.ErrorJSON(w, http.StatusInternalServerError, "authentication failed")
 		}
 		return
 	}
 
 	h.setAuthCookies(w, accessToken, refreshToken)
 
-	utils.JSON(w, http.StatusOK, AuthResponse{
-		User:    *user,
-		Message: "password configured successfully",
-	})
-}
-
-// allowForgotPassword enforces the per-email and per-device throttles. It answers 429 itself when a
-// limit is hit; the response is the same whether or not the account exists, so it reveals nothing.
-// Redis trouble fails open, like the global limiter.
-func (h *Handler) allowForgotPassword(w http.ResponseWriter, r *http.Request, email, deviceID string) bool {
-	if h.limiter == nil {
-		return true
-	}
-	type check struct {
-		key   string
-		limit int64
-	}
-	checks := []check{
-		{"ratelimit:forgot:email:" + utils.HashToken(strings.ToLower(strings.TrimSpace(email))), forgotPasswordMaxPerEmail},
-	}
-	// A device without a verified cookie gets a fresh random id on every request, so only
-	// verified devices are throttled individually; the per-email limit covers the rest.
-	if ratelimit.IsDeviceIDVerified(r.Context()) {
-		checks = append(checks, check{"ratelimit:forgot:device:" + deviceID, forgotPasswordMaxPerDevice})
-	}
-	for _, c := range checks {
-		res, err := h.limiter.Allow(r.Context(), c.key, c.limit, forgotPasswordWindow)
-		if err != nil || res.Allowed {
-			continue
-		}
-		retry := int(res.ResetAfter.Seconds()) + 1
-		w.Header().Set("Retry-After", strconv.Itoa(retry))
-		utils.ErrorJSON(w, http.StatusTooManyRequests, "too many reset requests; check your inbox (and spam), or try again in a few minutes")
-		return false
-	}
-	return true
-}
-
-// HandleForgotPassword initiates password reset.
-func (h *Handler) HandleForgotPassword(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
-	var req ForgotPasswordRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+	// If client expects JSON, return user payload directly
+	if r.URL.Query().Get("format") == "json" || (strings.Contains(r.Header.Get("Accept"), "application/json") && !strings.Contains(r.Header.Get("Accept"), "text/html")) {
+		utils.JSON(w, http.StatusOK, AuthResponse{
+			User:    *user,
+			Message: "authenticated successfully with Google",
+		})
 		return
 	}
 
-	if errs := utils.ValidateStruct(req); len(errs) > 0 {
-		utils.ValidationErrorJSON(w, errs)
-		return
-	}
-
-	deviceID := ratelimit.GetDeviceID(r.Context())
-	if !h.allowForgotPassword(w, r, req.Email, deviceID) {
-		return
-	}
-
-	_, _ = h.service.ForgotPassword(r.Context(), req.Email, deviceID, r.UserAgent(), getClientIP(r))
-
-	// Always return generic success to prevent email enumeration
-	utils.JSON(w, http.StatusOK, MessageResponse{
-		Message: "if the account exists, a password reset link has been dispatched",
-	})
-}
-
-// HandleResetPassword completes password reset.
-func (h *Handler) HandleResetPassword(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
-	var req ResetPasswordRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if errs := utils.ValidateStruct(req); len(errs) > 0 {
-		utils.ValidationErrorJSON(w, errs)
-		return
-	}
-
-	if err := h.service.ResetPassword(r.Context(), req); err != nil {
-		switch {
-		case errors.Is(err, ErrTokenNotFound):
-			utils.ErrorJSON(w, http.StatusNotFound, "invalid or expired reset token")
-		case errors.Is(err, ErrTokenAlreadyUsed):
-			utils.ErrorJSON(w, http.StatusGone, "reset token has already been used")
-		case errors.Is(err, ErrTokenExpired):
-			utils.ErrorJSON(w, http.StatusGone, "reset token has expired")
-		default:
-			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to reset password")
-		}
-		return
-	}
-
-	h.clearAuthCookies(w)
-
-	utils.JSON(w, http.StatusOK, MessageResponse{
-		Message: "password reset successfully; please log in with your new password",
-	})
+	// Otherwise redirect back to the frontend application
+	frontendTarget := strings.TrimRight(h.cfg.FrontendURL, "/") + redirectPath
+	http.Redirect(w, r, frontendTarget, http.StatusTemporaryRedirect)
 }
 
 // HandleRefreshToken rotates the access and refresh token cookies bound to this verified device.
@@ -318,6 +221,10 @@ func (h *Handler) setAuthCookies(w http.ResponseWriter, accessToken, refreshToke
 func (h *Handler) clearAuthCookies(w http.ResponseWriter) {
 	h.cookieManager.ClearCookie(w, "access_token")
 	h.cookieManager.ClearCookie(w, "refresh_token")
+}
+
+func (h *Handler) clearOAuthCookie(w http.ResponseWriter) {
+	h.cookieManager.ClearCookie(w, "oauth_state")
 }
 
 func getClientIP(r *http.Request) string {

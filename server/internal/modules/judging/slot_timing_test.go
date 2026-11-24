@@ -14,8 +14,8 @@ func TestSlotTiming_OverridesAndChaining(t *testing.T) {
 
 	var judgeID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, is_active, is_password_configured)
-		VALUES ('judge.st@cadence.local', 'Judge ST', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.st@cadence.local', 'Judge ST', true) RETURNING id`).Scan(&judgeID); err != nil {
 		t.Fatalf("seed judge: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -110,8 +110,8 @@ func TestRoundDuration_ChangeAndReset(t *testing.T) {
 
 	var judgeID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, is_active, is_password_configured)
-		VALUES ('judge.rd@cadence.local', 'Judge RD', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.rd@cadence.local', 'Judge RD', true) RETURNING id`).Scan(&judgeID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `

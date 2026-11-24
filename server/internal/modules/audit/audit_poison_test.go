@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/users"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -99,21 +99,14 @@ func newTestAuditPool(t *testing.T) *pgxpool.Pool {
 }
 
 func TestOversizedEmailValidationAndAuditSanitization(t *testing.T) {
-	t.Run("auth DTO rejects oversized email (>254 chars) on login and forgot-password", func(t *testing.T) {
+	t.Run("user creation DTO rejects oversized email (>254 chars)", func(t *testing.T) {
 		longEmail := strings.Repeat("a", 250) + "@example.com" // 262 chars
-		loginErrs := utils.ValidateStruct(auth.LoginRequest{
-			Email:    longEmail,
-			Password: "password123",
-		})
-		if len(loginErrs) == 0 {
-			t.Fatal("expected validation error for >254 char email in LoginRequest, got none")
-		}
-
-		forgotErrs := utils.ValidateStruct(auth.ForgotPasswordRequest{
+		createErrs := utils.ValidateStruct(users.CreateUserRequest{
 			Email: longEmail,
+			Name:  "Test",
 		})
-		if len(forgotErrs) == 0 {
-			t.Fatal("expected validation error for >254 char email in ForgotPasswordRequest, got none")
+		if len(createErrs) == 0 {
+			t.Fatal("expected validation error for >254 char email in CreateUserRequest, got none")
 		}
 	})
 

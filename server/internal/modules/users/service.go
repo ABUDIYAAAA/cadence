@@ -10,7 +10,6 @@ import (
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/audit"
-	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -22,7 +21,6 @@ var (
 type Service struct {
 	repo        *Repository
 	cfg         *config.Config
-	emailSender auth.EmailSender
 	redis       *redis.Client
 	auditor     audit.Recorder
 }
@@ -30,14 +28,12 @@ type Service struct {
 func NewService(
 	repo *Repository,
 	cfg *config.Config,
-	emailSender auth.EmailSender,
 	redis *redis.Client,
 	auditor audit.Recorder,
 ) *Service {
 	return &Service{
 		repo:        repo,
 		cfg:         cfg,
-		emailSender: emailSender,
 		redis:       redis,
 		auditor:     auditor,
 	}
@@ -85,7 +81,6 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 			Name:                 u.Name,
 			PhoneNumber:          u.PhoneNumber,
 			Role:                 role,
-			IsPasswordConfigured: false,
 			IsActive:             true,
 			CreatedAt:            time.Now(),
 		})
@@ -356,49 +351,4 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 func volunteerCaller(ctx context.Context) bool {
 	claims, ok := auth.GetUserClaims(ctx)
 	return ok && claims.Role == "volunteer"
-}
-
-func (s *Service) TriggerResetPassword(ctx context.Context, userID string) error {
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	rawToken, err := utils.GenerateRandomToken(32)
-	if err != nil {
-		return fmt.Errorf("generate reset token: %w", err)
-	}
-
-	tokenHash := utils.HashToken(rawToken)
-	expiresAt := time.Now().Add(1 * time.Hour)
-
-	if err := s.repo.CreateResetOrSetupToken(ctx, user.ID, tokenHash, "forgot_password", expiresAt); err != nil {
-		return err
-	}
-
-	if s.emailSender != nil {
-		resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s", s.cfg.FrontendURL, rawToken)
-		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
-	}
-
-	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserResetTrigger,
-			TargetType:  audit.TargetUser,
-			TargetID:    &user.ID,
-			Description: fmt.Sprintf("Administrator triggered password recovery email for %s", user.Email),
-		})
-	}
-
-	return nil
 }

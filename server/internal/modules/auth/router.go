@@ -9,11 +9,11 @@ import (
 // RegisterRoutes registers authentication endpoints on the provided chi router.
 func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) http.Handler) {
 	r.Route("/auth", func(r chi.Router) {
-		// Public routes
-		r.Post("/login", h.HandleLogin)
-		r.Post("/setup-password", h.HandleSetupPassword)
-		r.Post("/forgot-password", h.HandleForgotPassword)
-		r.Post("/reset-password", h.HandleResetPassword)
+		// Public Google OAuth routes
+		r.Get("/google/login", h.HandleGoogleLogin)
+		r.Get("/google/callback", h.HandleGoogleCallback)
+
+		// Session management
 		r.Post("/refresh", h.HandleRefreshToken)
 		r.Post("/logout", h.HandleLogout)
 

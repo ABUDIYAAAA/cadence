@@ -33,18 +33,18 @@ import (
 
 // Application encapsulates shared resources, background workers, and routing.
 type Application struct {
-	Config        *config.Config
-	DB            *pgxpool.Pool
-	Redis         *redis.Client
-	Mailer        *mailer.Mailer
-	MailQueue     *mailer.Queue
+	Config            *config.Config
+	DB                *pgxpool.Pool
+	Redis             *redis.Client
+	Mailer            *mailer.Mailer
+	MailQueue         *mailer.Queue
 	AuditQueue        *audit.Queue
 	NotificationQueue *notifications.Queue
 	Limiter           *ratelimit.Limiter
-	LoginGuard    *ratelimit.LoginGuard
-	Logger        *slog.Logger
-	Router        *chi.Mux
-	CookieManager *utils.CookieManager
+	LoginGuard        *ratelimit.LoginGuard
+	Logger            *slog.Logger
+	Router            *chi.Mux
+	CookieManager     *utils.CookieManager
 }
 
 // NewApplication boots config, database, redis, rabbitmq queues, structured logger, and module routes.
@@ -151,13 +151,13 @@ func NewApplication(ctx context.Context) (*Application, error) {
 
 	// Auth module initialization with instant Redis blocklist verification and audit recording
 	authRepo := auth.NewRepository(dbPool)
-	authService := auth.NewService(authRepo, cfg, mailQueue, auditQueue)
+	authService := auth.NewService(authRepo, cfg, auditQueue)
 	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard, limiter)
 	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
 
 	// Users module initialization
 	usersRepo := users.NewRepository(dbPool)
-	usersService := users.NewService(usersRepo, cfg, mailQueue, redisClient, auditQueue)
+	usersService := users.NewService(usersRepo, cfg, redisClient, auditQueue)
 	usersHandler := users.NewHandler(usersService)
 
 	// Teams module initialization
@@ -240,11 +240,11 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		MailQueue:         mailQueue,
 		AuditQueue:        auditQueue,
 		NotificationQueue: notifQueue,
-		Limiter:       limiter,
-		LoginGuard:    loginGuard,
-		Logger:        appLogger,
-		Router:        router,
-		CookieManager: cookieManager,
+		Limiter:           limiter,
+		LoginGuard:        loginGuard,
+		Logger:            appLogger,
+		Router:            router,
+		CookieManager:     cookieManager,
 	}, nil
 }
 

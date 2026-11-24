@@ -401,12 +401,12 @@ func ResetState(t *testing.T) {
 
 	// 5. Seed deterministic root administrator account and default competition
 	insertAdminSQL := `
-		INSERT INTO users (email, password_hash, name, is_password_configured, is_active)
-		VALUES ($1, $2, $3, TRUE, TRUE)
+		INSERT INTO users (email, name, global_role, is_active)
+		VALUES ($1, $2, 'dev', TRUE)
 		RETURNING id
 	`
 	var adminID string
-	if err := testApp.DB.QueryRow(ctx, insertAdminSQL, TestAdminEmail, adminSeedHash, TestAdminName).Scan(&adminID); err != nil {
+	if err := testApp.DB.QueryRow(ctx, insertAdminSQL, TestAdminEmail, TestAdminName).Scan(&adminID); err != nil {
 		t.Fatalf("[ResetState] failed to seed root admin user: %v", err)
 	}
 

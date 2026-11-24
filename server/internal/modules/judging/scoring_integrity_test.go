@@ -112,8 +112,8 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 	// Seed a judge and a team
 	var judgeID, teamID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, is_active, is_password_configured)
-		VALUES ('judge.a@cadence.local', 'Judge A', true, true)
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.a@cadence.local', 'Judge A', true)
 		RETURNING id`,
 	).Scan(&judgeID); err != nil {
 		t.Fatalf("seed judge: %v", err)
@@ -346,5 +346,3 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 		}
 	})
 }
-
-

@@ -51,7 +51,6 @@ type TeamMemberSummary struct {
 	PhoneNumber          *string `json:"phone_number,omitempty"`
 	Role                 string  `json:"role"`
 	IsLeader             bool    `json:"is_leader"`
-	IsPasswordConfigured bool    `json:"is_password_configured"`
 }
 
 // TeamResponse represents the summary view of a team in listing endpoints.

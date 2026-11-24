@@ -20,7 +20,6 @@ DROP TABLE IF EXISTS judging_panels CASCADE;
 DROP TABLE IF EXISTS judging_criteria CASCADE;
 DROP TABLE IF EXISTS judging_rounds CASCADE;
 DROP TABLE IF EXISTS teams CASCADE;
-DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
 DROP TABLE IF EXISTS user_competitions CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
@@ -31,5 +30,4 @@ DROP FUNCTION IF EXISTS fn_judging_slots_sync_round_id() CASCADE;
 
 DROP TYPE IF EXISTS judging_slot_status CASCADE;
 DROP TYPE IF EXISTS judging_round_status CASCADE;
-DROP TYPE IF EXISTS reset_token_purpose CASCADE;
 DROP TYPE IF EXISTS competition_role CASCADE;

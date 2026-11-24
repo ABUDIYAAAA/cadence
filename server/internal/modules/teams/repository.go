@@ -560,7 +560,7 @@ func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailRes
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant'), u.is_password_configured
+		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant')
 		FROM users u
 		LEFT JOIN user_competitions uc ON uc.user_id = u.id
 		WHERE u.team_id = $1 AND u.deleted_at IS NULL
@@ -573,7 +573,7 @@ func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailRes
 	resp.Members = make([]TeamMemberSummary, 0)
 	for rows.Next() {
 		var m TeamMemberSummary
-		if err := rows.Scan(&m.ID, &m.Email, &m.Name, &m.PhoneNumber, &m.Role, &m.IsPasswordConfigured); err != nil {
+		if err := rows.Scan(&m.ID, &m.Email, &m.Name, &m.PhoneNumber, &m.Role); err != nil {
 			return nil, fmt.Errorf("scan member row: %w", err)
 		}
 		if leaderID != nil && m.ID == *leaderID {

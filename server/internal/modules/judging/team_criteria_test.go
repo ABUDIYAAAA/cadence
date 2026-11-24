@@ -14,8 +14,8 @@ func TestTeamCriteria_ImportScopingAndRoster(t *testing.T) {
 
 	var judgeID, teamA, teamB, teamC string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, is_active, is_password_configured)
-		VALUES ('judge.tc@cadence.local', 'Judge TC', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.tc@cadence.local', 'Judge TC', true) RETURNING id`).Scan(&judgeID); err != nil {
 		t.Fatalf("seed judge: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -166,8 +166,8 @@ func TestTeamCriteria_OffRosterTeamWithManualMarks(t *testing.T) {
 
 	var judgeID, imported, extra string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, is_active, is_password_configured)
-		VALUES ('judge.or@cadence.local', 'Judge OR', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.or@cadence.local', 'Judge OR', true) RETURNING id`).Scan(&judgeID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `

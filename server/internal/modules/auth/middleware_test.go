@@ -73,7 +73,7 @@ func TestAuthMiddlewareAndRequireRoles(t *testing.T) {
 	})
 
 	t.Run("valid signed access_token cookie with allowed role returns 200", func(t *testing.T) {
-		tok, _ := utils.GenerateAccessToken("u-judge-1", "judge@cadence.local", "judge", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		tok, _ := utils.GenerateAccessToken("u-judge-1", "judge@cadence.local", "user", "judge", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		cookieRec := httptest.NewRecorder()
 		cm.SetSignedCookie(cookieRec, "access_token", tok, 15*time.Minute)
 
@@ -90,7 +90,7 @@ func TestAuthMiddlewareAndRequireRoles(t *testing.T) {
 	})
 
 	t.Run("valid Authorization Bearer header fallback with disallowed role returns 403", func(t *testing.T) {
-		tok, _ := utils.GenerateAccessToken("u-part-1", "part@cadence.local", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		tok, _ := utils.GenerateAccessToken("u-part-1", "part@cadence.local", "user", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 		req.Header.Set("Authorization", "Bearer "+tok)
 
@@ -98,6 +98,18 @@ func TestAuthMiddlewareAndRequireRoles(t *testing.T) {
 		protectedHandler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("expected 403 Forbidden for participant role, got %d", rec.Code)
+		}
+	})
+
+	t.Run("dev global role bypasses role restrictions", func(t *testing.T) {
+		tok, _ := utils.GenerateAccessToken("u-dev-1", "dev@cadence.local", "dev", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+
+		rec := httptest.NewRecorder()
+		protectedHandler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for dev global role, got %d (%s)", rec.Code, rec.Body.String())
 		}
 	})
 
@@ -110,7 +122,7 @@ func TestAuthMiddlewareAndRequireRoles(t *testing.T) {
 
 		userID := "user-demoted-1"
 		// Token has version 1 with judge role
-		staleTok, _ := utils.GenerateAccessToken(userID, "judge@cadence.local", "judge", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		staleTok, _ := utils.GenerateAccessToken(userID, "judge@cadence.local", "user", "judge", 1, cfg.JWTAccessSecret, 15*time.Minute)
 
 		// Admin demoted role, bumping minimum required version to 2
 		ctx := context.Background()
@@ -135,7 +147,7 @@ func TestAuthMiddlewareAndRequireRoles(t *testing.T) {
 		})))
 
 		userID := "user-deactivated-1"
-		tok, _ := utils.GenerateAccessToken(userID, "judge@cadence.local", "judge", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		tok, _ := utils.GenerateAccessToken(userID, "judge@cadence.local", "user", "judge", 1, cfg.JWTAccessSecret, 15*time.Minute)
 
 		ctx := context.Background()
 		if err := rdb.Set(ctx, "blocked:user:"+userID, "deactivated", time.Hour).Err(); err != nil {

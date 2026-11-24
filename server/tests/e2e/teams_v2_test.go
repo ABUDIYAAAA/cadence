@@ -256,8 +256,8 @@ func TestVolunteerAddsParticipantsOnly(t *testing.T) {
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
 		"email": "add.fixed@cadence.local", "name": "Fixed Email",
 	}, http.StatusCreated, &created)
-	if created.Role != "participant" || created.IsPasswordConfigured {
-		t.Fatalf("expected a password-less participant, got %+v", created)
+	if created.Role != "participant" {
+		t.Fatalf("expected a participant, got %+v", created)
 	}
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
 		"email": "add.judge@cadence.local", "name": "Sneaky", "role": "judge",
@@ -271,7 +271,6 @@ func TestVolunteerAddsParticipantsOnly(t *testing.T) {
 		"users": []map[string]any{{"email": "add.bulk@cadence.local", "name": "Bulk"}},
 	}, http.StatusForbidden, nil)
 	volunteer.DoJSON(t, http.MethodPatch, "/api/v1/users/"+created.ID, map[string]any{"role": "admin"}, http.StatusForbidden, nil)
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+created.ID+"/trigger-reset-password", nil, http.StatusForbidden, nil)
 
 	// The invite endpoints are gone.
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+created.ID+"/send-invite", nil, http.StatusNotFound, nil)

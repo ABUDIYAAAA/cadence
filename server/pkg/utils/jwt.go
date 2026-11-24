@@ -19,16 +19,18 @@ var (
 type AccessTokenClaims struct {
 	UserID       string `json:"user_id"`
 	Email        string `json:"email"`
+	GlobalRole   string `json:"global_role,omitempty"`
 	Role         string `json:"role"`
 	TokenVersion int    `json:"token_version"`
 	jwt.RegisteredClaims
 }
 
 // GenerateAccessToken generates a signed HMAC-SHA256 JWT access token.
-func GenerateAccessToken(userID, email, role string, tokenVersion int, secret string, expiry time.Duration) (string, error) {
+func GenerateAccessToken(userID, email, globalRole, role string, tokenVersion int, secret string, expiry time.Duration) (string, error) {
 	claims := AccessTokenClaims{
 		UserID:       userID,
 		Email:        email,
+		GlobalRole:   globalRole,
 		Role:         role,
 		TokenVersion: tokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{

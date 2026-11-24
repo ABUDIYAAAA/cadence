@@ -47,6 +47,11 @@ type Config struct {
 	SeedAdminPassword string `env:"SEED_ADMIN_PASSWORD,required"`
 	SeedAdminName     string `env:"SEED_ADMIN_NAME,required"`
 
+	// Google OAuth Settings
+	GoogleClientID     string `env:"GOOGLE_CLIENT_ID"`
+	GoogleClientSecret string `env:"GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURL  string `env:"GOOGLE_REDIRECT_URL"`
+
 	// Web Push VAPID Settings
 	VAPIDPublicKey  string `env:"VAPID_PUBLIC_KEY,required"`
 	VAPIDPrivateKey string `env:"VAPID_PRIVATE_KEY,required"`
@@ -101,6 +106,14 @@ func (c *Config) BackupEndpoint() string {
 		return c.R2Endpoint
 	}
 	return c.R2AccountID + ".r2.cloudflarestorage.com"
+}
+
+// GetGoogleRedirectURL returns the registered OAuth redirect callback URL.
+func (c *Config) GetGoogleRedirectURL() string {
+	if c.GoogleRedirectURL != "" {
+		return c.GoogleRedirectURL
+	}
+	return fmt.Sprintf("http://localhost:%s/api/v1/auth/google/callback", c.Port)
 }
 
 func NewConfig() (*Config, error) {

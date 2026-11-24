@@ -8,7 +8,6 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/database"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -30,11 +29,6 @@ func main() {
 	}
 	defer pool.Close()
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.SeedAdminPassword), bcrypt.DefaultCost)
-	if err != nil {
-		log.Fatalf("[SEED ERROR] Failed to hash password: %v", err)
-	}
-
 	var userID string
 	var existingID string
 	checkQuery := `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`
@@ -44,23 +38,22 @@ func main() {
 		userID = existingID
 		updateQuery := `
 			UPDATE users
-			SET password_hash = $1,
-			    name = $2,
-			    is_password_configured = TRUE,
+			SET name = $1,
+			    global_role = 'dev',
 			    is_active = TRUE,
 			    updated_at = CURRENT_TIMESTAMP
-			WHERE id = $3
+			WHERE id = $2
 		`
-		if _, err := pool.Exec(ctx, updateQuery, string(hash), cfg.SeedAdminName, existingID); err != nil {
+		if _, err := pool.Exec(ctx, updateQuery, cfg.SeedAdminName, existingID); err != nil {
 			log.Fatalf("[SEED ERROR] Failed to update existing admin user: %v", err)
 		}
 	} else {
 		insertQuery := `
-			INSERT INTO users (email, password_hash, name, is_password_configured, is_active)
-			VALUES ($1, $2, $3, TRUE, TRUE)
+			INSERT INTO users (email, name, global_role, is_active)
+			VALUES ($1, $2, 'dev', TRUE)
 			RETURNING id
 		`
-		if err := pool.QueryRow(ctx, insertQuery, cfg.SeedAdminEmail, string(hash), cfg.SeedAdminName).Scan(&userID); err != nil {
+		if err := pool.QueryRow(ctx, insertQuery, cfg.SeedAdminEmail, cfg.SeedAdminName).Scan(&userID); err != nil {
 			log.Fatalf("[SEED ERROR] Failed to insert admin user: %v", err)
 		}
 	}

@@ -19,14 +19,6 @@ EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE reset_token_purpose AS ENUM (
-        'initial_setup',
-        'forgot_password'
-    );
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
     CREATE TYPE judging_round_status AS ENUM (
         'draft',
         'active',
@@ -62,10 +54,11 @@ CREATE INDEX IF NOT EXISTS idx_competitions_slug ON competitions(slug);
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NULL,
     name VARCHAR(255) NOT NULL,
+    google_id VARCHAR(255) NULL UNIQUE,
+    avatar_url TEXT NULL,
+    global_role VARCHAR(32) NOT NULL DEFAULT 'user',
     phone_number VARCHAR(32) NULL,
-    is_password_configured BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     token_version INT NOT NULL DEFAULT 1,
     deleted_at TIMESTAMPTZ NULL,
@@ -73,6 +66,8 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+CREATE INDEX IF NOT EXISTS idx_users_global_role ON users(global_role);
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
 
 -- 5. User Competitions (Scoped Membership & Single-Ownership)
@@ -89,7 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_user_competitions_user_id ON user_competitions(us
 CREATE INDEX IF NOT EXISTS idx_user_competitions_comp_role ON user_competitions(competition_id, role);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_competitions_unique_owner ON user_competitions(user_id) WHERE role = 'owner';
 
--- 6. Refresh Tokens & Password Reset Tokens
+-- 6. Refresh Tokens
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -108,19 +103,6 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family_id ON refresh_tokens(family_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
-
-CREATE TABLE IF NOT EXISTS password_reset_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash VARCHAR(255) NOT NULL UNIQUE,
-    purpose reset_token_purpose NOT NULL DEFAULT 'forgot_password',
-    expires_at TIMESTAMPTZ NOT NULL,
-    used_at TIMESTAMPTZ NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
 
 -- 7. Teams (Scoped to Competition)
 CREATE TABLE IF NOT EXISTS teams (

@@ -98,6 +98,12 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Global dev role has top-level superuser bypass across all role requirements
+			if claims.GlobalRole == "dev" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			_, allowed := roleSet[claims.Role]
 			if !allowed && claims.Role == "owner" {
 				_, allowed = roleSet["admin"]
@@ -107,6 +113,24 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireDev returns a middleware restricting route access exclusively to users with the global 'dev' role.
+func RequireDev() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := GetUserClaims(r.Context())
+			if !ok {
+				utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			if claims.GlobalRole != "dev" {
+				utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
+				return
+			}
 			next.ServeHTTP(w, r)
 		})
 	}

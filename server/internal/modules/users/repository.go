@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,12 +36,11 @@ func (r *Repository) CreateUserTx(
 	// Single statement so a duplicate never aborts the surrounding transaction:
 	// soft-deleted users are reactivated, already-active users yield no row.
 	query := `
-		INSERT INTO users (email, name, phone_number, is_password_configured, is_active)
-		VALUES (LOWER($1), $2, $3, FALSE, TRUE)
+		INSERT INTO users (email, name, phone_number, is_active)
+		VALUES (LOWER($1), $2, $3, TRUE)
 		ON CONFLICT (email) DO UPDATE
 		SET name = EXCLUDED.name,
 		    phone_number = EXCLUDED.phone_number,
-		    is_password_configured = FALSE,
 		    is_active = TRUE,
 		    deleted_at = NULL,
 		    token_version = users.token_version + 1,
@@ -77,8 +75,8 @@ func (r *Repository) CreateUserTx(
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
+		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
+		       (t.leader_id = u.id) AS is_leader, u.is_active, u.token_version, u.created_at
 		FROM users u
 		LEFT JOIN user_competitions uc ON u.id = uc.user_id
 		LEFT JOIN teams t ON u.team_id = t.id
@@ -88,8 +86,8 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 	var teamName *string
 	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
+		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.GlobalRole, &u.AvatarURL, &u.Role, &u.TeamID, &teamName,
+		&isLeader, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -106,8 +104,8 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
+		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
+		       (t.leader_id = u.id) AS is_leader, u.is_active, u.token_version, u.created_at
 		FROM users u
 		LEFT JOIN user_competitions uc ON u.id = uc.user_id
 		LEFT JOIN teams t ON u.team_id = t.id
@@ -117,8 +115,8 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDet
 	var teamName *string
 	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
+		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.GlobalRole, &u.AvatarURL, &u.Role, &u.TeamID, &teamName,
+		&isLeader, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -210,8 +208,8 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	}
 
 	query := fmt.Sprintf(`
-		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at,
+		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url, COALESCE(uc.role::text, 'participant') AS role, u.team_id, t.name,
+		       (t.leader_id = u.id) AS is_leader, u.is_active, u.created_at,
 		       CASE WHEN tk.id IS NULL THEN 'no_pass' WHEN tk.is_checked_in THEN 'checked_in' ELSE 'not_checked_in' END,
 		       tk.checked_in_at, u.deleted_at
 		FROM users u
@@ -237,8 +235,8 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 		var teamName *string
 		var isLeader *bool
 		if err := rows.Scan(
-			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-			&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.CreatedAt,
+			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.GlobalRole, &u.AvatarURL, &u.Role, &u.TeamID, &teamName,
+			&isLeader, &u.IsActive, &u.CreatedAt,
 			&u.CheckinStatus, &u.CheckedInAt, &u.DeletedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan user row: %w", err)
@@ -378,18 +376,6 @@ func (r *Repository) SoftDeleteUser(ctx context.Context, id string) error {
 	}
 
 	return tx.Commit(ctx)
-}
-
-func (r *Repository) CreateResetOrSetupToken(ctx context.Context, userID, tokenHash, purpose string, expiresAt time.Time) error {
-	query := `
-		INSERT INTO password_reset_tokens (user_id, token_hash, purpose, expires_at)
-		VALUES ($1, $2, $3, $4)
-	`
-	_, err := r.db.Exec(ctx, query, userID, tokenHash, purpose, expiresAt)
-	if err != nil {
-		return fmt.Errorf("insert reset/setup token: %w", err)
-	}
-	return nil
 }
 
 // RestoreUser reactivates a soft-deleted user. Returns ErrUserNotFound if the user is not deleted.

@@ -16,7 +16,7 @@ func TestJWTGenerateAndValidate(t *testing.T) {
 	secret := "test-jwt-secret-key-1234567890"
 
 	t.Run("valid token roundtrip", func(t *testing.T) {
-		tok, err := GenerateAccessToken("user-123", "alice@cadence.local", "judge", 3, secret, 15*time.Minute)
+		tok, err := GenerateAccessToken("user-123", "alice@cadence.local", "user", "judge", 3, secret, 15*time.Minute)
 		if err != nil {
 			t.Fatalf("unexpected error generating token: %v", err)
 		}
@@ -25,13 +25,13 @@ func TestJWTGenerateAndValidate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error validating token: %v", err)
 		}
-		if claims.UserID != "user-123" || claims.Email != "alice@cadence.local" || claims.Role != "judge" || claims.TokenVersion != 3 {
+		if claims.UserID != "user-123" || claims.Email != "alice@cadence.local" || claims.GlobalRole != "user" || claims.Role != "judge" || claims.TokenVersion != 3 {
 			t.Fatalf("unexpected claims: %+v", claims)
 		}
 	})
 
 	t.Run("expired token rejected", func(t *testing.T) {
-		tok, err := GenerateAccessToken("user-123", "alice@cadence.local", "judge", 1, secret, -1*time.Minute)
+		tok, err := GenerateAccessToken("user-123", "alice@cadence.local", "user", "judge", 1, secret, -1*time.Minute)
 		if err != nil {
 			t.Fatalf("unexpected error generating expired token: %v", err)
 		}
@@ -41,7 +41,7 @@ func TestJWTGenerateAndValidate(t *testing.T) {
 	})
 
 	t.Run("wrong secret rejected", func(t *testing.T) {
-		tok, _ := GenerateAccessToken("user-123", "alice@cadence.local", "judge", 1, secret, 15*time.Minute)
+		tok, _ := GenerateAccessToken("user-123", "alice@cadence.local", "user", "judge", 1, secret, 15*time.Minute)
 		if _, err := ValidateAccessToken(tok, "wrong-secret"); !errors.Is(err, ErrInvalidToken) {
 			t.Fatalf("expected ErrInvalidToken for wrong secret, got %v", err)
 		}

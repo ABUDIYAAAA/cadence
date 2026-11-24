@@ -25,15 +25,15 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, email, password_hash, name, phone_number, team_id,
-		       is_password_configured, is_active, token_version, created_at, updated_at
+		SELECT id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE LOWER(email) = LOWER($1)
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.TeamID,
-		&u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -46,15 +46,15 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) {
 	query := `
-		SELECT id, email, password_hash, name, phone_number, team_id,
-		       is_password_configured, is_active, token_version, created_at, updated_at
+		SELECT id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.TeamID,
-		&u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -62,6 +62,70 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) 
 		}
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
+	return &u, nil
+}
+
+func (r *Repository) GetUserByGoogleID(ctx context.Context, googleID string) (*User, error) {
+	query := `
+		SELECT id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		       is_active, token_version, created_at, updated_at
+		FROM users
+		WHERE google_id = $1
+	`
+	var u User
+	err := r.db.QueryRow(ctx, query, googleID).Scan(
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("get user by google id: %w", err)
+	}
+	return &u, nil
+}
+
+// UpsertGoogleUser creates or updates a user via Google OAuth identity.
+func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultGlobalRole string) (*User, error) {
+	if defaultGlobalRole == "" {
+		defaultGlobalRole = GlobalRoleUser
+	}
+
+	query := `
+		INSERT INTO users (email, name, google_id, avatar_url, global_role, is_active)
+		VALUES (LOWER($1), $2, $3, $4, $5, TRUE)
+		ON CONFLICT (email) DO UPDATE
+		SET name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END,
+		    google_id = COALESCE(users.google_id, EXCLUDED.google_id),
+		    avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
+		    global_role = CASE WHEN users.global_role = 'dev' THEN 'dev' ELSE EXCLUDED.global_role END,
+		    is_active = TRUE,
+		    deleted_at = NULL,
+		    updated_at = CURRENT_TIMESTAMP
+		RETURNING id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		          is_active, token_version, created_at, updated_at
+	`
+	var u User
+	err := r.db.QueryRow(ctx, query, email, name, googleID, avatarURL, defaultGlobalRole).Scan(
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("upsert google user: %w", err)
+	}
+
+	// Link user to default competition
+	compRole := "participant"
+	if u.GlobalRole == GlobalRoleDev {
+		compRole = "owner"
+	}
+	_, _ = r.db.Exec(ctx, `
+		INSERT INTO user_competitions (user_id, competition_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::competition_role)
+		ON CONFLICT (competition_id, user_id) DO NOTHING
+	`, u.ID, compRole)
+
 	return &u, nil
 }
 
@@ -94,15 +158,15 @@ func (r *Repository) GetUserCompetitions(ctx context.Context, userID string) ([]
 	return comps, nil
 }
 
-func (r *Repository) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+func (r *Repository) SetGlobalRole(ctx context.Context, userID, globalRole string) error {
 	query := `
 		UPDATE users
-		SET password_hash = $1, is_password_configured = TRUE, token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
+		SET global_role = $1, token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $2
 	`
-	tag, err := r.db.Exec(ctx, query, passwordHash, userID)
+	tag, err := r.db.Exec(ctx, query, globalRole, userID)
 	if err != nil {
-		return fmt.Errorf("update password: %w", err)
+		return fmt.Errorf("set global role: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound
@@ -181,51 +245,6 @@ func (r *Repository) RevokeAllUserTokens(ctx context.Context, userID string) err
 	_, err := r.db.Exec(ctx, query, userID)
 	if err != nil {
 		return fmt.Errorf("revoke all user tokens: %w", err)
-	}
-	return nil
-}
-
-func (r *Repository) CreateResetToken(ctx context.Context, t *ResetToken) error {
-	query := `
-		INSERT INTO password_reset_tokens (user_id, token_hash, purpose, expires_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at
-	`
-	err := r.db.QueryRow(ctx, query, t.UserID, t.TokenHash, t.Purpose, t.ExpiresAt).Scan(&t.ID, &t.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("insert reset token: %w", err)
-	}
-	return nil
-}
-
-func (r *Repository) GetResetTokenByHash(ctx context.Context, tokenHash, purpose string) (*ResetToken, error) {
-	query := `
-		SELECT id, user_id, token_hash, purpose, expires_at, used_at, created_at
-		FROM password_reset_tokens
-		WHERE token_hash = $1 AND purpose = $2
-	`
-	var t ResetToken
-	err := r.db.QueryRow(ctx, query, tokenHash, purpose).Scan(
-		&t.ID, &t.UserID, &t.TokenHash, &t.Purpose, &t.ExpiresAt, &t.UsedAt, &t.CreatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrTokenNotFound
-		}
-		return nil, fmt.Errorf("get reset token by hash: %w", err)
-	}
-	return &t, nil
-}
-
-func (r *Repository) MarkResetTokenUsed(ctx context.Context, id string) error {
-	query := `
-		UPDATE password_reset_tokens
-		SET used_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
-	_, err := r.db.Exec(ctx, query, id)
-	if err != nil {
-		return fmt.Errorf("mark reset token used: %w", err)
 	}
 	return nil
 }

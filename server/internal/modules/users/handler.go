@@ -203,20 +203,3 @@ func (h *Handler) HandleRestore(w http.ResponseWriter, r *http.Request) {
 		"message": "user reactivated",
 	})
 }
-
-// HandleTriggerResetPassword triggers a password recovery email initiated by an administrator.
-func (h *Handler) HandleTriggerResetPassword(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := h.service.TriggerResetPassword(r.Context(), id); err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			utils.ErrorJSON(w, http.StatusNotFound, "user not found")
-			return
-		}
-		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to trigger password reset")
-		return
-	}
-
-	utils.JSON(w, http.StatusOK, map[string]string{
-		"message": "password reset email triggered successfully",
-	})
-}

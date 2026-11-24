@@ -110,13 +110,19 @@ func RequireMembership(repo *Repository, rdb *redis.Client) func(http.Handler) h
 				dbRole, err := repo.GetMemberRole(r.Context(), comp.ID, claims.UserID)
 				if err != nil {
 					if errors.Is(err, ErrMemberNotFound) {
-						utils.ErrorJSON(w, http.StatusForbidden, "you are not a member of this competition")
+						if claims.GlobalRole == "dev" {
+							role = "owner"
+						} else {
+							utils.ErrorJSON(w, http.StatusForbidden, "you are not a member of this competition")
+							return
+						}
+					} else {
+						utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
 						return
 					}
-					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
-					return
+				} else {
+					role = dbRole
 				}
-				role = dbRole
 
 				// Cache in Redis (15m TTL)
 				if rdb != nil {
@@ -151,6 +157,16 @@ func RequireCompetitionRoles(allowedRoles ...string) func(http.Handler) http.Han
 			compCtx, ok := FromContext(r.Context())
 			if !ok {
 				utils.ErrorJSON(w, http.StatusForbidden, "competition access context missing")
+				return
+			}
+
+			// Global dev role has top-level bypass across all competition roles
+			if compCtx.Role == "dev" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if claims, hasClaims := auth.GetUserClaims(r.Context()); hasClaims && claims.GlobalRole == "dev" {
+				next.ServeHTTP(w, r)
 				return
 			}
 

@@ -91,11 +91,6 @@ export function RoleDashboard({
               <Badge variant="blue" size="sm" className="capitalize">
                 {expectedRole} portal
               </Badge>
-              {isDev && (
-                <Badge variant="amber" size="sm">
-                  Global Dev
-                </Badge>
-              )}
             </div>
             <p className="text-sm text-[var(--ink-secondary)] mt-1">
               {description}

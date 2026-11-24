@@ -41,9 +41,10 @@ type RefreshToken struct {
 
 // UserEventRole represents a role the user holds in a specific event.
 type UserEventRole struct {
-	EventID   string  `json:"event_id"`
-	EventSlug string  `json:"event_slug"`
-	EventName string  `json:"event_name"`
-	LogoURL   *string `json:"logo_url,omitempty"`
-	Role      string  `json:"role"`
+	EventID     string  `json:"event_id"`
+	EventSlug   string  `json:"event_slug"`
+	EventName   string  `json:"event_name"`
+	LogoURL     *string `json:"logo_url,omitempty"`
+	MemberCount int     `json:"member_count"`
+	Role        string  `json:"role"`
 }

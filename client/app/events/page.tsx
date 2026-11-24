@@ -3,8 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   Calendar,
+  ChevronRight,
   Plus,
   Shield,
   Trash2,
@@ -26,16 +26,38 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
+import { LogoUploadField } from "@/components/events/logo-upload-field";
 
 interface DisplayEventCard {
   id: string;
   slug: string;
   name: string;
   description?: string | null;
+  logo_url?: string | null;
+  member_count: number;
   role: EventRole;
+}
+
+function EventsListSkeleton() {
+  return (
+    <div className="rounded-[10px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-card)] overflow-hidden divide-y divide-[var(--card-line)]">
+      {Array.from({ length: 3 }).map((_, idx) => (
+        <div key={idx} className="flex items-center justify-between gap-4 px-4 py-3.5">
+          <div className="flex items-center gap-3.5 min-w-0 flex-1">
+            <Skeleton className="h-10 w-10 shrink-0 rounded-[8px]" />
+            <div className="space-y-2 flex-1 max-w-[220px]">
+              <Skeleton className="h-4 w-3/4 rounded-[6px]" />
+              <Skeleton className="h-3 w-1/2 rounded-[6px]" />
+            </div>
+          </div>
+          <Skeleton className="h-4 w-4 shrink-0 rounded-[4px]" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function EventsSelectionPage() {
@@ -61,6 +83,7 @@ export default function EventsSelectionPage() {
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [description, setDescription] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerName, setOwnerName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
@@ -85,6 +108,8 @@ export default function EventsSelectionPage() {
         slug: ev.slug,
         name: ev.name,
         description: ev.description,
+        logo_url: ev.logo_url ?? roleBySlug.get(ev.slug)?.logo_url ?? null,
+        member_count: ev.member_count ?? roleBySlug.get(ev.slug)?.member_count ?? 0,
         role: roleBySlug.get(ev.slug)?.role ?? "owner",
       }));
     }
@@ -96,6 +121,8 @@ export default function EventsSelectionPage() {
         slug: ue.event_slug,
         name: full?.name || ue.event_name || ue.event_slug,
         description: full?.description ?? null,
+        logo_url: full?.logo_url ?? ue.logo_url ?? null,
+        member_count: full?.member_count ?? ue.member_count ?? 0,
         role: ue.role,
       };
     });
@@ -112,6 +139,7 @@ export default function EventsSelectionPage() {
     setSlug("");
     setSlugTouched(false);
     setDescription("");
+    setLogoUrl("");
     setOwnerEmail("");
     setOwnerName("");
     setCreateError(null);
@@ -138,6 +166,7 @@ export default function EventsSelectionPage() {
         name: trimmedName,
         slug: trimmedSlug,
         description: description.trim() || undefined,
+        logo_url: logoUrl.trim() || undefined,
         owner_email: ownerEmail.trim() || undefined,
         owner_name: ownerName.trim() || undefined,
       });
@@ -165,33 +194,31 @@ export default function EventsSelectionPage() {
 
   if (isLoading || !isAuthenticated || !user) {
     return (
-      <div className="mx-auto max-w-5xl p-6 sm:p-8 font-sans">
-        <SkeletonCard />
+      <div className="mx-auto max-w-xl px-4 sm:px-6 py-10 sm:py-14 font-sans space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-28 rounded-[6px]" />
+          <Skeleton className="h-4 w-72 rounded-[6px]" />
+        </div>
+        <EventsListSkeleton />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10 font-sans space-y-6">
+    <div className="mx-auto max-w-xl px-4 sm:px-6 py-10 sm:py-14 font-sans space-y-6">
       {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               Events
             </h1>
             <Badge variant="subtle" size="sm">
               {cards.length} {cards.length === 1 ? "event" : "events"}
             </Badge>
-            {isDev && (
-              <Badge variant="amber" size="sm" className="gap-1">
-                <Shield className="h-3 w-3" />
-                Global Dev
-              </Badge>
-            )}
           </div>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
-            Select an event to open its dashboard and switch between its competitions.
+            Select an event to open its workspace.
           </p>
         </div>
 
@@ -209,7 +236,7 @@ export default function EventsSelectionPage() {
             <Button
               variant="primary"
               size="sm"
-              className="h-9 px-4 text-xs gap-1.5 font-semibold"
+              className="h-9 px-3.5 text-xs gap-1.5 font-semibold"
               onClick={() => {
                 resetCreateForm();
                 setCreateOpen(true);
@@ -222,12 +249,9 @@ export default function EventsSelectionPage() {
         )}
       </header>
 
-      {/* Event Cards */}
+      {/* Centered Squared Event List */}
       {eventsLoading && cards.length === 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
+        <EventsListSkeleton />
       ) : cards.length === 0 ? (
         <EmptyState
           title="No events linked to your email yet"
@@ -250,7 +274,7 @@ export default function EventsSelectionPage() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="rounded-[10px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-card)] overflow-hidden divide-y divide-[var(--card-line)]">
           {cards.map((item) => {
             const isSelected = activeEventSlug === item.slug;
 
@@ -266,67 +290,62 @@ export default function EventsSelectionPage() {
                     handleSelectEvent(item);
                   }
                 }}
-                className={`group relative rounded-[16px] border p-5 bg-[var(--card-solid)] shadow-[var(--shadow-card)] transition-[border-color,box-shadow] duration-150 ease-out cursor-pointer flex flex-col justify-between gap-4 ${
-                  isSelected
-                    ? "border-[var(--color-blue)]"
-                    : "border-[var(--card-border)] hover:border-[var(--color-blue-border)]"
+                className={`group flex items-center justify-between gap-4 px-4 py-3.5 transition-colors duration-150 cursor-pointer hover:bg-[var(--card-solid-subtle)] ${
+                  isSelected ? "bg-[var(--card-solid-subtle)]" : ""
                 }`}
               >
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 shrink-0 text-[var(--ink-secondary)]" />
-                        <h2 className="text-base font-bold tracking-tight text-[var(--ink-primary)] truncate">
-                          {item.name}
-                        </h2>
-                      </div>
-                    </div>
+                <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
+                    {item.logo_url ? (
+                      <img
+                        src={item.logo_url}
+                        alt={`${item.name} logo`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <Calendar className="h-4 w-4 text-[var(--ink-secondary)]" />
+                    )}
+                  </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] truncate">
+                        {item.name}
+                      </h2>
                       {isSelected && (
                         <Badge variant="emerald" dot size="sm">
                           Active
                         </Badge>
                       )}
-                      <Badge variant="subtle" size="sm" className="capitalize">
-                        {item.role}
-                      </Badge>
                     </div>
+                    <p className="text-xs text-[var(--ink-secondary)] mt-0.5">
+                      {item.member_count}{" "}
+                      {item.member_count === 1 ? "member" : "members"}
+                    </p>
                   </div>
-
-                  {item.description ? (
-                    <p className="text-xs text-[var(--ink-secondary)] leading-relaxed line-clamp-2">
-                      {item.description}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-[var(--ink-secondary)] leading-relaxed">
-                      Event workspace and competition dashboard.
-                    </p>
-                  )}
                 </div>
 
-                <div className="flex items-center justify-between pt-3.5 border-t border-[var(--card-line)]">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-blue)] group-hover:underline">
-                    <span>Enter event</span>
-                    <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                  </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge variant="subtle" size="sm" className="capitalize">
+                    {item.role}
+                  </Badge>
 
                   {isDev && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                    <button
                       type="button"
-                      className="h-7 px-2 text-xs text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] gap-1"
+                      aria-label={`Delete ${item.name}`}
+                      title="Delete event"
+                      className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--ink-tertiary)] hover:text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer"
                       onClick={(e) => {
                         e.stopPropagation();
                         setDeletingEvent(item);
                       }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </Button>
+                    </button>
                   )}
+
+                  <ChevronRight className="h-4 w-4 text-[var(--ink-tertiary)] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-[var(--ink-primary)]" />
                 </div>
               </div>
             );
@@ -400,6 +419,11 @@ export default function EventsSelectionPage() {
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            disabled={createEventMutation.isPending}
+          />
+          <LogoUploadField
+            value={logoUrl}
+            onChange={setLogoUrl}
             disabled={createEventMutation.isPending}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-[var(--card-line)]">

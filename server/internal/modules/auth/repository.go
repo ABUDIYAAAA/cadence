@@ -122,7 +122,9 @@ func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name
 // Platform devs automatically see all events with 'owner' role unless explicitly assigned another non-banned role.
 func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEventRole, error) {
 	query := `
-		SELECT e.id, e.slug, e.name, e.logo_url, COALESCE(ue.role::text, 'owner') AS role
+		SELECT e.id, e.slug, e.name, e.logo_url,
+		       (SELECT COUNT(*) FROM user_events ue_c JOIN users u_c ON u_c.id = ue_c.user_id WHERE ue_c.event_id = e.id AND ue_c.is_banned = FALSE AND u_c.deleted_at IS NULL) AS member_count,
+		       COALESCE(ue.role::text, 'owner') AS role
 		FROM events e
 		JOIN users u ON u.id = $1
 		LEFT JOIN user_events ue ON ue.event_id = e.id AND ue.user_id = u.id
@@ -139,7 +141,7 @@ func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEv
 	evs := make([]UserEventRole, 0)
 	for rows.Next() {
 		var item UserEventRole
-		if err := rows.Scan(&item.EventID, &item.EventSlug, &item.EventName, &item.LogoURL, &item.Role); err != nil {
+		if err := rows.Scan(&item.EventID, &item.EventSlug, &item.EventName, &item.LogoURL, &item.MemberCount, &item.Role); err != nil {
 			return nil, fmt.Errorf("scan user event: %w", err)
 		}
 		evs = append(evs, item)

@@ -11,6 +11,7 @@ type Event struct {
 	Name        string    `json:"name"`
 	Description *string   `json:"description,omitempty"`
 	LogoURL     *string   `json:"logo_url,omitempty"`
+	MemberCount int       `json:"member_count"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

@@ -6,6 +6,8 @@ export interface Event {
   slug: string;
   name: string;
   description?: string | null;
+  logo_url?: string | null;
+  member_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +20,7 @@ export interface CreateEventRequest {
   slug: string;
   name: string;
   description?: string;
+  logo_url?: string;
   owner_email?: string;
   owner_id?: string;
   owner_name?: string;
@@ -26,6 +29,7 @@ export interface CreateEventRequest {
 export interface UpdateEventRequest {
   name?: string;
   description?: string;
+  logo_url?: string;
 }
 
 export interface TransferOwnershipRequest {

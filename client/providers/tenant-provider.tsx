@@ -19,7 +19,7 @@ import {
   subscribeTenantScope,
   TenantScope,
 } from "@/lib/api-client";
-import { EventRole, UserEventRole } from "@/types/auth";
+import { UserEventRole, UserRole } from "@/types/auth";
 import { Competition } from "@/types/competitions";
 
 interface TenantContextType {
@@ -30,7 +30,7 @@ interface TenantContextType {
   activeCompetition: Competition | null;
   competitions: Competition[];
   isLoadingCompetitions: boolean;
-  effectiveRole: EventRole | null;
+  effectiveRole: UserRole | null;
   isDev: boolean;
   isOwner: boolean;
   isAdmin: boolean;

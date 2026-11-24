@@ -148,9 +148,11 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID string) (*Event, e
 // ListEvents returns all events ordered by creation time.
 func (r *Repository) ListEvents(ctx context.Context) ([]Event, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, slug, name, description, logo_url, created_at, updated_at
-		FROM events
-		ORDER BY created_at DESC
+		SELECT e.id, e.slug, e.name, e.description, e.logo_url,
+		       (SELECT COUNT(*) FROM user_events ue JOIN users u ON u.id = ue.user_id WHERE ue.event_id = e.id AND ue.is_banned = FALSE AND u.deleted_at IS NULL) AS member_count,
+		       e.created_at, e.updated_at
+		FROM events e
+		ORDER BY e.created_at DESC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
@@ -160,7 +162,7 @@ func (r *Repository) ListEvents(ctx context.Context) ([]Event, error) {
 	list := make([]Event, 0)
 	for rows.Next() {
 		var ev Event
-		if err := rows.Scan(&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.LogoURL, &ev.CreatedAt, &ev.UpdatedAt); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.LogoURL, &ev.MemberCount, &ev.CreatedAt, &ev.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		list = append(list, ev)

@@ -9,6 +9,7 @@ export interface UserEventRole {
   event_slug: string;
   event_name: string;
   logo_url?: string | null;
+  member_count?: number;
   role: EventRole;
 }
 

@@ -38,12 +38,12 @@ import {
 import { getAuthenticatedHomeRoute, getDashboardRoute } from "@/lib/auth-routes";
 import { slugify } from "@/lib/csv";
 import { apiErrorMessage } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
+import { LogoUploadField } from "@/components/events/logo-upload-field";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -97,6 +97,7 @@ export function Navbar() {
   const [eventSettingsOpen, setEventSettingsOpen] = useState(false);
   const [eventName, setEventName] = useState("");
   const [eventDesc, setEventDesc] = useState("");
+  const [eventLogoUrl, setEventLogoUrl] = useState("");
   const [newOwnerEmail, setNewOwnerEmail] = useState("");
   const [newOwnerName, setNewOwnerName] = useState("");
   const [eventError, setEventError] = useState<string | null>(null);
@@ -253,6 +254,7 @@ export function Navbar() {
   const openEventSettings = () => {
     setEventName(eventDetail?.name || activeEvent?.event_name || "");
     setEventDesc(eventDetail?.description || "");
+    setEventLogoUrl(eventDetail?.logo_url || activeEvent?.logo_url || "");
     setNewOwnerEmail("");
     setNewOwnerName("");
     setEventError(null);
@@ -270,6 +272,7 @@ export function Navbar() {
       await updateEvent.mutateAsync({
         name: eventName.trim(),
         description: eventDesc.trim(),
+        logo_url: eventLogoUrl.trim(),
       });
       toast.success("Event details updated.", "Event updated");
       setEventSettingsOpen(false);
@@ -366,7 +369,15 @@ export function Navbar() {
                     title="Switch Event"
                     className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] text-xs font-semibold text-[var(--ink-primary)] hover:border-[var(--color-blue)] transition-colors truncate max-w-[175px] sm:max-w-[240px]"
                   >
-                    <Calendar className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
+                    {(eventDetail?.logo_url || activeEvent?.logo_url) ? (
+                      <img
+                        src={(eventDetail?.logo_url || activeEvent?.logo_url)!}
+                        alt={displayEventName || "Event logo"}
+                        className="h-4 w-4 shrink-0 rounded-[4px] object-cover"
+                      />
+                    ) : (
+                      <Calendar className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
+                    )}
                     <span className="truncate">{displayEventName}</span>
                     {role && (
                       <span className="hidden sm:inline-flex items-center rounded-[6px] px-1.5 py-0.5 text-[11px] font-medium capitalize bg-[var(--card-solid)] text-[var(--ink-secondary)] border border-[var(--card-line)] shrink-0">
@@ -524,50 +535,6 @@ export function Navbar() {
 
                   {dropdownOpen && (
                     <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
-                      <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[8px] border border-[var(--card-line)] mb-1.5">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[11px] font-medium text-[var(--ink-secondary)]">
-                            Signed in
-                          </span>
-                          <div className="flex items-center gap-1">
-                            {isDev ? (
-                              <Badge variant="amber" size="sm">
-                                dev
-                              </Badge>
-                            ) : (
-                              role && (
-                                <Badge variant="subtle" size="sm" className="capitalize">
-                                  {role}
-                                </Badge>
-                              )
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] overflow-hidden bg-[var(--card-solid)] border border-[var(--card-line)] text-xs font-semibold text-[var(--ink-primary)]">
-                            {showAvatarImage ? (
-                              <img
-                                src={user.avatar_url!}
-                                alt={user.name || "User avatar"}
-                                referrerPolicy="no-referrer"
-                                onError={() => setAvatarFailed(true)}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              initials
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold text-[var(--ink-primary)] truncate">
-                              {user.name}
-                            </p>
-                            <p className="text-[11px] text-[var(--ink-secondary)] truncate font-mono">
-                              {user.email}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
                       <div className="space-y-0.5">
                         {eventSlug && (
                           <Link
@@ -798,6 +765,11 @@ export function Navbar() {
               rows={2}
               value={eventDesc}
               onChange={(e) => setEventDesc(e.target.value)}
+            />
+            <LogoUploadField
+              value={eventLogoUrl}
+              onChange={setEventLogoUrl}
+              disabled={updateEvent.isPending}
             />
           </form>
 

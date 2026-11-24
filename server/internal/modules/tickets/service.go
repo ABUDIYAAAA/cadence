@@ -139,6 +139,9 @@ func (s *Service) CheckIn(
 		}, ErrAlreadyCheckedIn
 	}
 
+	// Synchronize with the event's default Check-In scan session
+	_ = s.repo.RecordDefaultCheckInScan(ctx, info.TicketID, volunteerID)
+
 	checkedAtStr := checkedInAt.Format(time.RFC3339)
 	metrics.InstrumentTicketScan("valid")
 
@@ -160,11 +163,13 @@ func (s *Service) CheckIn(
 	)
 
 	return &CheckInResponse{
-		Success:     true,
-		Message:     "Check-in verified successfully",
-		TicketCode:  ticketCode,
-		CheckedInAt: checkedAtStr,
-		Attendee:    attendee,
+		Success:          true,
+		Message:          "Check-in verified successfully",
+		TicketCode:       ticketCode,
+		CheckedInAt:      checkedAtStr,
+		CheckedInByID:    volunteerID,
+		CheckedInByEmail: volunteerEmail,
+		Attendee:         attendee,
 	}, nil, nil
 }
 
@@ -467,15 +472,20 @@ func (s *Service) GetMyTicket(ctx context.Context, userID string) (*MyTicketResp
 	}
 
 	qrBase64 := fmt.Sprintf("data:image/png;base64,%s", base64.StdEncoding.EncodeToString(qrPNG))
+	attended, _ := s.repo.GetAttendedSessionsByTicketID(ctx, ticket.ID)
+	if attended == nil {
+		attended = []AttendedSessionSummary{}
+	}
 
 	return &MyTicketResponse{
-		TicketCode:   ticket.TicketCode,
-		IsCheckedIn:  ticket.IsCheckedIn,
-		CheckedInAt:  ticket.CheckedInAt,
-		EmailStatus:  ticket.EmailStatus,
-		EmailSentAt:  ticket.EmailSentAt,
-		ReleasedAt:   ticket.ReleasedAt,
-		QRCodeBase64: qrBase64,
+		TicketCode:       ticket.TicketCode,
+		IsCheckedIn:      ticket.IsCheckedIn,
+		CheckedInAt:      ticket.CheckedInAt,
+		EmailStatus:      ticket.EmailStatus,
+		EmailSentAt:      ticket.EmailSentAt,
+		ReleasedAt:       ticket.ReleasedAt,
+		QRCodeBase64:     qrBase64,
+		AttendedSessions: attended,
 	}, nil
 }
 

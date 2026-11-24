@@ -20,11 +20,13 @@ type AttendeeDetails struct {
 
 // CheckInResponse returned on successful first-time check-in.
 type CheckInResponse struct {
-	Success     bool            `json:"success"`
-	Message     string          `json:"message"`
-	TicketCode  string          `json:"ticket_code"`
-	CheckedInAt string          `json:"checked_in_at"`
-	Attendee    AttendeeDetails `json:"attendee"`
+	Success          bool            `json:"success"`
+	Message          string          `json:"message"`
+	TicketCode       string          `json:"ticket_code"`
+	CheckedInAt      string          `json:"checked_in_at"`
+	CheckedInByID    string          `json:"checked_in_by_id,omitempty"`
+	CheckedInByEmail string          `json:"checked_in_by_email,omitempty"`
+	Attendee         AttendeeDetails `json:"attendee"`
 }
 
 // DuplicateCheckInResponse returned with HTTP 409 Conflict when a ticket was already used.
@@ -77,15 +79,26 @@ type SingleSendTicketResponse struct {
 	EmailStatus string `json:"email_status"`
 }
 
-// MyTicketResponse returned to authenticated participants viewing their own entry pass.
+// AttendedSessionSummary represents a scan session (check-in or attendance event) the participant has been recorded in.
+type AttendedSessionSummary struct {
+	SessionID     string  `json:"session_id"`
+	SessionName   string  `json:"session_name"`
+	Kind          string  `json:"kind"`
+	ScannedAt     string  `json:"scanned_at"`
+	ScannedByID   *string `json:"scanned_by_id,omitempty"`
+	ScannedByName *string `json:"scanned_by_name,omitempty"`
+}
+
+// MyTicketResponse returned to authenticated participants viewing their own entry pass and attended scan events.
 type MyTicketResponse struct {
-	TicketCode   string     `json:"ticket_code"`
-	IsCheckedIn  bool       `json:"is_checked_in"`
-	CheckedInAt  *time.Time `json:"checked_in_at,omitempty"`
-	EmailStatus  string     `json:"email_status,omitempty"`
-	EmailSentAt  *time.Time `json:"email_sent_at,omitempty"`
-	ReleasedAt   *time.Time `json:"released_at,omitempty"`
-	QRCodeBase64 string     `json:"qr_code_base64"`
+	TicketCode       string                   `json:"ticket_code"`
+	IsCheckedIn      bool                     `json:"is_checked_in"`
+	CheckedInAt      *time.Time               `json:"checked_in_at,omitempty"`
+	EmailStatus      string                   `json:"email_status,omitempty"`
+	EmailSentAt      *time.Time               `json:"email_sent_at,omitempty"`
+	ReleasedAt       *time.Time               `json:"released_at,omitempty"`
+	QRCodeBase64     string                   `json:"qr_code_base64"`
+	AttendedSessions []AttendedSessionSummary `json:"attended_sessions"`
 }
 
 // HourlyArrival represents aggregated check-ins per hour.

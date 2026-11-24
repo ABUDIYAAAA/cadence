@@ -241,6 +241,34 @@ func (r *Repository) GetTicketByUserID(ctx context.Context, userID string) (*Tic
 	return &t, nil
 }
 
+// GetAttendedSessionsByTicketID returns all scan sessions (check-in, attendance, exit) in which this ticket has been scanned.
+func (r *Repository) GetAttendedSessionsByTicketID(ctx context.Context, ticketID string) ([]AttendedSessionSummary, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT s.id, s.name, s.kind, e.scanned_at, e.scanned_by::text, u.name
+		FROM scan_events e
+		JOIN scan_sessions s ON s.id = e.session_id
+		LEFT JOIN users u ON u.id = e.scanned_by
+		WHERE e.ticket_id = $1
+		ORDER BY e.scanned_at DESC
+	`, ticketID)
+	if err != nil {
+		return nil, fmt.Errorf("query attended sessions: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]AttendedSessionSummary, 0)
+	for rows.Next() {
+		var item AttendedSessionSummary
+		var at time.Time
+		if err := rows.Scan(&item.SessionID, &item.SessionName, &item.Kind, &at, &item.ScannedByID, &item.ScannedByName); err != nil {
+			return nil, fmt.Errorf("scan attended session: %w", err)
+		}
+		item.ScannedAt = at.Format(time.RFC3339)
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 // MarkCheckedIn atomically marks a ticket as checked in. Returns checked_in_at timestamp.
 // If already checked in or non-existent, returns false without modifying.
 func (r *Repository) MarkCheckedIn(ctx context.Context, ticketID, volunteerID string) (*time.Time, bool, error) {

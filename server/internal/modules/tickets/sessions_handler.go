@@ -28,10 +28,141 @@ func (h *Handler) HandleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := h.service.CreateSession(r.Context(), req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
 	if err != nil {
+		if errors.Is(err, ErrCompetitionRequiredForTeamScan) || errors.Is(err, ErrInvalidCompetition) || errors.Is(err, ErrInvalidCheckInCode) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, ErrCheckInCodeConflict) {
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to create scan session: "+err.Error())
 		return
 	}
 	utils.JSON(w, http.StatusCreated, sess)
+}
+
+func (h *Handler) HandleGenerateDefaultCheckInCode(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req GenerateCheckInCodeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	sessionID := ""
+	if req.SessionID != nil {
+		sessionID = *req.SessionID
+	}
+	sess, err := h.service.GenerateSessionCheckInCode(r.Context(), sessionID, req.Code, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrSessionNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, "scan session not found")
+		case errors.Is(err, ErrInvalidCheckInCode):
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, ErrCheckInCodeConflict):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to generate check-in code: "+err.Error())
+		}
+		return
+	}
+	utils.JSON(w, http.StatusOK, sess)
+}
+
+func (h *Handler) HandleClearDefaultCheckInCode(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	sess, err := h.service.ClearSessionCheckInCode(r.Context(), "", claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to clear check-in code: "+err.Error())
+		return
+	}
+	utils.JSON(w, http.StatusOK, sess)
+}
+
+func (h *Handler) HandleGenerateSessionCode(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req GenerateCheckInCodeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	sess, err := h.service.GenerateSessionCheckInCode(r.Context(), chi.URLParam(r, "sessionId"), req.Code, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrSessionNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, "scan session not found")
+		case errors.Is(err, ErrInvalidCheckInCode):
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, ErrCheckInCodeConflict):
+			utils.ErrorJSON(w, http.StatusConflict, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to generate check-in code: "+err.Error())
+		}
+		return
+	}
+	utils.JSON(w, http.StatusOK, sess)
+}
+
+func (h *Handler) HandleClearSessionCode(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	sess, err := h.service.ClearSessionCheckInCode(r.Context(), chi.URLParam(r, "sessionId"), claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "scan session not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to clear check-in code: "+err.Error())
+		return
+	}
+	utils.JSON(w, http.StatusOK, sess)
+}
+
+func (h *Handler) HandleCheckInByCode(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req CheckInByCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if errs := utils.ValidateStruct(&req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	resp, rejection, err := h.service.CheckInByCode(r.Context(), req.Code, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	switch {
+	case err == nil:
+		utils.JSON(w, http.StatusOK, resp)
+	case errors.Is(err, ErrInvalidCheckInCode):
+		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrNotEventMember):
+		utils.ErrorJSON(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, ErrAlreadyScanned), errors.Is(err, ErrSessionClosed):
+		utils.JSON(w, http.StatusConflict, rejection)
+	case errors.Is(err, ErrNotCheckedIn), errors.Is(err, ErrExitNotRequired):
+		utils.JSON(w, http.StatusUnprocessableEntity, rejection)
+	default:
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to check in with code: "+err.Error())
+	}
 }
 
 func (h *Handler) HandleListSessions(w http.ResponseWriter, r *http.Request) {

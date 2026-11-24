@@ -114,7 +114,7 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	}
 
 	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v2/teams/%s/members/%s", betaTeam.ID, tempUser.ID), nil, http.StatusOK, nil)
-	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/users/%s", tempUser.ID), nil, http.StatusOK, nil)
+	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/members/%s", tempUser.ID), nil, http.StatusOK, nil)
 
 	// =========================================================================
 	// PHASE 3: Ticket Issuance, Mailpit PNG Attachment Verification & Gate Check-In
@@ -513,7 +513,7 @@ func TestStage3_FullHackathonLifecycleWorkflow(t *testing.T) {
 	// PHASE 6: Asynchronous Audit Log Verification & CSV Export
 	// =========================================================================
 	requiredActions := []string{
-		audit.ActionUserBulkImport,
+		audit.ActionEventMemberAssign,
 		audit.ActionTicketIssued,
 		audit.ActionTicketCheckIn,
 		audit.ActionTicketDuplicateScan,

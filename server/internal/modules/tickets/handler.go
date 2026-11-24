@@ -40,7 +40,7 @@ func (h *Handler) HandleCheckIn(w http.ResponseWriter, r *http.Request) {
 	ip := r.RemoteAddr
 	ua := r.UserAgent()
 
-	resp, duplicateResp, err := h.service.CheckIn(r.Context(), claims.UserID, claims.Email, claims.Role, req.TicketCode, ip, ua)
+	resp, duplicateResp, err := h.service.CheckIn(r.Context(), claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), req.TicketCode, ip, ua)
 	if err != nil {
 		if errors.Is(err, ErrAlreadyCheckedIn) {
 			utils.JSON(w, http.StatusConflict, duplicateResp)
@@ -79,7 +79,7 @@ func (h *Handler) HandleSendSingle(w http.ResponseWriter, r *http.Request) {
 	ip := r.RemoteAddr
 	ua := r.UserAgent()
 
-	resp, err := h.service.SendSingleTicket(r.Context(), targetUserID, req, claims.UserID, claims.Email, claims.Role, ip, ua)
+	resp, err := h.service.SendSingleTicket(r.Context(), targetUserID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua)
 	if err != nil {
 		if errors.Is(err, ErrInvalidEmailSubject) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
@@ -109,7 +109,7 @@ func (h *Handler) HandleBulkSend(w http.ResponseWriter, r *http.Request) {
 	ip := r.RemoteAddr
 	ua := r.UserAgent()
 
-	resp, err := h.service.BulkSendTickets(r.Context(), req, claims.UserID, claims.Email, claims.Role, ip, ua)
+	resp, err := h.service.BulkSendTickets(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua)
 	if err != nil {
 		if errors.Is(err, ErrInvalidDomain) || errors.Is(err, ErrInvalidEmailSubject) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())

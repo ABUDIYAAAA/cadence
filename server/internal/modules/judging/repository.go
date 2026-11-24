@@ -85,13 +85,14 @@ func (r *Repository) resolveCompetitionID(ctx context.Context, explicitCompID st
 	if comp, ok := competitions.GetCompetition(ctx); ok && comp != nil && comp.ID != "" {
 		return comp.ID
 	}
-	if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil && evCtx.EventID != "" {
-		var compID string
-		if err := r.db.QueryRow(ctx, `SELECT id FROM competitions WHERE event_id = $1 ORDER BY created_at ASC LIMIT 1`, evCtx.EventID).Scan(&compID); err == nil && compID != "" {
-			return compID
-		}
-	}
 	return competitions.DefaultCompetitionID
+}
+
+func compScopedSettingKey(compID, key string) string {
+	if compID == "" {
+		compID = competitions.DefaultCompetitionID
+	}
+	return fmt.Sprintf("comp:%s:%s", compID, key)
 }
 
 // CreateRound creates a new judging round with criteria in a transaction.
@@ -157,10 +158,11 @@ func (r *Repository) CreateRound(ctx context.Context, req CreateRoundRequest) (s
 
 // GetRound retrieves round metadata and criteria.
 func (r *Repository) GetRound(ctx context.Context, id string) (*CreateRoundRequest, string, int, int, []CriterionOutput, error) {
-	roundQuery := `SELECT id, name, status, buffer_size, slot_duration_mins FROM judging_rounds WHERE id = $1;`
+	compID := r.resolveCompetitionID(ctx, "")
+	roundQuery := `SELECT id, name, status, buffer_size, slot_duration_mins FROM judging_rounds WHERE id = $1 AND competition_id = $2;`
 	var roundID, name, status string
 	var bufferSize, duration int
-	if err := r.db.QueryRow(ctx, roundQuery, id).Scan(&roundID, &name, &status, &bufferSize, &duration); err != nil {
+	if err := r.db.QueryRow(ctx, roundQuery, id, compID).Scan(&roundID, &name, &status, &bufferSize, &duration); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", 0, 0, nil, ErrRoundNotFound
 		}
@@ -197,40 +199,21 @@ func (r *Repository) GetRound(ctx context.Context, id string) (*CreateRoundReque
 	return req, status, bufferSize, duration, criteria, nil
 }
 
-// ListRounds returns all judging rounds in the active competition or event.
+// ListRounds returns all judging rounds in the active competition.
 func (r *Repository) ListRounds(ctx context.Context) ([]map[string]any, error) {
-	var query string
-	var args []any
-	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.CompetitionID != "" {
-		query = `
-			SELECT r.id, r.competition_id, r.name, r.status, r.buffer_size, r.slot_duration_mins, r.created_at,
-			       COUNT(DISTINCT p.id) as panel_count,
-			       COUNT(DISTINCT s.id) as slot_count
-			FROM judging_rounds r
-			LEFT JOIN judging_panels p ON p.round_id = r.id
-			LEFT JOIN judging_slots s ON s.panel_id = p.id
-			WHERE r.competition_id = $1
-			GROUP BY r.id
-			ORDER BY r.created_at DESC;
-		`
-		args = []any{compCtx.CompetitionID}
-	} else {
-		eventID := resolveEventID(ctx)
-		query = `
-			SELECT r.id, r.competition_id, r.name, r.status, r.buffer_size, r.slot_duration_mins, r.created_at,
-			       COUNT(DISTINCT p.id) as panel_count,
-			       COUNT(DISTINCT s.id) as slot_count
-			FROM judging_rounds r
-			JOIN competitions c ON c.id = r.competition_id
-			LEFT JOIN judging_panels p ON p.round_id = r.id
-			LEFT JOIN judging_slots s ON s.panel_id = p.id
-			WHERE c.event_id = $1
-			GROUP BY r.id
-			ORDER BY r.created_at DESC;
-		`
-		args = []any{eventID}
-	}
-	rows, err := r.db.Query(ctx, query, args...)
+	compID := r.resolveCompetitionID(ctx, "")
+	query := `
+		SELECT r.id, r.competition_id, r.name, r.status, r.buffer_size, r.slot_duration_mins, r.created_at,
+		       COUNT(DISTINCT p.id) as panel_count,
+		       COUNT(DISTINCT s.id) as slot_count
+		FROM judging_rounds r
+		LEFT JOIN judging_panels p ON p.round_id = r.id
+		LEFT JOIN judging_slots s ON s.panel_id = p.id
+		WHERE r.competition_id = $1
+		GROUP BY r.id
+		ORDER BY r.created_at DESC;
+	`
+	rows, err := r.db.Query(ctx, query, compID)
 	if err != nil {
 		return nil, fmt.Errorf("list rounds: %w", err)
 	}
@@ -262,6 +245,7 @@ func (r *Repository) ListRounds(ctx context.Context) ([]map[string]any, error) {
 // ActivateRound opens a draft round and stages the first buffer_size teams of each room
 // as on-deck, so volunteers and participants see who to call up immediately.
 func (r *Repository) ActivateRound(ctx context.Context, roundID string) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -271,7 +255,7 @@ func (r *Repository) ActivateRound(ctx context.Context, roundID string) error {
 	var status string
 	var bufferSize int
 	if err := tx.QueryRow(ctx,
-		`SELECT status::text, buffer_size FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID,
+		`SELECT status::text, buffer_size FROM judging_rounds WHERE id = $1 AND competition_id = $2 FOR UPDATE`, roundID, compID,
 	).Scan(&status, &bufferSize); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRoundNotFound
@@ -307,6 +291,7 @@ func (r *Repository) ActivateRound(ctx context.Context, roundID string) error {
 // With force, pitches still running are closed (completed now, scores not yet locked don't count);
 // without it the end is refused while a team is presenting.
 func (r *Repository) EndRound(ctx context.Context, roundID string, force bool) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -315,7 +300,7 @@ func (r *Repository) EndRound(ctx context.Context, roundID string, force bool) e
 
 	var status string
 	if err := tx.QueryRow(ctx,
-		`SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID,
+		`SELECT status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2 FOR UPDATE`, roundID, compID,
 	).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRoundNotFound
@@ -360,6 +345,7 @@ func (r *Repository) EndRound(ctx context.Context, roundID string, force bool) e
 // DeleteRound permanently removes a round with its criteria, rooms, slots and scores.
 // An active round is only deleted when force is set.
 func (r *Repository) DeleteRound(ctx context.Context, roundID string, force bool) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -368,7 +354,7 @@ func (r *Repository) DeleteRound(ctx context.Context, roundID string, force bool
 
 	var status string
 	if err := tx.QueryRow(ctx,
-		`SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID,
+		`SELECT status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2 FOR UPDATE`, roundID, compID,
 	).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRoundNotFound
@@ -387,8 +373,9 @@ func (r *Repository) DeleteRound(ctx context.Context, roundID string, force bool
 
 // UpdateRoundStatus updates the status of a judging round.
 func (r *Repository) UpdateRoundStatus(ctx context.Context, roundID, status string) error {
-	query := `UPDATE judging_rounds SET status = $2::judging_round_status, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`
-	res, err := r.db.Exec(ctx, query, roundID, status)
+	compID := r.resolveCompetitionID(ctx, "")
+	query := `UPDATE judging_rounds SET status = $2::judging_round_status, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND competition_id = $3;`
+	res, err := r.db.Exec(ctx, query, roundID, status, compID)
 	if err != nil {
 		return fmt.Errorf("update round status: %w", err)
 	}
@@ -400,11 +387,20 @@ func (r *Repository) UpdateRoundStatus(ctx context.Context, roundID, status stri
 
 // CreatePanel creates a panel in a room and assigns judges.
 func (r *Repository) CreatePanel(ctx context.Context, req CreatePanelRequest) (string, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	var roundExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM judging_rounds WHERE id = $1 AND competition_id = $2)`, req.RoundID, compID).Scan(&roundExists); err != nil {
+		return "", fmt.Errorf("verify round: %w", err)
+	}
+	if !roundExists {
+		return "", ErrRoundNotFound
+	}
 
 	var panelID string
 	query := `
@@ -477,6 +473,7 @@ func (r *Repository) SetPanelJudges(ctx context.Context, panelID string, judgeID
 		return nil, nil, ErrNoJudges
 	}
 
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin tx: %w", err)
@@ -484,7 +481,12 @@ func (r *Repository) SetPanelJudges(ctx context.Context, panelID string, judgeID
 	defer tx.Rollback(ctx)
 
 	var roundID string
-	if err := tx.QueryRow(ctx, `SELECT round_id FROM judging_panels WHERE id = $1 FOR UPDATE;`, panelID).Scan(&roundID); err != nil {
+	if err := tx.QueryRow(ctx, `
+		SELECT p.round_id
+		FROM judging_panels p
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE p.id = $1 AND r.competition_id = $2
+		FOR UPDATE OF p;`, panelID, compID).Scan(&roundID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, ErrPanelNotFound
 		}
@@ -572,14 +574,16 @@ func (r *Repository) SetPanelJudges(ctx context.Context, panelID string, judgeID
 
 // GetRoundPanels lists a round's panels with judge counts and the teams each already holds.
 func (r *Repository) GetRoundPanels(ctx context.Context, roundID string) ([]RoundPanelOverview, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	rows, err := r.db.Query(ctx, `
 		SELECT p.id, p.name, p.room,
 			COALESCE((SELECT array_agg(pj.judge_id::text ORDER BY pj.judge_id) FROM judging_panel_judges pj WHERE pj.panel_id = p.id), '{}'),
 			COALESCE((SELECT array_agg(s.team_id::text ORDER BY s.sequence_order)
 			          FROM judging_slots s WHERE s.panel_id = p.id), '{}')
 		FROM judging_panels p
-		WHERE p.round_id = $1
-		ORDER BY p.room ASC, p.name ASC`, roundID)
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE p.round_id = $1 AND r.competition_id = $2
+		ORDER BY p.room ASC, p.name ASC`, roundID, compID)
 	if err != nil {
 		return nil, fmt.Errorf("query round panels: %w", err)
 	}
@@ -635,12 +639,14 @@ func (r *Repository) GetRoundPanels(ctx context.Context, roundID string) ([]Roun
 
 // GetAssignedJudges lists judges already seated on a panel in the round, with that panel.
 func (r *Repository) GetAssignedJudges(ctx context.Context, roundID string) ([]AssignedJudge, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	rows, err := r.db.Query(ctx, `
 		SELECT pj.judge_id, p.id, p.name
 		FROM judging_panel_judges pj
 		JOIN judging_panels p ON p.id = pj.panel_id
-		WHERE p.round_id = $1
-		ORDER BY p.name ASC`, roundID)
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE p.round_id = $1 AND r.competition_id = $2
+		ORDER BY p.name ASC`, roundID, compID)
 	if err != nil {
 		return nil, fmt.Errorf("query assigned judges: %w", err)
 	}
@@ -660,6 +666,7 @@ func (r *Repository) GetAssignedJudges(ctx context.Context, roundID string) ([]A
 // ConfigureSlots assigns sequential slots for teams in a panel.
 // With appendMode the slots are added after the existing ones; otherwise the sequence is replaced.
 func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots []SlotAssignment, appendMode bool) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -673,9 +680,9 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 		SELECT r.slot_duration_mins, r.id
 		FROM judging_panels p 
 		JOIN judging_rounds r ON r.id = p.round_id 
-		WHERE p.id = $1
+		WHERE p.id = $1 AND r.competition_id = $2
 		FOR UPDATE OF p;
-	`, panelID).Scan(&durationMins, &roundID)
+	`, panelID, compID).Scan(&durationMins, &roundID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPanelNotFound
@@ -684,16 +691,27 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 	}
 
 	teamIDs := make([]string, len(slots))
+	distinctTeams := make(map[string]struct{}, len(slots))
 	for i, s := range slots {
 		teamIDs[i] = s.TeamID
+		distinctTeams[s.TeamID] = struct{}{}
+	}
+	if len(distinctTeams) > 0 {
+		var validTeams int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(DISTINCT id) FROM teams WHERE id = ANY($1::uuid[]) AND competition_id = $2`, teamIDs, compID).Scan(&validTeams); err != nil {
+			return fmt.Errorf("verify slot teams: %w", err)
+		}
+		if validTeams != len(distinctTeams) {
+			return ErrUnknownTeam
+		}
 	}
 
 	// Any team can be scheduled. One that wasn't in the CSV import joins the round's roster, so it
 	// shows up alongside the imported teams and can be given custom-criterion marks.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO judging_round_teams (round_id, team_id)
-		SELECT $1, t.id FROM teams t WHERE t.id = ANY($2::uuid[])
-		ON CONFLICT DO NOTHING`, roundID, teamIDs); err != nil {
+		SELECT $1, t.id FROM teams t WHERE t.id = ANY($2::uuid[]) AND t.competition_id = $3
+		ON CONFLICT DO NOTHING`, roundID, teamIDs, compID); err != nil {
 		return fmt.Errorf("add teams to roster: %w", err)
 	}
 
@@ -773,13 +791,20 @@ func (r *Repository) seedSlotsFromTeams(ctx context.Context, panelID string) {
 
 // UpdateSlotLinks modifies submission artifacts for a slot.
 func (r *Repository) UpdateSlotLinks(ctx context.Context, slotID string, links map[string]string) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	linksJSON, err := json.Marshal(links)
 	if err != nil {
 		return fmt.Errorf("marshal links: %w", err)
 	}
 
-	query := `UPDATE judging_slots SET submission_links = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1;`
-	res, err := r.db.Exec(ctx, query, slotID, linksJSON)
+	query := `
+		UPDATE judging_slots s
+		SET submission_links = $2, updated_at = CURRENT_TIMESTAMP
+		FROM judging_panels p
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE s.id = $1 AND s.panel_id = p.id AND r.competition_id = $3;
+	`
+	res, err := r.db.Exec(ctx, query, slotID, linksJSON, compID)
 	if err != nil {
 		return fmt.Errorf("update slot links: %w", err)
 	}
@@ -789,45 +814,60 @@ func (r *Repository) UpdateSlotLinks(ctx context.Context, slotID string, links m
 	return nil
 }
 
-// SlotExists verifies if a judging slot exists.
+// SlotExists verifies if a judging slot exists in the active competition.
 func (r *Repository) SlotExists(ctx context.Context, slotID string) (bool, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	var exists bool
-	query := `SELECT EXISTS(SELECT 1 FROM judging_slots WHERE id = $1);`
-	err := r.db.QueryRow(ctx, query, slotID).Scan(&exists)
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM judging_slots s
+			JOIN judging_panels p ON p.id = s.panel_id
+			JOIN judging_rounds r ON r.id = p.round_id
+			WHERE s.id = $1 AND r.competition_id = $2
+		);
+	`
+	err := r.db.QueryRow(ctx, query, slotID, compID).Scan(&exists)
 	return exists, err
 }
 
-// CanUserUpdateSlotLinks verifies if the user belongs to the team assigned to slotID.
+// CanUserUpdateSlotLinks verifies if the user belongs to the team assigned to slotID in the active competition.
 func (r *Repository) CanUserUpdateSlotLinks(ctx context.Context, slotID, userID string) (bool, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	var allowed bool
 	query := `
 		SELECT EXISTS (
 			SELECT 1 FROM judging_slots s
+			JOIN judging_panels p ON p.id = s.panel_id
+			JOIN judging_rounds r ON r.id = p.round_id
 			JOIN team_members tm ON tm.team_id = s.team_id
 			JOIN users u ON u.id = tm.user_id AND u.deleted_at IS NULL
-			WHERE s.id = $1 AND tm.user_id = $2
+			WHERE s.id = $1 AND tm.user_id = $2 AND r.competition_id = $3
 		);
 	`
-	err := r.db.QueryRow(ctx, query, slotID, userID).Scan(&allowed)
+	err := r.db.QueryRow(ctx, query, slotID, userID, compID).Scan(&allowed)
 	return allowed, err
 }
 
-// IsJudgeAssignedToSlot checks if judgeID is mapped to the panel evaluating slotID.
+// IsJudgeAssignedToSlot checks if judgeID is mapped to the panel evaluating slotID in the active competition.
 func (r *Repository) IsJudgeAssignedToSlot(ctx context.Context, slotID, judgeID string) (bool, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	var assigned bool
 	query := `
 		SELECT EXISTS (
 			SELECT 1 FROM judging_slots s
+			JOIN judging_panels p ON p.id = s.panel_id
+			JOIN judging_rounds r ON r.id = p.round_id
 			JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
-			WHERE s.id = $1 AND pj.judge_id = $2
+			WHERE s.id = $1 AND pj.judge_id = $2 AND r.competition_id = $3
 		);
 	`
-	err := r.db.QueryRow(ctx, query, slotID, judgeID).Scan(&assigned)
+	err := r.db.QueryRow(ctx, query, slotID, judgeID, compID).Scan(&assigned)
 	return assigned, err
 }
 
-// GetJudgePanels returns panels where judgeID is an assigned evaluator.
+// GetJudgePanels returns panels where judgeID is an assigned evaluator in the active competition.
 func (r *Repository) GetJudgePanels(ctx context.Context, judgeID string) ([]JudgePanelSummary, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	query := `
 		SELECT 
 			p.id, p.name, p.room,
@@ -835,10 +875,10 @@ func (r *Repository) GetJudgePanels(ctx context.Context, judgeID string) ([]Judg
 		FROM judging_panels p
 		JOIN judging_rounds r ON r.id = p.round_id
 		JOIN judging_panel_judges pj ON pj.panel_id = p.id
-		WHERE pj.judge_id = $1 AND r.status IN ('active', 'completed')
+		WHERE pj.judge_id = $1 AND r.competition_id = $2 AND r.status IN ('active', 'completed')
 		ORDER BY r.created_at DESC, p.name ASC;
 	`
-	rows, err := r.db.Query(ctx, query, judgeID)
+	rows, err := r.db.Query(ctx, query, judgeID, compID)
 	if err != nil {
 		return nil, fmt.Errorf("query judge panels: %w", err)
 	}
@@ -943,6 +983,7 @@ func (r *Repository) GetPanelSlotsForJudge(ctx context.Context, panelID string, 
 
 // GetJudgeSlotDetails retrieves full evaluation view for a single slot, including timer info.
 func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, judgeID string) (*JudgeSlotDetails, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	query := `
 		SELECT 
 			s.id, s.panel_id, p.name, p.room, s.team_id, tm.name, s.sequence_order, s.status::text,
@@ -952,12 +993,12 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
 		JOIN teams tm ON tm.id = s.team_id
-		WHERE s.id = $1;
+		WHERE s.id = $1 AND r.competition_id = $2;
 	`
 	var d JudgeSlotDetails
 	var linksJSON []byte
 	var pausedTotalMs int64
-	err := r.db.QueryRow(ctx, query, slotID).Scan(
+	err := r.db.QueryRow(ctx, query, slotID, compID).Scan(
 		&d.SlotID, &d.PanelID, &d.PanelName, &d.Room, &d.TeamID, &d.TeamName, &d.SequenceOrder, &d.Status,
 		&d.SlotDurationMins, &d.ActualStartTime, &linksJSON,
 		&d.PausedAt, &pausedTotalMs, &d.ExtraSeconds, &d.PitchEndedAt, &d.ServerTime,
@@ -1057,6 +1098,7 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 
 // StartSlot starts a slot pitch, sets actual_start_time, and marks the next buffer_size slots as 'queued'.
 func (r *Repository) StartSlot(ctx context.Context, slotID string) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -1071,11 +1113,11 @@ func (r *Repository) StartSlot(ctx context.Context, slotID string) error {
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1
+		WHERE s.id = $1 AND r.competition_id = $2
 		FOR UPDATE OF s;
 	`
 	var roundStatus string
-	if err := tx.QueryRow(ctx, query, slotID).Scan(&panelID, &seqOrder, &bufferSize, &status, &roundStatus); err != nil {
+	if err := tx.QueryRow(ctx, query, slotID, compID).Scan(&panelID, &seqOrder, &bufferSize, &status, &roundStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSlotNotFound
 		}
@@ -1127,8 +1169,8 @@ func (r *Repository) StartSlot(ctx context.Context, slotID string) error {
 // lockInProgressSlot row-locks the slot and returns its pause timestamp, or ErrSlotNotStarted
 // unless the pitch is running.
 // Timer changes are also rejected once the pitch has ended (a judge locked their scores).
-func lockInProgressSlot(ctx context.Context, tx pgx.Tx, slotID string) (pausedAt *time.Time, err error) {
-	pausedAt, endedAt, err := lockRunningSlot(ctx, tx, slotID)
+func (r *Repository) lockInProgressSlot(ctx context.Context, tx pgx.Tx, slotID string) (pausedAt *time.Time, err error) {
+	pausedAt, endedAt, err := r.lockRunningSlot(ctx, tx, slotID)
 	if err != nil {
 		return nil, err
 	}
@@ -1140,10 +1182,16 @@ func lockInProgressSlot(ctx context.Context, tx pgx.Tx, slotID string) (pausedAt
 
 // lockRunningSlot row-locks the slot and returns its pause and pitch-end timestamps,
 // or ErrSlotNotStarted unless the slot is in progress.
-func lockRunningSlot(ctx context.Context, tx pgx.Tx, slotID string) (pausedAt, endedAt *time.Time, err error) {
+func (r *Repository) lockRunningSlot(ctx context.Context, tx pgx.Tx, slotID string) (pausedAt, endedAt *time.Time, err error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	var status string
-	err = tx.QueryRow(ctx,
-		`SELECT status::text, paused_at, pitch_ended_at FROM judging_slots WHERE id = $1 FOR UPDATE`, slotID,
+	err = tx.QueryRow(ctx, `
+		SELECT s.status::text, s.paused_at, s.pitch_ended_at
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE s.id = $1 AND r.competition_id = $2
+		FOR UPDATE OF s`, slotID, compID,
 	).Scan(&status, &pausedAt, &endedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1165,7 +1213,7 @@ func (r *Repository) PauseTimer(ctx context.Context, slotID string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	pausedAt, err := lockInProgressSlot(ctx, tx, slotID)
+	pausedAt, err := r.lockInProgressSlot(ctx, tx, slotID)
 	if err != nil {
 		return err
 	}
@@ -1188,7 +1236,7 @@ func (r *Repository) ResumeTimer(ctx context.Context, slotID string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	pausedAt, err := lockInProgressSlot(ctx, tx, slotID)
+	pausedAt, err := r.lockInProgressSlot(ctx, tx, slotID)
 	if err != nil {
 		return err
 	}
@@ -1214,7 +1262,7 @@ func (r *Repository) ExtendTimer(ctx context.Context, slotID string, seconds int
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := lockInProgressSlot(ctx, tx, slotID); err != nil {
+	if _, err := r.lockInProgressSlot(ctx, tx, slotID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,
@@ -1250,7 +1298,7 @@ func (r *Repository) UpsertScores(ctx context.Context, slotID string, judgeID st
 	}
 	defer tx.Rollback(ctx)
 
-	if _, _, err := lockRunningSlot(ctx, tx, slotID); err != nil {
+	if _, _, err := r.lockRunningSlot(ctx, tx, slotID); err != nil {
 		return err
 	}
 
@@ -1345,7 +1393,7 @@ func (r *Repository) LockJudgeScorecard(ctx context.Context, slotID string, judg
 	}
 	defer tx.Rollback(ctx)
 
-	if _, _, err := lockRunningSlot(ctx, tx, slotID); err != nil {
+	if _, _, err := r.lockRunningSlot(ctx, tx, slotID); err != nil {
 		return err
 	}
 
@@ -1500,6 +1548,7 @@ func (r *Repository) CheckAllPanelJudgesLocked(ctx context.Context, slotID strin
 
 // CompleteSlot marks slot completed, shifts queue, and recalibrates remaining slot timings.
 func (r *Repository) CompleteSlot(ctx context.Context, slotID string) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -1513,10 +1562,10 @@ func (r *Repository) CompleteSlot(ctx context.Context, slotID string) error {
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1
+		WHERE s.id = $1 AND r.competition_id = $2
 		FOR UPDATE OF s;
 	`
-	if err := tx.QueryRow(ctx, query, slotID).Scan(&panelID, &seqOrder, &bufferSize, &durationMins, &status); err != nil {
+	if err := tx.QueryRow(ctx, query, slotID, compID).Scan(&panelID, &seqOrder, &bufferSize, &durationMins, &status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSlotNotFound
 		}
@@ -1555,47 +1604,28 @@ func (r *Repository) CompleteSlot(ctx context.Context, slotID string) error {
 	return tx.Commit(ctx)
 }
 
-// GetUserTeamID retrieves the active team_id for a user in the active competition or event.
+// GetUserTeamID retrieves the active team_id for a user in the active competition.
 func (r *Repository) GetUserTeamID(ctx context.Context, userID string) (*string, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	var teamID *string
-	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.CompetitionID != "" {
-		err := r.db.QueryRow(ctx, `
-			SELECT tm.team_id
-			FROM team_members tm
-			JOIN users u ON u.id = tm.user_id
-			WHERE tm.user_id = $1 AND tm.competition_id = $2 AND u.deleted_at IS NULL
-		`, userID, compCtx.CompetitionID).Scan(&teamID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("get user team id in competition: %w", err)
-		}
-		return teamID, nil
-	}
-
-	eventID := resolveEventID(ctx)
 	err := r.db.QueryRow(ctx, `
 		SELECT tm.team_id
 		FROM team_members tm
-		JOIN teams t ON t.id = tm.team_id
-		JOIN competitions c ON c.id = t.competition_id
 		JOIN users u ON u.id = tm.user_id
-		WHERE tm.user_id = $1 AND c.event_id = $2 AND u.deleted_at IS NULL
-		ORDER BY tm.joined_at DESC
-		LIMIT 1
-	`, userID, eventID).Scan(&teamID)
+		WHERE tm.user_id = $1 AND tm.competition_id = $2 AND u.deleted_at IS NULL
+	`, userID, compID).Scan(&teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get user team id: %w", err)
+		return nil, fmt.Errorf("get user team id in competition: %w", err)
 	}
 	return teamID, nil
 }
 
 // GetTeamActiveStatus fetches the team's room, queue index, and estimated start time.
 func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*TeamStatusResponse, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	query := `
 		SELECT 
 			r.name, p.name, p.room, s.status::text, s.sequence_order,
@@ -1610,13 +1640,13 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.team_id = $1 AND r.status = 'active'
+		WHERE s.team_id = $1 AND r.competition_id = $2 AND r.status = 'active'
 		ORDER BY s.created_at DESC
 		LIMIT 1;
 	`
 	var resp TeamStatusResponse
 	var linksJSON []byte
-	err := r.db.QueryRow(ctx, query, teamID).Scan(
+	err := r.db.QueryRow(ctx, query, teamID, compID).Scan(
 		&resp.RoundName, &resp.PanelName, &resp.Room, &resp.Status, &resp.QueuePosition,
 		&resp.EstimatedStartTime, &resp.EstimatedDurationMins, &linksJSON, &resp.SlotID, &resp.QueuePosition,
 	)
@@ -1650,20 +1680,21 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 // GetVolunteerSchedule returns room coordinates, on-deck teams, and upcoming teams for coordinators.
 // When judgeID is non-nil, only panels that judge is assigned to are returned.
 func (r *Repository) GetVolunteerSchedule(ctx context.Context, judgeID *string) ([]VolunteerPanelSchedule, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	query := `
 		SELECT 
 			p.id, p.name, p.room,
 			r.id, r.name, r.slot_duration_mins, r.buffer_size
 		FROM judging_panels p
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE r.status = 'active'
+		WHERE r.competition_id = $2 AND r.status = 'active'
 		  AND ($1::uuid IS NULL OR EXISTS (
 			SELECT 1 FROM judging_panel_judges pj
 			WHERE pj.panel_id = p.id AND pj.judge_id = $1::uuid
 		  ))
 		ORDER BY p.room ASC, p.name ASC;
 	`
-	rows, err := r.db.Query(ctx, query, judgeID)
+	rows, err := r.db.Query(ctx, query, judgeID, compID)
 	if err != nil {
 		return nil, fmt.Errorf("query volunteer schedule panels: %w", err)
 	}
@@ -1731,9 +1762,10 @@ func (r *Repository) GetVolunteerSchedule(ctx context.Context, judgeID *string) 
 
 // GetAdminLeaderboard calculates full round rankings with weighted criteria breakdown.
 func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*AdminLeaderboardResponse, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	// Round info
 	var roundName, roundStatus string
-	if err := r.db.QueryRow(ctx, `SELECT name, status::text FROM judging_rounds WHERE id = $1;`, roundID).Scan(&roundName, &roundStatus); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT name, status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2;`, roundID, compID).Scan(&roundName, &roundStatus); err != nil {
 		return nil, ErrRoundNotFound
 	}
 
@@ -2033,6 +2065,7 @@ func (r *Repository) recalibratePanelEstimatesTx(ctx context.Context, tx pgx.Tx,
 // is only possible while its room isn't presenting someone else. It returns the judges unlocked and whether
 // the team was reopened. Marks stop counting on the leaderboard until the judge locks again.
 func (r *Repository) UnlockScorecards(ctx context.Context, slotID, judgeID string) (unlocked []string, reopened bool, err error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, false, fmt.Errorf("begin tx: %w", err)
@@ -2045,8 +2078,8 @@ func (r *Repository) UnlockScorecards(ctx context.Context, slotID, judgeID strin
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1
-		FOR UPDATE OF s;`, slotID).Scan(&status, &panelID, &roundID, &roundStatus)
+		WHERE s.id = $1 AND r.competition_id = $2
+		FOR UPDATE OF s;`, slotID, compID).Scan(&status, &panelID, &roundID, &roundStatus)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, false, ErrSlotNotFound
@@ -2131,6 +2164,7 @@ func (r *Repository) UnlockScorecards(ctx context.Context, slotID, judgeID strin
 // With resetOverrides, waiting teams that had their own custom length go back to the new default.
 // It returns how many teams were reset.
 func (r *Repository) UpdateRoundSlotDuration(ctx context.Context, roundID string, mins int, resetOverrides bool) (int, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin tx: %w", err)
@@ -2138,7 +2172,7 @@ func (r *Repository) UpdateRoundSlotDuration(ctx context.Context, roundID string
 	defer tx.Rollback(ctx)
 
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE;`, roundID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2 FOR UPDATE;`, roundID, compID).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrRoundNotFound
 		}
@@ -2194,6 +2228,7 @@ func (r *Repository) UpdateRoundSlotDuration(ctx context.Context, roundID string
 // UpdateSlotTiming sets (or clears, when nil) a team's own pitch length and pinned start time,
 // then recalculates the panel's estimated start times. Finished teams can no longer be changed.
 func (r *Repository) UpdateSlotTiming(ctx context.Context, slotID string, req UpdateSlotTimingRequest) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -2207,9 +2242,9 @@ func (r *Repository) UpdateSlotTiming(ctx context.Context, slotID string, req Up
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1
+		WHERE s.id = $1 AND r.competition_id = $2
 		FOR UPDATE OF s;
-	`, slotID).Scan(&panelID, &status, &defaultMins)
+	`, slotID, compID).Scan(&panelID, &status, &defaultMins)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSlotNotFound
@@ -2238,6 +2273,7 @@ func (r *Repository) UpdateSlotTiming(ctx context.Context, slotID string, req Up
 // optionally overriding status (e.g. to 'queued' to throw into the room queue) and updating sequence order.
 // NOTE: Admins can throw teams into the room queue even if it exceeds the round buffer limit.
 func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRequest) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -2253,11 +2289,11 @@ func (r *Repository) MoveSlot(ctx context.Context, slotID string, req MoveSlotRe
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1
+		WHERE s.id = $1 AND r.competition_id = $2
 		FOR UPDATE OF s;
 	`
 	var roundStatus string
-	if err := tx.QueryRow(ctx, query, slotID).Scan(&sourcePanelID, &teamID, &currentSeqOrder, &currentStatus, &sourceRoundID, &durationMins, &roundStatus); err != nil {
+	if err := tx.QueryRow(ctx, query, slotID, compID).Scan(&sourcePanelID, &teamID, &currentSeqOrder, &currentStatus, &sourceRoundID, &durationMins, &roundStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSlotNotFound
 		}
@@ -2458,9 +2494,11 @@ const submissionGateKey = "submission_gate_session"
 // GetSubmissionGate returns the gating attendance session, or an empty gate when none is set.
 func (r *Repository) GetSubmissionGate(ctx context.Context) (SubmissionGate, error) {
 	eventID := resolveEventID(ctx)
+	compID := r.resolveCompetitionID(ctx, "")
+	key := compScopedSettingKey(compID, submissionGateKey)
 	var gate SubmissionGate
 	var raw []byte
-	err := r.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE event_id = $1 AND key = $2`, eventID, submissionGateKey).Scan(&raw)
+	err := r.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE event_id = $1 AND key = $2`, eventID, key).Scan(&raw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return gate, nil
@@ -2472,7 +2510,7 @@ func (r *Repository) GetSubmissionGate(ctx context.Context) (SubmissionGate, err
 		return gate, nil
 	}
 	var name string
-	err = r.db.QueryRow(ctx, `SELECT name FROM scan_sessions WHERE id = $1 AND event_id = $2`, id, eventID).Scan(&name)
+	err = r.db.QueryRow(ctx, `SELECT name FROM scan_sessions WHERE id = $1 AND event_id = $2 AND (competition_id IS NULL OR competition_id = $3)`, id, eventID, compID).Scan(&name)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return gate, nil // session was removed; treat as no gate
@@ -2486,18 +2524,21 @@ func (r *Repository) GetSubmissionGate(ctx context.Context) (SubmissionGate, err
 // SetSubmissionGate stores the gating attendance session (nil clears it).
 func (r *Repository) SetSubmissionGate(ctx context.Context, sessionID *string, updatedBy string) (SubmissionGate, error) {
 	eventID := resolveEventID(ctx)
+	compID := r.resolveCompetitionID(ctx, "")
+	key := compScopedSettingKey(compID, submissionGateKey)
 	id := ""
 	if sessionID != nil {
 		id = *sessionID
 		var kind string
-		err := r.db.QueryRow(ctx, `SELECT kind FROM scan_sessions WHERE id = $1 AND event_id = $2`, id, eventID).Scan(&kind)
+		var sessCompID *string
+		err := r.db.QueryRow(ctx, `SELECT kind, competition_id::text FROM scan_sessions WHERE id = $1 AND event_id = $2`, id, eventID).Scan(&kind, &sessCompID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return SubmissionGate{}, ErrGateSessionInvalid
 			}
 			return SubmissionGate{}, fmt.Errorf("check gate session: %w", err)
 		}
-		if kind != "attendance" {
+		if kind != "attendance" || (sessCompID != nil && *sessCompID != "" && *sessCompID != compID) {
 			return SubmissionGate{}, ErrGateSessionInvalid
 		}
 	}
@@ -2505,7 +2546,7 @@ func (r *Repository) SetSubmissionGate(ctx context.Context, sessionID *string, u
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO app_settings (event_id, key, value, updated_by) VALUES ($1, $2, $3, NULLIF($4, '')::uuid)
 		ON CONFLICT (event_id, key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
-		eventID, submissionGateKey, raw, updatedBy)
+		eventID, key, raw, updatedBy)
 	if err != nil {
 		return SubmissionGate{}, fmt.Errorf("set submission gate: %w", err)
 	}
@@ -2526,10 +2567,17 @@ func (r *Repository) TeamPresentInSession(ctx context.Context, teamID, sessionID
 	return present, err
 }
 
-// SlotTeamID returns the team that owns a slot.
+// SlotTeamID returns the team that owns a slot in the active competition.
 func (r *Repository) SlotTeamID(ctx context.Context, slotID string) (string, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	var teamID string
-	err := r.db.QueryRow(ctx, `SELECT team_id::text FROM judging_slots WHERE id = $1`, slotID).Scan(&teamID)
+	err := r.db.QueryRow(ctx, `
+		SELECT s.team_id::text
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_rounds r ON r.id = p.round_id
+		WHERE s.id = $1 AND r.competition_id = $2
+	`, slotID, compID).Scan(&teamID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrSlotNotFound
 	}
@@ -2588,24 +2636,10 @@ func (r *Repository) SetTeamSubmission(ctx context.Context, teamID, project stri
 	return tx.Commit(ctx)
 }
 
-// ListSubmissions lists every team's project name and links in the active competition or event for the CSV export.
+// ListSubmissions lists every team's project name and links in the active competition for the CSV export.
 func (r *Repository) ListSubmissions(ctx context.Context) ([]SubmissionRow, error) {
-	var query string
-	var args []any
-	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.CompetitionID != "" {
-		query = `SELECT name, COALESCE(project_name, ''), submission_links FROM teams WHERE competition_id = $1 ORDER BY name`
-		args = []any{compCtx.CompetitionID}
-	} else {
-		eventID := resolveEventID(ctx)
-		query = `
-			SELECT t.name, COALESCE(t.project_name, ''), t.submission_links
-			FROM teams t
-			JOIN competitions c ON c.id = t.competition_id
-			WHERE c.event_id = $1
-			ORDER BY t.name`
-		args = []any{eventID}
-	}
-	rows, err := r.db.Query(ctx, query, args...)
+	compID := r.resolveCompetitionID(ctx, "")
+	rows, err := r.db.Query(ctx, `SELECT name, COALESCE(project_name, ''), submission_links FROM teams WHERE competition_id = $1 ORDER BY name`, compID)
 	if err != nil {
 		return nil, fmt.Errorf("query submissions: %w", err)
 	}
@@ -2629,6 +2663,7 @@ func (r *Repository) ListSubmissions(ctx context.Context) ([]SubmissionRow, erro
 
 // ImportTeamCriteria replaces the round's roster and per-team criteria in one transaction.
 func (r *Repository) ImportTeamCriteria(ctx context.Context, roundID string, req ImportTeamCriteriaRequest) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -2636,7 +2671,7 @@ func (r *Repository) ImportTeamCriteria(ctx context.Context, roundID string, req
 	defer tx.Rollback(ctx)
 
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2 FOR UPDATE`, roundID, compID).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRoundNotFound
 		}
@@ -2662,7 +2697,7 @@ func (r *Repository) ImportTeamCriteria(ctx context.Context, roundID string, req
 		teamIDs = append(teamIDs, row.TeamID)
 	}
 	var found int
-	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM teams WHERE id = ANY($1::uuid[])`, teamIDs).Scan(&found); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM teams WHERE id = ANY($1::uuid[]) AND competition_id = $2`, teamIDs, compID).Scan(&found); err != nil {
 		return fmt.Errorf("verify teams: %w", err)
 	}
 	if found != len(teamIDs) {
@@ -2713,6 +2748,7 @@ func (r *Repository) SetTeamCriterion(ctx context.Context, roundID, teamID strin
 	if math.IsNaN(req.Score) || math.IsInf(req.Score, 0) || req.Score < 0 || req.Score > float64(req.MaxScore) {
 		return ErrAwardedScoreRange
 	}
+	compID := r.resolveCompetitionID(ctx, "")
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -2721,7 +2757,7 @@ func (r *Repository) SetTeamCriterion(ctx context.Context, roundID, teamID strin
 	defer tx.Rollback(ctx)
 
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2 FOR UPDATE`, roundID, compID).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRoundNotFound
 		}
@@ -2732,7 +2768,7 @@ func (r *Repository) SetTeamCriterion(ctx context.Context, roundID, teamID strin
 	}
 
 	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM teams WHERE id = $1)`, teamID).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM teams WHERE id = $1 AND competition_id = $2)`, teamID, compID).Scan(&exists); err != nil {
 		return fmt.Errorf("verify team: %w", err)
 	}
 	if !exists {
@@ -2762,6 +2798,7 @@ func (r *Repository) SetTeamCriterion(ctx context.Context, roundID, teamID strin
 
 // DeleteTeamCriterion removes a team's custom criterion (and its marks). The team stays in the round.
 func (r *Repository) DeleteTeamCriterion(ctx context.Context, roundID, teamID string) error {
+	compID := r.resolveCompetitionID(ctx, "")
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -2769,7 +2806,7 @@ func (r *Repository) DeleteTeamCriterion(ctx context.Context, roundID, teamID st
 	defer tx.Rollback(ctx)
 
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 FOR UPDATE`, roundID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2 FOR UPDATE`, roundID, compID).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRoundNotFound
 		}
@@ -2797,13 +2834,15 @@ func (r *Repository) DeleteTeamCriterion(ctx context.Context, roundID, teamID st
 
 // GetRoundTeams lists the round's roster with each team's extra criterion.
 func (r *Repository) GetRoundTeams(ctx context.Context, roundID string) ([]RoundTeam, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	rows, err := r.db.Query(ctx, `
 		SELECT t.id, t.name, COALESCE(c.name, ''), COALESCE(c.max_score, 0), COALESCE(c.weight, 0)::float8, c.awarded_score::float8
 		FROM judging_round_teams rt
+		JOIN judging_rounds r ON r.id = rt.round_id
 		JOIN teams t ON t.id = rt.team_id
 		LEFT JOIN judging_criteria c ON c.round_id = rt.round_id AND c.team_id = rt.team_id
-		WHERE rt.round_id = $1
-		ORDER BY t.name ASC`, roundID)
+		WHERE rt.round_id = $1 AND r.competition_id = $2
+		ORDER BY t.name ASC`, roundID, compID)
 	if err != nil {
 		return nil, fmt.Errorf("query roster: %w", err)
 	}
@@ -2822,9 +2861,10 @@ func (r *Repository) GetRoundTeams(ctx context.Context, roundID string) ([]Round
 // GetScoreSheet lists every mark in a round: each panel judge's score (or blank, if still pending) for each
 // criterion that applies to the team, plus each team's admin-awarded custom mark.
 func (r *Repository) GetScoreSheet(ctx context.Context, roundID string) (*ScoreSheetResponse, error) {
+	compID := r.resolveCompetitionID(ctx, "")
 	out := &ScoreSheetResponse{RoundID: roundID, Rows: []ScoreSheetRow{}}
 	var status string
-	if err := r.db.QueryRow(ctx, `SELECT name, status::text FROM judging_rounds WHERE id = $1`, roundID).Scan(&out.RoundName, &status); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT name, status::text FROM judging_rounds WHERE id = $1 AND competition_id = $2`, roundID, compID).Scan(&out.RoundName, &status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrRoundNotFound
 		}

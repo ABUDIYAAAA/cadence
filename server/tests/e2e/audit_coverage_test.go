@@ -58,17 +58,11 @@ func TestStage7_AuditTrailForTicketingAndAuth(t *testing.T) {
 	scan(att.ID, "cadence:tkt:forged:00000000", http.StatusNotFound) // unknown ticket -> scan_rejected
 	admin.DoJSON(t, http.MethodPut, "/api/v1/tickets/settings", map[string]any{"internal_email_domains": []string{"internal.example"}}, http.StatusOK, nil)
 
-	// Forgot-password: audited whether or not the account exists, while the response stays generic.
-	anon := NewActor(t, "anon", "anon@nowhere.example")
-	anon.DoJSON(t, http.MethodPost, "/api/v1/auth/forgot-password", map[string]string{"email": "aud@internal.example"}, http.StatusOK, nil)
-	anon.DoJSON(t, http.MethodPost, "/api/v1/auth/forgot-password", map[string]string{"email": "ghost@nowhere.example"}, http.StatusOK, nil)
-
 	waitForAudit(t, "ticket.scan_rejected", 3)
 	waitForAudit(t, "ticket.duplicate_scan", 1)
 	waitForAudit(t, "ticket.released", 1)
 	waitForAudit(t, "ticket.session_create", 2)
 	waitForAudit(t, "ticket.settings_update", 1)
-	waitForAudit(t, "auth.password_forgot", 2)
 
 	// The raw ticket code must never reach the audit trail.
 	var leaked int

@@ -114,6 +114,13 @@ describe("Seam 1: Competition Slug Validation & Tenant Scope Resolution", () => 
       resolveScopedPath("/judging/rounds/r1/leaderboard", scope),
       "/e/devclub-2026/c/hack-track/judging/rounds/r1/leaderboard"
     );
+
+    const noCompScope = { eventSlug: "devclub-2026", competitionSlug: null };
+    assert.equal(resolveScopedPath("/teams/my-team", noCompScope), "/teams/my-team");
+    assert.equal(
+      resolveScopedPath("/judging/volunteer/schedule", noCompScope),
+      "/judging/volunteer/schedule"
+    );
   });
 
   it("stores, updates, and clears active tenant scope in memory", () => {

@@ -246,7 +246,7 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	filter := TeamFilter{CompetitionID: &compID, Page: page, Limit: limit, Search: query.Get("search")}
 
 	// Judges only see teams assigned to their panels.
-	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role == "judge" {
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && auth.GetEffectiveRole(r.Context()) == "judge" {
 		filter.JudgeID = &claims.UserID
 	}
 
@@ -264,7 +264,7 @@ func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
 
 	var team *TeamDetailResponse
 	var err error
-	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role == "judge" {
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && auth.GetEffectiveRole(r.Context()) == "judge" {
 		team, err = h.service.GetTeamForJudge(r.Context(), id, claims.UserID)
 	} else {
 		team, err = h.service.GetTeamByID(r.Context(), id)

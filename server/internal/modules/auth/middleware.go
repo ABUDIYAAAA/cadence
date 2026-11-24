@@ -14,7 +14,10 @@ import (
 
 type contextKey string
 
-const userClaimsKey contextKey = "user_claims"
+const (
+	userClaimsKey       contextKey = "user_claims"
+	activeTenantRoleKey contextKey = "active_tenant_role"
+)
 
 // AuthMiddleware creates an HTTP middleware that extracts and validates the access token from signed cookies.
 // It checks the instant Redis blocklist to ensure removed/deactivated accounts are locked out immediately (<1ms).
@@ -104,8 +107,14 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
-			_, allowed := roleSet[claims.Role]
-			if !allowed && claims.Role == "owner" {
+			effectiveRole := GetEffectiveRole(r.Context())
+			if effectiveRole == "dev" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			_, allowed := roleSet[effectiveRole]
+			if !allowed && effectiveRole == "owner" {
 				_, allowed = roleSet["admin"]
 			}
 			if !allowed {
@@ -145,4 +154,30 @@ func WithUserClaims(ctx context.Context, claims *utils.AccessTokenClaims) contex
 func GetUserClaims(ctx context.Context) (*utils.AccessTokenClaims, bool) {
 	claims, ok := ctx.Value(userClaimsKey).(*utils.AccessTokenClaims)
 	return claims, ok
+}
+
+// WithActiveTenantRole binds the caller's resolved role in the active Event/Competition scope
+// without mutating the underlying JWT AccessTokenClaims.
+func WithActiveTenantRole(ctx context.Context, role string) context.Context {
+	if role == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, activeTenantRoleKey, role)
+}
+
+// GetEffectiveRole returns the caller's active Event/Competition role if resolved,
+// falling back to their platform role in AccessTokenClaims.
+func GetEffectiveRole(ctx context.Context) string {
+	if role, ok := ctx.Value(activeTenantRoleKey).(string); ok && role != "" {
+		return role
+	}
+	if claims, ok := GetUserClaims(ctx); ok && claims != nil {
+		return claims.Role
+	}
+	return ""
+}
+
+// IsAdminRole reports whether role grants administrative privileges within a tenant scope.
+func IsAdminRole(role string) bool {
+	return role == "admin" || role == "owner" || role == "dev"
 }

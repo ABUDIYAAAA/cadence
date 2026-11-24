@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/metrics"
 )
@@ -299,7 +300,7 @@ func (s *Service) UpdateSlotLinks(
 	links map[string]string,
 	ip, userAgent string,
 ) error {
-	if actorRole != "admin" {
+	if !auth.IsAdminRole(actorRole) {
 		allowed, err := s.repo.CanUserUpdateSlotLinks(ctx, slotID, actorID)
 		if err != nil {
 			return fmt.Errorf("verify slot permission: %w", err)
@@ -315,7 +316,7 @@ func (s *Service) UpdateSlotLinks(
 			return ErrUnauthorizedSlot
 		}
 	}
-	if actorRole != "admin" {
+	if !auth.IsAdminRole(actorRole) {
 		if ok, _, err := s.canTeamSubmit(ctx, slotID); err != nil {
 			return err
 		} else if !ok {

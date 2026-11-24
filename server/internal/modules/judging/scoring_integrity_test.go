@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/competitions"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -343,6 +345,168 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 		entry := lb.Leaderboard[0]
 		if entry.TotalWeightedScore <= 0 || entry.TotalWeightedScore > lb.MaxPossibleScore {
 			t.Fatalf("unexpected total_weighted_score %.2f (max %.2f)", entry.TotalWeightedScore, lb.MaxPossibleScore)
+		}
+	})
+}
+
+func TestMultiTenantCompetitionIsolationAndSettings(t *testing.T) {
+	pool, _ := newTestJudgingPool(t, 20)
+	repo := NewRepository(pool)
+	svc := NewService(repo, nil)
+	baseCtx := context.Background()
+
+	var eventAID, eventBID, compA1ID, compA2ID, compB1ID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO events (slug, name) VALUES ('event-a', 'Event A') RETURNING id`).Scan(&eventAID); err != nil {
+		t.Fatalf("create event A: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO events (slug, name) VALUES ('event-b', 'Event B') RETURNING id`).Scan(&eventBID); err != nil {
+		t.Fatalf("create event B: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-a1', 'Comp A1') RETURNING id`, eventAID).Scan(&compA1ID); err != nil {
+		t.Fatalf("create comp A1: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-a2', 'Comp A2') RETURNING id`, eventAID).Scan(&compA2ID); err != nil {
+		t.Fatalf("create comp A2: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-b1', 'Comp B1') RETURNING id`, eventBID).Scan(&compB1ID); err != nil {
+		t.Fatalf("create comp B1: %v", err)
+	}
+
+	var judgeID, teamA1ID, teamA2ID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO users (email, name, is_active) VALUES ('judge.multi@cadence.local', 'Judge Multi', true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatalf("create judge: %v", err)
+	}
+	for _, evID := range []string{eventAID, eventBID} {
+		if _, err := pool.Exec(baseCtx, `INSERT INTO user_events (user_id, event_id, role) VALUES ($1, $2, 'judge')`, judgeID, evID); err != nil {
+			t.Fatalf("assign judge to event: %v", err)
+		}
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO teams (competition_id, name, join_code) VALUES ($1, 'Team A1', 'TEAMA1') RETURNING id`, compA1ID).Scan(&teamA1ID); err != nil {
+		t.Fatalf("create team A1: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO teams (competition_id, name, join_code) VALUES ($1, 'Team A2', 'TEAMA2') RETURNING id`, compA2ID).Scan(&teamA2ID); err != nil {
+		t.Fatalf("create team A2: %v", err)
+	}
+
+	ctxCompA1 := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventAID, Slug: "event-a", Name: "Event A", UserID: judgeID, Role: "owner"}),
+		&competitions.Context{CompetitionID: compA1ID, EventID: eventAID, Slug: "comp-a1", Name: "Comp A1", UserID: judgeID, Role: "owner"},
+	)
+	ctxCompA2 := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventAID, Slug: "event-a", Name: "Event A", UserID: judgeID, Role: "owner"}),
+		&competitions.Context{CompetitionID: compA2ID, EventID: eventAID, Slug: "comp-a2", Name: "Comp A2", UserID: judgeID, Role: "owner"},
+	)
+	ctxCompB1 := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventBID, Slug: "event-b", Name: "Event B", UserID: judgeID, Role: "owner"}),
+		&competitions.Context{CompetitionID: compB1ID, EventID: eventBID, Slug: "comp-b1", Name: "Comp B1", UserID: judgeID, Role: "owner"},
+	)
+
+	// Create and activate round in Comp A1
+	roundA1ID, err := repo.CreateRound(ctxCompA1, CreateRoundRequest{
+		Name:             "Round A1",
+		BufferSize:       2,
+		SlotDurationMins: 10,
+		Criteria: []CreateCriteriaRequest{
+			{Name: "Impact", MinScore: 0, MaxScore: 10, Weight: 100, OrderIndex: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create round A1: %v", err)
+	}
+	panelA1ID, err := repo.CreatePanel(ctxCompA1, CreatePanelRequest{
+		RoundID:  roundA1ID,
+		Name:     "Panel A1",
+		Room:     "Room A1",
+		JudgeIDs: []string{judgeID},
+	})
+	if err != nil {
+		t.Fatalf("create panel A1: %v", err)
+	}
+	if err := repo.ConfigureSlots(ctxCompA1, panelA1ID, []SlotAssignment{
+		{TeamID: teamA1ID, SequenceOrder: 1},
+	}, false); err != nil {
+		t.Fatalf("configure slots A1: %v", err)
+	}
+	if err := repo.ActivateRound(ctxCompA1, roundA1ID); err != nil {
+		t.Fatalf("activate round A1: %v", err)
+	}
+	var slotA1ID string
+	if err := pool.QueryRow(baseCtx, `SELECT id FROM judging_slots WHERE panel_id = $1`, panelA1ID).Scan(&slotA1ID); err != nil {
+		t.Fatalf("get slot A1: %v", err)
+	}
+
+	t.Run("cross-competition and cross-event GetJudgePanels and GetVolunteerSchedule do not leak active rounds", func(t *testing.T) {
+		panelsInA2, err := repo.GetJudgePanels(ctxCompA2, judgeID)
+		if err != nil {
+			t.Fatalf("GetJudgePanels in A2: %v", err)
+		}
+		if len(panelsInA2) != 0 {
+			t.Fatalf("expected 0 judge panels in Comp A2, got %d", len(panelsInA2))
+		}
+		panelsInB1, err := repo.GetJudgePanels(ctxCompB1, judgeID)
+		if err != nil {
+			t.Fatalf("GetJudgePanels in B1: %v", err)
+		}
+		if len(panelsInB1) != 0 {
+			t.Fatalf("expected 0 judge panels in Event B Comp B1, got %d", len(panelsInB1))
+		}
+		schedInB1, err := repo.GetVolunteerSchedule(ctxCompB1, nil)
+		if err != nil {
+			t.Fatalf("GetVolunteerSchedule in B1: %v", err)
+		}
+		if len(schedInB1) != 0 {
+			t.Fatalf("expected 0 volunteer schedule panels in Event B Comp B1, got %d", len(schedInB1))
+		}
+	})
+
+	t.Run("cross-competition access to Round, Panel, Slot returns 404 NotFound errors", func(t *testing.T) {
+		if _, _, _, _, _, err := repo.GetRound(ctxCompA2, roundA1ID); !errors.Is(err, ErrRoundNotFound) {
+			t.Fatalf("expected ErrRoundNotFound for cross-competition GetRound, got %v", err)
+		}
+		if err := repo.EndRound(ctxCompA2, roundA1ID, true); !errors.Is(err, ErrRoundNotFound) {
+			t.Fatalf("expected ErrRoundNotFound for cross-competition EndRound, got %v", err)
+		}
+		if _, err := repo.GetAdminLeaderboard(ctxCompB1, roundA1ID); !errors.Is(err, ErrRoundNotFound) {
+			t.Fatalf("expected ErrRoundNotFound for cross-event GetAdminLeaderboard, got %v", err)
+		}
+		if err := repo.ConfigureSlots(ctxCompA2, panelA1ID, []SlotAssignment{{TeamID: teamA2ID, SequenceOrder: 1}}, false); !errors.Is(err, ErrPanelNotFound) {
+			t.Fatalf("expected ErrPanelNotFound for cross-competition ConfigureSlots, got %v", err)
+		}
+		if err := repo.ConfigureSlots(ctxCompA1, panelA1ID, []SlotAssignment{{TeamID: teamA2ID, SequenceOrder: 2}}, true); !errors.Is(err, ErrUnknownTeam) {
+			t.Fatalf("expected ErrUnknownTeam when slotting a team from Comp A2 into Comp A1, got %v", err)
+		}
+		if err := repo.StartSlot(ctxCompA2, slotA1ID); !errors.Is(err, ErrSlotNotFound) {
+			t.Fatalf("expected ErrSlotNotFound for cross-competition StartSlot, got %v", err)
+		}
+	})
+
+	t.Run("event owner and dev can update slot links without 403 Forbidden", func(t *testing.T) {
+		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "owner@cadence.local", "owner", map[string]string{"github": "https://github.com/owner/repo"}, "127.0.0.1", "test"); err != nil {
+			t.Fatalf("expected owner to update slot links, got: %v", err)
+		}
+		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "dev@cadence.local", "dev", map[string]string{"github": "https://github.com/dev/repo"}, "127.0.0.1", "test"); err != nil {
+			t.Fatalf("expected dev to update slot links, got: %v", err)
+		}
+	})
+
+	t.Run("submission_gate_session is isolated per competition within the same event", func(t *testing.T) {
+		var sessID string
+		if err := pool.QueryRow(baseCtx, `INSERT INTO scan_sessions (event_id, name, kind) VALUES ($1, 'Gate A1', 'attendance') RETURNING id`, eventAID).Scan(&sessID); err != nil {
+			t.Fatalf("create scan session: %v", err)
+		}
+		if _, err := repo.SetSubmissionGate(ctxCompA1, &sessID, judgeID); err != nil {
+			t.Fatalf("set submission gate on Comp A1: %v", err)
+		}
+		gateA1, err := repo.GetSubmissionGate(ctxCompA1)
+		if err != nil || gateA1.SessionID == nil || *gateA1.SessionID != sessID {
+			t.Fatalf("expected Comp A1 gate=%s, got %+v (err=%v)", sessID, gateA1, err)
+		}
+		gateA2, err := repo.GetSubmissionGate(ctxCompA2)
+		if err != nil {
+			t.Fatalf("get submission gate on Comp A2: %v", err)
+		}
+		if gateA2.SessionID != nil {
+			t.Fatalf("expected Comp A2 submission gate to remain unset (nil), got %v", *gateA2.SessionID)
 		}
 	})
 }

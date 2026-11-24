@@ -1,6 +1,10 @@
 package events
 
-import "context"
+import (
+	"context"
+
+	"devclubxnst.com/cadence/internal/modules/auth"
+)
 
 type contextKey string
 
@@ -15,9 +19,13 @@ type Context struct {
 	Role    string `json:"role"`
 }
 
-// WithEventContext stores event context into context.Context.
+// WithEventContext stores event context into context.Context and registers the active tenant role.
 func WithEventContext(ctx context.Context, eventCtx *Context) context.Context {
-	return context.WithValue(ctx, eventContextKey, eventCtx)
+	ctx = context.WithValue(ctx, eventContextKey, eventCtx)
+	if eventCtx != nil && eventCtx.Role != "" {
+		ctx = auth.WithActiveTenantRole(ctx, eventCtx.Role)
+	}
+	return ctx
 }
 
 // FromContext extracts the EventContext from request context.

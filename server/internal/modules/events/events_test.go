@@ -325,6 +325,57 @@ func TestRequireMembershipBanEnforcement(t *testing.T) {
 			t.Fatalf("expected role 'owner' for dev, got %s", capturedRole)
 		}
 	})
+
+	t.Run("RequireMembership keeps AccessTokenClaims.Role immutable and exposes tenant role via auth.GetEffectiveRole", func(t *testing.T) {
+		rdb := newTestRedisClient(t)
+		defer rdb.Close()
+		ctx := context.Background()
+		_ = rdb.Set(ctx, "event:ev-1:member:user-admin-1", "admin", time.Minute).Err()
+
+		mw := RequireMembership(nil, rdb)
+		var capturedClaimRole, capturedEventRole, capturedEffectiveRole string
+		handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if c, ok := auth.GetUserClaims(r.Context()); ok {
+				capturedClaimRole = c.Role
+			}
+			if evCtx, ok := FromContext(r.Context()); ok {
+				capturedEventRole = evCtx.Role
+			}
+			capturedEffectiveRole = auth.GetEffectiveRole(r.Context())
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		claims := &utils.AccessTokenClaims{
+			UserID: "user-admin-1",
+			Email:  "admin@cadence.local",
+			Role:   "user",
+		}
+		ev := &Event{
+			ID:   "ev-1",
+			Slug: "fest-2026",
+			Name: "Fest 2026",
+		}
+
+		reqCtx := auth.WithUserClaims(ctx, claims)
+		reqCtx = WithEvent(reqCtx, ev)
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(reqCtx)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d", rec.Code)
+		}
+		if capturedClaimRole != "user" {
+			t.Fatalf("expected AccessTokenClaims.Role to remain 'user', got %q", capturedClaimRole)
+		}
+		if capturedEventRole != "admin" {
+			t.Fatalf("expected EventContext.Role to be 'admin', got %q", capturedEventRole)
+		}
+		if capturedEffectiveRole != "admin" {
+			t.Fatalf("expected auth.GetEffectiveRole to be 'admin', got %q", capturedEffectiveRole)
+		}
+	})
 }
 
 func newTestDBPool(t *testing.T) *pgxpool.Pool {

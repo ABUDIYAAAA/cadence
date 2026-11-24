@@ -59,10 +59,11 @@ func RegisterRoutes(
 				}
 			}
 
-			// Member operations (owner, admin, volunteer read access to event users)
+			// Member operations (owner, admin, volunteer read access to event users and volunteer participant creation)
 			r.Group(func(r chi.Router) {
 				r.Use(RequireEventRoles("owner", "admin", "volunteer"))
 				r.Get("/users", h.HandleListEventUsers)
+				r.Post("/users", h.HandleAddEventUser)
 			})
 
 			// Admin & Owner management
@@ -70,7 +71,6 @@ func RegisterRoutes(
 				r.Use(RequireEventRoles("owner", "admin"))
 
 				r.Patch("/", h.HandleUpdateEvent)
-				r.Post("/users", h.HandleAddEventUser)
 				r.Post("/users/bulk", h.HandleBulkAddEventUsers)
 				r.Post("/members", h.HandleAssignMember)
 				r.Patch("/members/{userId}", h.HandleUpdateMemberRole)

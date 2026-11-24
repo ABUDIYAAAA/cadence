@@ -1,6 +1,10 @@
 package competitions
 
-import "context"
+import (
+	"context"
+
+	"devclubxnst.com/cadence/internal/modules/auth"
+)
 
 type contextKey string
 
@@ -16,9 +20,13 @@ type Context struct {
 	Role          string `json:"role"`
 }
 
-// WithCompetitionContext stores competition context into context.Context.
+// WithCompetitionContext stores competition context into context.Context and registers the active tenant role.
 func WithCompetitionContext(ctx context.Context, compCtx *Context) context.Context {
-	return context.WithValue(ctx, competitionContextKey, compCtx)
+	ctx = context.WithValue(ctx, competitionContextKey, compCtx)
+	if compCtx != nil && compCtx.Role != "" {
+		ctx = auth.WithActiveTenantRole(ctx, compCtx.Role)
+	}
+	return ctx
 }
 
 // FromContext extracts the CompetitionContext from request context.

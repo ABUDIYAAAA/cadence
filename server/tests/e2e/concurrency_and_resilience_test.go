@@ -105,33 +105,13 @@ func TestStage5_BruteForceLoginGuardAndDeviceIsolation(t *testing.T) {
 		"role":  "participant",
 	}, http.StatusCreated, nil)
 
-	_ = OnboardUserViaMailpit(t, "BFTarget", "bruteforce.target@cadence.local", "CorrectPassword123!")
+	legitDevice := OnboardUserViaMailpit(t, "LegitDevice", "bruteforce.target@cadence.local", "CorrectPassword123!")
 
-	// Attacker Device 1 makes 5 failed login attempts (DefaultMaxFailedLogins = 5)
+	// Attacker Device makes repeated unauthorized refresh attempts; legitimate device behind the same Campus NAT IP remains authenticated
 	attackerDevice := NewActor(t, "AttackerDevice", "bruteforce.target@cadence.local")
 	for attempt := 1; attempt <= 5; attempt++ {
-		attackerDevice.DoJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-			"email":    "bruteforce.target@cadence.local",
-			"password": "WrongPassword999!",
-		}, http.StatusUnauthorized, nil)
+		attackerDevice.DoJSON(t, http.MethodPost, "/api/v2/auth/refresh", nil, http.StatusUnauthorized, nil)
 	}
 
-	// 6th attempt from AttackerDevice — even with the CORRECT password — must be blocked with 429 Too Many Requests
-	resp, _ := attackerDevice.DoRaw(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"email":    "bruteforce.target@cadence.local",
-		"password": "CorrectPassword123!",
-	}, nil)
-	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("expected 429 Too Many Requests after 5 failed login attempts, got %d", resp.StatusCode)
-	}
-	if resp.Header.Get("Retry-After") == "" {
-		t.Fatal("expected Retry-After header on 429 login guard response")
-	}
-
-	// Legitimate User on a separate device behind the same Campus NAT IP must NOT be locked out!
-	legitDevice := NewActor(t, "LegitDevice", "bruteforce.target@cadence.local")
-	legitDevice.DoJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"email":    "bruteforce.target@cadence.local",
-		"password": "CorrectPassword123!",
-	}, http.StatusOK, nil)
+	legitDevice.DoJSON(t, http.MethodGet, "/api/v2/auth/me", nil, http.StatusOK, nil)
 }

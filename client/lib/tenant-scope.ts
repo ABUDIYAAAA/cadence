@@ -142,9 +142,6 @@ export function resolveScopedPath(
         const encComp = encodeURIComponent(competitionSlug);
         return `/e/${encEvent}/c/${encComp}${url}`;
       }
-      if (prefix === "/judging") {
-        return `/e/${encEvent}${url}`;
-      }
       return url;
     }
   }

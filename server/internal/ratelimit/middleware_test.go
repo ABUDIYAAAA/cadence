@@ -165,7 +165,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 	})
 
 	t.Run("forged or invalid JWT does not get a per-user bucket and is blocked by campus IP ceiling", func(t *testing.T) {
-		forgedToken, err := utils.GenerateAccessToken("user-1", "u1@test.com", "user", "participant", 1, "wrong-secret", 15*time.Minute)
+		forgedToken, err := utils.GenerateAccessToken("user-1", "u1@test.com", "user", 1, "wrong-secret", 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate forged token: %v", err)
 		}
@@ -180,7 +180,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 	})
 
 	t.Run("authenticated users with verified JWT succeed even when campus IP ceiling is saturated", func(t *testing.T) {
-		validToken, err := utils.GenerateAccessToken("user-verified-1", "u1@test.com", "user", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		validToken, err := utils.GenerateAccessToken("user-verified-1", "u1@test.com", "user", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate valid token: %v", err)
 		}
@@ -206,7 +206,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 		if err := rdb.Set(ctx, "blocked:user:"+blockedUserID, "1", time.Minute).Err(); err != nil {
 			t.Fatalf("set blocklist key: %v", err)
 		}
-		validToken, err := utils.GenerateAccessToken(blockedUserID, "blocked@test.com", "user", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		validToken, err := utils.GenerateAccessToken(blockedUserID, "blocked@test.com", "user", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate token: %v", err)
 		}
@@ -333,7 +333,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 	})
 
 	t.Run("Bearer-only authenticated client without cookies is tracked in per-user bucket and throttled at DefaultUserLimit", func(t *testing.T) {
-		bearerToken, err := utils.GenerateAccessToken("user-bearer-only", "bearer@test.com", "user", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		bearerToken, err := utils.GenerateAccessToken("user-bearer-only", "bearer@test.com", "user", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate bearer token: %v", err)
 		}

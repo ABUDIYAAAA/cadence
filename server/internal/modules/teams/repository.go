@@ -102,14 +102,38 @@ func resolveEventIDFromContext(ctx context.Context) string {
 	return events.DefaultEventID
 }
 
+func resolveCompetitionIDFromContext(ctx context.Context) (string, bool) {
+	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.CompetitionID != "" {
+		return compCtx.CompetitionID, true
+	}
+	if comp, ok := competitions.GetCompetition(ctx); ok && comp != nil && comp.ID != "" {
+		return comp.ID, true
+	}
+	return "", false
+}
+
+func compSettingKey(compID, key string) string {
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
+	return fmt.Sprintf("comp:%s:%s", compID, key)
+}
+
 // ---- settings ----
 
 func (r *Repository) loadSettings(ctx context.Context, q querier) (SettingsResponse, error) {
+	compID, _ := resolveCompetitionIDFromContext(ctx)
+	return r.loadSettingsForComp(ctx, q, compID)
+}
+
+func (r *Repository) loadSettingsForComp(ctx context.Context, q querier, compID string) (SettingsResponse, error) {
 	s := SettingsResponse{MaxTeamSize: r.defaultMaxSize, MaxTeamSizeSource: "environment"}
 	eventID := resolveEventIDFromContext(ctx)
+	frozenKey := compSettingKey(compID, settingFrozenAll)
+	maxSizeKey := compSettingKey(compID, settingMaxTeamSize)
 
 	rows, err := q.Query(ctx, `SELECT key, value FROM app_settings WHERE event_id = $1 AND key = ANY($2)`,
-		eventID, []string{settingFrozenAll, settingMaxTeamSize})
+		eventID, []string{frozenKey, maxSizeKey})
 	if err != nil {
 		return s, fmt.Errorf("load team settings: %w", err)
 	}
@@ -122,9 +146,9 @@ func (r *Repository) loadSettings(ctx context.Context, q querier) (SettingsRespo
 			return s, fmt.Errorf("scan team setting: %w", err)
 		}
 		switch key {
-		case settingFrozenAll:
+		case frozenKey:
 			_ = json.Unmarshal(raw, &s.FrozenAll)
-		case settingMaxTeamSize:
+		case maxSizeKey:
 			var n int
 			if json.Unmarshal(raw, &n) == nil && n > 0 {
 				s.MaxTeamSize = n
@@ -145,10 +169,12 @@ func (r *Repository) setSetting(ctx context.Context, key string, value any, upda
 		return fmt.Errorf("encode setting: %w", err)
 	}
 	eventID := resolveEventIDFromContext(ctx)
+	compID, _ := resolveCompetitionIDFromContext(ctx)
+	scopedKey := compSettingKey(compID, key)
 	_, err = r.db.Exec(ctx, `
 		INSERT INTO app_settings (event_id, key, value, updated_by) VALUES ($1, $2, $3, NULLIF($4, '')::uuid)
 		ON CONFLICT (event_id, key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
-		eventID, key, raw, updatedBy)
+		eventID, scopedKey, raw, updatedBy)
 	if err != nil {
 		return fmt.Errorf("set setting: %w", err)
 	}
@@ -271,7 +297,7 @@ func (r *Repository) CreateTeam(ctx context.Context, compID, userID, name string
 	if current != nil {
 		return "", ErrAlreadyInTeam
 	}
-	settings, err := r.loadSettings(ctx, tx)
+	settings, err := r.loadSettingsForComp(ctx, tx, compID)
 	if err != nil {
 		return "", err
 	}
@@ -350,7 +376,7 @@ func (r *Repository) JoinByCode(ctx context.Context, compID, userID, code string
 		}
 		return "", err
 	}
-	settings, err := r.loadSettings(ctx, tx)
+	settings, err := r.loadSettingsForComp(ctx, tx, compID)
 	if err != nil {
 		return "", err
 	}
@@ -448,7 +474,7 @@ func (r *Repository) LeaveTeam(ctx context.Context, compID, userID string) (stri
 	if err != nil {
 		return "", err
 	}
-	settings, err := r.loadSettings(ctx, tx)
+	settings, err := r.loadSettingsForComp(ctx, tx, compID)
 	if err != nil {
 		return "", err
 	}
@@ -484,7 +510,7 @@ func (r *Repository) leaderTeamTx(ctx context.Context, tx pgx.Tx, compID, userID
 	if team.LeaderID == nil || *team.LeaderID != userID {
 		return nil, zero, ErrNotLeader
 	}
-	settings, err := r.loadSettings(ctx, tx)
+	settings, err := r.loadSettingsForComp(ctx, tx, compID)
 	if err != nil {
 		return nil, zero, err
 	}
@@ -714,22 +740,35 @@ func (r *Repository) EvictUserFromTeam(ctx context.Context, compID, userID strin
 // ---- reads ----
 
 func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailResponse, error) {
-	settings, err := r.loadSettings(ctx, r.db)
-	if err != nil {
-		return nil, err
-	}
-
 	var resp TeamDetailResponse
 	var leaderID *string
-	err = r.db.QueryRow(ctx, `
-		SELECT id, competition_id, name, join_code, leader_id, is_frozen, max_size, created_at, updated_at
-		FROM teams WHERE id = $1`, id,
-	).Scan(&resp.ID, &resp.CompetitionID, &resp.Name, &resp.JoinCode, &leaderID, &resp.IsFrozen, &resp.MaxSize, &resp.CreatedAt, &resp.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrTeamNotFound
+	if compID, hasComp := resolveCompetitionIDFromContext(ctx); hasComp {
+		err := r.db.QueryRow(ctx, `
+			SELECT id, competition_id, name, join_code, leader_id, is_frozen, max_size, created_at, updated_at
+			FROM teams WHERE id = $1 AND competition_id = $2`, id, compID,
+		).Scan(&resp.ID, &resp.CompetitionID, &resp.Name, &resp.JoinCode, &leaderID, &resp.IsFrozen, &resp.MaxSize, &resp.CreatedAt, &resp.UpdatedAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrTeamNotFound
+			}
+			return nil, fmt.Errorf("get team by id: %w", err)
 		}
-		return nil, fmt.Errorf("get team by id: %w", err)
+	} else {
+		err := r.db.QueryRow(ctx, `
+			SELECT id, competition_id, name, join_code, leader_id, is_frozen, max_size, created_at, updated_at
+			FROM teams WHERE id = $1`, id,
+		).Scan(&resp.ID, &resp.CompetitionID, &resp.Name, &resp.JoinCode, &leaderID, &resp.IsFrozen, &resp.MaxSize, &resp.CreatedAt, &resp.UpdatedAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrTeamNotFound
+			}
+			return nil, fmt.Errorf("get team by id: %w", err)
+		}
+	}
+
+	settings, err := r.loadSettingsForComp(ctx, r.db, resp.CompetitionID)
+	if err != nil {
+		return nil, err
 	}
 	resp.EffectiveFrozen = resp.IsFrozen || settings.FrozenAll
 	resp.EffectiveMaxSize = settings.MaxTeamSize
@@ -799,6 +838,20 @@ const judgeTeamsCondition = `t.id IN (
 // IsTeamAssignedToJudge reports whether teamID is scheduled in any panel judgeID is assigned to.
 func (r *Repository) IsTeamAssignedToJudge(ctx context.Context, teamID, judgeID string) (bool, error) {
 	var ok bool
+	if compID, hasComp := resolveCompetitionIDFromContext(ctx); hasComp {
+		err := r.db.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM judging_slots s
+				JOIN judging_panels p ON p.id = s.panel_id
+				JOIN judging_rounds r ON r.id = p.round_id
+				JOIN judging_panel_judges pj ON pj.panel_id = s.panel_id
+				WHERE s.team_id = $1 AND pj.judge_id = $2 AND r.competition_id = $3
+			)`, teamID, judgeID, compID).Scan(&ok)
+		if err != nil {
+			return false, fmt.Errorf("check judge team assignment: %w", err)
+		}
+		return ok, nil
+	}
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM judging_slots s
@@ -812,7 +865,11 @@ func (r *Repository) IsTeamAssignedToJudge(ctx context.Context, teamID, judgeID 
 }
 
 func (r *Repository) ListTeams(ctx context.Context, filter TeamFilter) ([]TeamResponse, int64, error) {
-	settings, err := r.loadSettings(ctx, r.db)
+	compID, _ := resolveCompetitionIDFromContext(ctx)
+	if filter.CompetitionID != nil && *filter.CompetitionID != "" {
+		compID = *filter.CompetitionID
+	}
+	settings, err := r.loadSettingsForComp(ctx, r.db, compID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -907,8 +964,14 @@ func (r *Repository) UpdateTeam(ctx context.Context, id string, req UpdateTeamRe
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := lockTeam(ctx, tx, "id = $1", id); err != nil {
-		return err
+	if compID, hasComp := resolveCompetitionIDFromContext(ctx); hasComp {
+		if _, err := lockTeam(ctx, tx, "id = $1 AND competition_id = $2", id, compID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := lockTeam(ctx, tx, "id = $1", id); err != nil {
+			return err
+		}
 	}
 
 	var sets []string
@@ -959,8 +1022,17 @@ func (r *Repository) UpdateTeam(ctx context.Context, id string, req UpdateTeamRe
 }
 
 func (r *Repository) SetFrozen(ctx context.Context, id string, frozen bool) error {
-	tag, err := r.db.Exec(ctx,
-		`UPDATE teams SET is_frozen = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, frozen, id)
+	var (
+		tag pgconn.CommandTag
+		err error
+	)
+	if compID, hasComp := resolveCompetitionIDFromContext(ctx); hasComp {
+		tag, err = r.db.Exec(ctx,
+			`UPDATE teams SET is_frozen = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND competition_id = $3`, frozen, id, compID)
+	} else {
+		tag, err = r.db.Exec(ctx,
+			`UPDATE teams SET is_frozen = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, frozen, id)
+	}
 	if err != nil {
 		return fmt.Errorf("set team frozen: %w", err)
 	}
@@ -976,8 +1048,14 @@ func (r *Repository) RegenerateCode(ctx context.Context, id string) error {
 		return fmt.Errorf("begin regenerate tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := lockTeam(ctx, tx, "id = $1", id); err != nil {
-		return err
+	if compID, hasComp := resolveCompetitionIDFromContext(ctx); hasComp {
+		if _, err := lockTeam(ctx, tx, "id = $1 AND competition_id = $2", id, compID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := lockTeam(ctx, tx, "id = $1", id); err != nil {
+			return err
+		}
 	}
 	if err := regenerateCodeTx(ctx, tx, id); err != nil {
 		return err
@@ -991,6 +1069,12 @@ func (r *Repository) DeleteTeam(ctx context.Context, id string) error {
 		return fmt.Errorf("begin delete team tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	if compID, hasComp := resolveCompetitionIDFromContext(ctx); hasComp {
+		if _, err := lockTeam(ctx, tx, "id = $1 AND competition_id = $2", id, compID); err != nil {
+			return err
+		}
+	}
 
 	if _, err := tx.Exec(ctx, "UPDATE users SET team_id = NULL WHERE team_id = $1", id); err != nil {
 		return fmt.Errorf("detach team members: %w", err)
@@ -1028,7 +1112,7 @@ func (r *Repository) AddMember(ctx context.Context, compID, teamID, userID strin
 	if current != nil {
 		return ErrAlreadyInTeam
 	}
-	settings, err := r.loadSettings(ctx, tx)
+	settings, err := r.loadSettingsForComp(ctx, tx, compID)
 	if err != nil {
 		return err
 	}

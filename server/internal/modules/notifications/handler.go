@@ -184,7 +184,7 @@ func (h *Handler) HandleBroadcast(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 	ip := r.RemoteAddr
 
-	resp, err := h.service.Broadcast(r.Context(), req, claims.UserID, claims.Email, claims.Role, ip, ua)
+	resp, err := h.service.Broadcast(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua)
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusBadRequest, "failed to broadcast notification: "+err.Error())
 		return

@@ -178,12 +178,7 @@ func RequireMembership(repo *Repository, rdb *redis.Client) func(http.Handler) h
 				Role:    role,
 			}
 
-			// Also synchronize the user's event role into AccessTokenClaims in context so downstream
-			// handlers (e.g. tickets, judging, notifications, audit) see the active event role.
-			updatedClaims := *claims
-			updatedClaims.Role = role
-			ctx := auth.WithUserClaims(r.Context(), &updatedClaims)
-			ctx = WithEventContext(ctx, evCtx)
+			ctx := WithEventContext(r.Context(), evCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

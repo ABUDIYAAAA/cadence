@@ -235,7 +235,6 @@ func NewApplication(ctx context.Context) (*Application, error) {
 				judging.RegisterRoutes(compScoped, judgingHandler, authMiddleware)
 			})
 			tickets.RegisterRoutes(eventScoped, ticketsHandler, authMiddleware)
-			judging.RegisterRoutes(eventScoped, judgingHandler, authMiddleware)
 			notifications.RegisterRoutes(eventScoped, notifHandler, authMiddleware)
 			audit.RegisterRoutes(eventScoped, auditHandler, authMiddleware)
 		})

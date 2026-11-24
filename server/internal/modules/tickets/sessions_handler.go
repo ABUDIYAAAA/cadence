@@ -26,7 +26,7 @@ func (h *Handler) HandleCreateSession(w http.ResponseWriter, r *http.Request) {
 		utils.ValidationErrorJSON(w, errs)
 		return
 	}
-	sess, err := h.service.CreateSession(r.Context(), req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	sess, err := h.service.CreateSession(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		if errors.Is(err, ErrCompetitionRequiredForTeamScan) || errors.Is(err, ErrInvalidCompetition) || errors.Is(err, ErrInvalidCheckInCode) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
@@ -56,7 +56,7 @@ func (h *Handler) HandleGenerateDefaultCheckInCode(w http.ResponseWriter, r *htt
 	if req.SessionID != nil {
 		sessionID = *req.SessionID
 	}
-	sess, err := h.service.GenerateSessionCheckInCode(r.Context(), sessionID, req.Code, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	sess, err := h.service.GenerateSessionCheckInCode(r.Context(), sessionID, req.Code, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrSessionNotFound):
@@ -79,7 +79,7 @@ func (h *Handler) HandleClearDefaultCheckInCode(w http.ResponseWriter, r *http.R
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	sess, err := h.service.ClearSessionCheckInCode(r.Context(), "", claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	sess, err := h.service.ClearSessionCheckInCode(r.Context(), "", claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to clear check-in code: "+err.Error())
 		return
@@ -97,7 +97,7 @@ func (h *Handler) HandleGenerateSessionCode(w http.ResponseWriter, r *http.Reque
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
-	sess, err := h.service.GenerateSessionCheckInCode(r.Context(), chi.URLParam(r, "sessionId"), req.Code, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	sess, err := h.service.GenerateSessionCheckInCode(r.Context(), chi.URLParam(r, "sessionId"), req.Code, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrSessionNotFound):
@@ -120,7 +120,7 @@ func (h *Handler) HandleClearSessionCode(w http.ResponseWriter, r *http.Request)
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	sess, err := h.service.ClearSessionCheckInCode(r.Context(), chi.URLParam(r, "sessionId"), claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	sess, err := h.service.ClearSessionCheckInCode(r.Context(), chi.URLParam(r, "sessionId"), claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "scan session not found")
@@ -148,7 +148,7 @@ func (h *Handler) HandleCheckInByCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, rejection, err := h.service.CheckInByCode(r.Context(), req.Code, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	resp, rejection, err := h.service.CheckInByCode(r.Context(), req.Code, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	switch {
 	case err == nil:
 		utils.JSON(w, http.StatusOK, resp)
@@ -186,7 +186,7 @@ func (h *Handler) HandleSetSessionOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, err := h.service.SetSessionOpen(r.Context(), chi.URLParam(r, "sessionId"), req.IsOpen,
-		claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+		claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "scan session not found")
@@ -215,7 +215,7 @@ func (h *Handler) HandleSessionScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, rejection, err := h.service.ScanInSession(r.Context(), chi.URLParam(r, "sessionId"), req.TicketCode,
-		claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+		claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	switch {
 	case err == nil:
 		utils.JSON(w, http.StatusOK, resp)
@@ -256,7 +256,7 @@ func (h *Handler) HandleReleaseTickets(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = BulkSendTicketsRequest{}
 	}
-	resp, err := h.service.ReleaseTickets(r.Context(), req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	resp, err := h.service.ReleaseTickets(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to release tickets: "+err.Error())
 		return
@@ -284,7 +284,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	settings, err := h.service.UpdateSettings(r.Context(), req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
+	settings, err := h.service.UpdateSettings(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		if errors.Is(err, ErrInvalidDomain) || errors.Is(err, ErrInvalidEmailSubject) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())

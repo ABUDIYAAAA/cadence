@@ -496,4 +496,66 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 	if myTeamResp.Leader == nil || myTeamResp.Leader.ID != p2ID {
 		t.Fatalf("expected p2 to be leader in my-team, got %v", myTeamResp.Leader)
 	}
+
+	// 5. Create Competition 2 in the SAME Event and verify per-competition settings isolation & cross-competition team ID 404
+	comp2Slug := fmt.Sprintf("http-comp2-%d", ts)
+	var comp2ID string
+	if err := pool.QueryRow(context.Background(), `INSERT INTO competitions (event_id, slug, name) VALUES ($1, $2, 'HTTP Comp 2') RETURNING id`, eventID, comp2Slug).Scan(&comp2ID); err != nil {
+		t.Fatalf("create comp 2: %v", err)
+	}
+	withComp2Context := func(userID, role string) context.Context {
+		c := context.Background()
+		c = auth.WithUserClaims(c, &utils.AccessTokenClaims{UserID: userID, Role: "user"})
+		c = events.WithEventContext(c, &events.Context{EventID: eventID, Slug: eventSlug, UserID: userID, Role: role})
+		c = competitions.WithCompetitionContext(c, &competitions.Context{CompetitionID: comp2ID, EventID: eventID, Slug: comp2Slug, UserID: userID, Role: role})
+		return c
+	}
+	comp2URL := "/e/" + eventSlug + "/c/" + comp2Slug + "/teams"
+
+	// Accessing Competition 1's team ID under Competition 2's URL must return 404 Not Found
+	req = httptest.NewRequest(http.MethodGet, comp2URL+"/"+createResp.ID, nil).WithContext(withComp2Context(ownerID, "owner"))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found when fetching Comp 1 team under Comp 2 URL, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, comp2URL+"/"+createResp.ID+"/freeze", nil).WithContext(withComp2Context(ownerID, "owner"))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found when freezing Comp 1 team under Comp 2 URL, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// Freezing all teams and changing max_team_size in Comp 1 must NOT affect Comp 2
+	req = httptest.NewRequest(http.MethodPost, baseURL+"/freeze-all", nil).WithContext(withContext(ownerID, "owner"))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on freeze-all in Comp 1, got %d", rec.Code)
+	}
+	req = httptest.NewRequest(http.MethodPatch, baseURL+"/settings", bytes.NewBufferString(`{"max_team_size":2}`)).WithContext(withContext(ownerID, "owner"))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on settings update in Comp 1, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, comp2URL+"/settings", nil).WithContext(withComp2Context(ownerID, "owner"))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on get settings in Comp 2, got %d", rec.Code)
+	}
+	var comp2Settings SettingsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &comp2Settings); err != nil {
+		t.Fatalf("decode comp2 settings: %v", err)
+	}
+	if comp2Settings.FrozenAll {
+		t.Fatalf("expected Comp 2 FrozenAll=false when Comp 1 is frozen, got true")
+	}
+	if comp2Settings.MaxTeamSize != 4 {
+		t.Fatalf("expected Comp 2 MaxTeamSize=4 (default), got %d", comp2Settings.MaxTeamSize)
+	}
 }

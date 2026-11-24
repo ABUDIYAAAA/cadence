@@ -30,7 +30,8 @@ func (s *Service) record(ctx context.Context, action, teamID, description string
 	if claims, _ := auth.GetUserClaims(ctx); claims != nil {
 		actorID = &claims.UserID
 		actorEmail = &claims.Email
-		actorRole = &claims.Role
+		role := auth.GetEffectiveRole(ctx)
+		actorRole = &role
 	}
 	event := audit.Event{
 		ActorID:     actorID,

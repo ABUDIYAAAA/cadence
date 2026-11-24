@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Search,
   Trash2,
-  Trophy,
   X,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
@@ -402,49 +401,34 @@ export default function CompetitionsPage() {
                   isSelected ? "bg-[var(--card-solid-subtle)]" : ""
                 }`}
               >
-                <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
-                  <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] border transition-colors ${
-                      isSelected
-                        ? "border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] text-[var(--color-blue)]"
-                        : "border-[var(--card-line)] bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)]"
-                    }`}
-                  >
-                    <Trophy className="h-4 w-4" />
-                  </div>
-
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] truncate">
-                        {comp.name}
-                      </h2>
-                      <span className="font-mono text-[11px] px-1.5 py-0.5 rounded-[5px] border border-[var(--card-line)] bg-[var(--card-solid)] text-[var(--ink-secondary)]">
-                        {comp.slug}
-                      </span>
-                      {isSelected && (
-                        <Badge variant="emerald" dot size="sm">
-                          Active
-                        </Badge>
-                      )}
-                    </div>
-
-                    {comp.description ? (
-                      <p className="text-xs text-[var(--ink-secondary)] line-clamp-2">
-                        {comp.description}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-[var(--ink-tertiary)]">
-                        Updated{" "}
-                        <span className="tabular-nums">
-                          {new Date(comp.updated_at).toLocaleDateString([], {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </span>
-                      </p>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] truncate">
+                      {comp.name}
+                    </h2>
+                    {isSelected && (
+                      <Badge variant="emerald" dot size="sm">
+                        Active
+                      </Badge>
                     )}
                   </div>
+
+                  {comp.description ? (
+                    <p className="text-xs text-[var(--ink-secondary)] line-clamp-2">
+                      {comp.description}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[var(--ink-tertiary)]">
+                      Updated{" "}
+                      <span className="tabular-nums">
+                        {new Date(comp.updated_at).toLocaleDateString([], {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">

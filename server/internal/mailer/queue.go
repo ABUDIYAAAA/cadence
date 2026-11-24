@@ -41,8 +41,10 @@ type DeliveryCallback func(ctx context.Context, ticketID string, delivered bool,
 
 // Queue manages RabbitMQ publishing and background consumer goroutines.
 type Queue struct {
+	rabbitURL  string
 	conn       *amqp.Connection
 	pubCh      *amqp.Channel
+	pubMu      sync.Mutex
 	mailer     *Mailer
 	queueName  string
 	mu         sync.RWMutex
@@ -104,6 +106,7 @@ func NewQueue(rabbitURL string, mailer *Mailer) (*Queue, error) {
 	}
 
 	return &Queue{
+		rabbitURL: rabbitURL,
 		conn:      conn,
 		pubCh:     pubCh,
 		mailer:    mailer,
@@ -111,11 +114,42 @@ func NewQueue(rabbitURL string, mailer *Mailer) (*Queue, error) {
 	}, nil
 }
 
-// Enqueue publishes an email job to RabbitMQ.
+// ensurePublishChannelLocked reopens the AMQP connection or publish channel if closed. Caller must hold q.pubMu.
+func (q *Queue) ensurePublishChannelLocked() error {
+	if q.conn == nil || q.conn.IsClosed() {
+		if q.rabbitURL == "" {
+			return errors.New("rabbitmq connection closed")
+		}
+		conn, err := amqp.Dial(q.rabbitURL)
+		if err != nil {
+			return fmt.Errorf("reconnect to rabbitmq: %w", err)
+		}
+		q.conn = conn
+		q.pubCh = nil
+	}
+	if q.pubCh == nil || q.pubCh.IsClosed() {
+		ch, err := q.conn.Channel()
+		if err != nil {
+			return fmt.Errorf("reopen rabbitmq channel: %w", err)
+		}
+		_, _ = ch.QueueDeclare(q.queueName, true, false, false, false, nil)
+		q.pubCh = ch
+	}
+	return nil
+}
+
+// Enqueue publishes an email job to RabbitMQ safely under pubMu.
 func (q *Queue) Enqueue(ctx context.Context, job Job) error {
 	payload, err := json.Marshal(job)
 	if err != nil {
 		return fmt.Errorf("marshal email job: %w", err)
+	}
+
+	q.pubMu.Lock()
+	defer q.pubMu.Unlock()
+
+	if err := q.ensurePublishChannelLocked(); err != nil {
+		return err
 	}
 
 	err = q.pubCh.PublishWithContext(
@@ -299,6 +333,8 @@ func (q *Queue) IsHealthy() bool {
 
 // Close gracefully terminates open channels and connection.
 func (q *Queue) Close() error {
+	q.pubMu.Lock()
+	defer q.pubMu.Unlock()
 	var errs []error
 	if q.pubCh != nil {
 		if err := q.pubCh.Close(); err != nil {
@@ -316,7 +352,7 @@ func (q *Queue) Close() error {
 	return nil
 }
 
-// handleFailure retries a failed job a bounded number of times with backoff, then drops it.
+// handleFailure retries a failed job a bounded number of times by republishing to the tail of the queue without blocking the worker goroutine, then drops it.
 func (q *Queue) handleFailure(ch *amqp.Channel, delivery amqp.Delivery, job Job, sendErr error, workerID int) {
 	attempts := 0
 	if v, ok := delivery.Headers[retryCountHeader]; ok {
@@ -342,22 +378,22 @@ func (q *Queue) handleFailure(ch *amqp.Channel, delivery amqp.Delivery, job Job,
 		return
 	}
 
-	// Republish with an incremented counter, then ack the original.
+	// Republish to the tail of the queue with an incremented counter, then ack the original immediately (no blocking time.Sleep).
 	headers := amqp.Table{}
 	for k, v := range delivery.Headers {
 		headers[k] = v
 	}
 	headers[retryCountHeader] = int32(attempts + 1)
 
-	time.Sleep(time.Duration(attempts+1) * 2 * time.Second) // linear backoff: 2s, 4s, 6s
-
-	err := ch.PublishWithContext(context.Background(), "", q.queueName, false, false, amqp.Publishing{
+	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := ch.PublishWithContext(pubCtx, "", q.queueName, false, false, amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
 		ContentType:  "application/json",
 		Timestamp:    time.Now(),
 		Headers:      headers,
 		Body:         delivery.Body,
 	})
+	cancel()
 	if err != nil {
 		log.Printf("[MAILER WORKER %d] Failed to republish email job, requeueing as-is: %v", workerID, err)
 		_ = delivery.Nack(false, true)

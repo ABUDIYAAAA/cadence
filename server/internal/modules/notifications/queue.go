@@ -18,7 +18,9 @@ import (
 )
 
 const (
-	DefaultPushQueue = "cadence_push_notifications"
+	DefaultPushQueue   = "cadence_push_notifications"
+	maxPushRetries     = 3
+	pushRetryHeaderKey = "x-retry-count"
 )
 
 var (
@@ -35,6 +37,7 @@ type PushJob struct {
 type Queue struct {
 	conn      *amqp.Connection
 	pubCh     *amqp.Channel
+	pubMu     sync.Mutex
 	repo      *Repository
 	cfg       *config.Config
 	logger    *slog.Logger
@@ -117,11 +120,42 @@ func (q *Queue) VAPIDPublicKey() string {
 	return q.cfg.VAPIDPublicKey
 }
 
-// Enqueue publishes a Web Push task to RabbitMQ.
+// ensurePublishChannelLocked reopens the AMQP connection or publish channel if closed. Caller must hold q.pubMu.
+func (q *Queue) ensurePublishChannelLocked() error {
+	if q.conn == nil || q.conn.IsClosed() {
+		if q.cfg == nil || q.cfg.RabbitMQURL == "" {
+			return errors.New("rabbitmq connection closed")
+		}
+		conn, err := amqp.Dial(q.cfg.RabbitMQURL)
+		if err != nil {
+			return fmt.Errorf("reconnect to rabbitmq for push queue: %w", err)
+		}
+		q.conn = conn
+		q.pubCh = nil
+	}
+	if q.pubCh == nil || q.pubCh.IsClosed() {
+		ch, err := q.conn.Channel()
+		if err != nil {
+			return fmt.Errorf("reopen push rabbitmq channel: %w", err)
+		}
+		_, _ = ch.QueueDeclare(q.queueName, true, false, false, false, nil)
+		q.pubCh = ch
+	}
+	return nil
+}
+
+// Enqueue publishes a Web Push task to RabbitMQ safely under pubMu.
 func (q *Queue) Enqueue(ctx context.Context, job PushJob) error {
 	payload, err := json.Marshal(job)
 	if err != nil {
 		return fmt.Errorf("marshal push job: %w", err)
+	}
+
+	q.pubMu.Lock()
+	defer q.pubMu.Unlock()
+
+	if err := q.ensurePublishChannelLocked(); err != nil {
+		return err
 	}
 
 	err = q.pubCh.PublishWithContext(
@@ -257,7 +291,7 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 
 					if err != nil {
 						q.logger.Warn("Failed to send webpush notification", slog.Any("error", err), slog.String("endpoint", job.Endpoint))
-						_ = delivery.Nack(false, false)
+						q.retryOrDiscard(ch, delivery)
 						continue
 					}
 
@@ -277,6 +311,10 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 							pruneCtx, pruneCancel := context.WithTimeout(context.Background(), 5*time.Second)
 							_ = q.repo.DeleteSubscription(pruneCtx, job.Endpoint)
 							pruneCancel()
+						} else if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+							q.logger.Warn("Web Push gateway returned transient error; scheduling retry", slog.Int("status", resp.StatusCode))
+							q.retryOrDiscard(ch, delivery)
+							continue
 						} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 							// Delivered successfully
 						} else {
@@ -297,6 +335,44 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 	}()
 }
 
+func (q *Queue) retryOrDiscard(ch *amqp.Channel, delivery amqp.Delivery) {
+	attempts := 0
+	if v, ok := delivery.Headers[pushRetryHeaderKey]; ok {
+		switch n := v.(type) {
+		case int32:
+			attempts = int(n)
+		case int64:
+			attempts = int(n)
+		case int:
+			attempts = n
+		}
+	}
+	if attempts >= maxPushRetries {
+		_ = delivery.Nack(false, false)
+		return
+	}
+	headers := amqp.Table{}
+	for k, v := range delivery.Headers {
+		headers[k] = v
+	}
+	headers[pushRetryHeaderKey] = int32(attempts + 1)
+
+	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := ch.PublishWithContext(pubCtx, "", q.queueName, false, false, amqp.Publishing{
+		DeliveryMode: amqp.Persistent,
+		ContentType:  "application/json",
+		Timestamp:    time.Now(),
+		Headers:      headers,
+		Body:         delivery.Body,
+	})
+	cancel()
+	if err != nil {
+		_ = delivery.Nack(false, true)
+		return
+	}
+	_ = delivery.Ack(false)
+}
+
 // IsHealthy returns true if the RabbitMQ connection is active and not closed.
 func (q *Queue) IsHealthy() bool {
 	return q != nil && q.conn != nil && !q.conn.IsClosed()
@@ -304,6 +380,8 @@ func (q *Queue) IsHealthy() bool {
 
 // Close gracefully closes open channels and connection.
 func (q *Queue) Close() error {
+	q.pubMu.Lock()
+	defer q.pubMu.Unlock()
 	var errs []error
 	if q.pubCh != nil {
 		if err := q.pubCh.Close(); err != nil {

@@ -77,6 +77,12 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 		}
 
 		resp.TotalCreated++
+		if s.redis != nil {
+			blockedKey := fmt.Sprintf("blocked:user:%s", userID)
+			if val, err := s.redis.Get(ctx, blockedKey).Result(); err == nil && val == "deleted" {
+				_ = s.redis.Del(ctx, blockedKey).Err()
+			}
+		}
 		resp.Users = append(resp.Users, UserDetailResponse{
 			ID:                   userID,
 			Email:                u.Email,
@@ -320,6 +326,13 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 
 	if s.redis != nil {
 		_ = s.redis.Del(ctx, fmt.Sprintf("blocked:user:%s", id)).Err()
+		if user, err := s.repo.GetUserByID(ctx, id); err == nil && user != nil {
+			ttl := 24 * time.Hour
+			if s.cfg != nil && s.cfg.JWTAccessExpiry > 0 {
+				ttl = s.cfg.JWTAccessExpiry * 2
+			}
+			updateMinTokenVersion(ctx, s.redis, id, user.TokenVersion, ttl)
+		}
 	}
 
 	if s.auditor != nil {

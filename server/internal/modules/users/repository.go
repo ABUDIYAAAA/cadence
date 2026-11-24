@@ -291,13 +291,26 @@ func (r *Repository) DeleteUser(ctx context.Context, id string) error {
 		postCommitAudit, _ = r.teams.EvictAndAuditAllTeamsTx(ctx, tx, id, r.auditor)
 	}
 
-	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	tag, err := tx.Exec(ctx, `
+		UPDATE users
+		SET is_active = FALSE,
+		    deleted_at = CURRENT_TIMESTAMP,
+		    token_version = token_version + 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND deleted_at IS NULL
+	`, id)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound
 	}
+	_, _ = tx.Exec(ctx, `
+		UPDATE refresh_tokens
+		SET is_revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+		WHERE user_id = $1 AND is_revoked = FALSE
+	`, id)
+	_, _ = tx.Exec(ctx, `DELETE FROM user_events WHERE user_id = $1`, id)
 
 	if err := tx.Commit(ctx); err != nil {
 		return err

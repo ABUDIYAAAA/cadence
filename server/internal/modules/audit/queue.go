@@ -26,6 +26,7 @@ const (
 
 // Queue manages RabbitMQ publishing and background consumer goroutines for audit events.
 type Queue struct {
+	rabbitURL string
 	conn      *amqp.Connection
 	pubCh     *amqp.Channel
 	pubMu     sync.Mutex
@@ -77,6 +78,7 @@ func NewQueue(rabbitURL string, repo *Repository, l *slog.Logger) (*Queue, error
 	}
 
 	return &Queue{
+		rabbitURL: rabbitURL,
 		conn:      conn,
 		pubCh:     pubCh,
 		repo:      repo,
@@ -84,6 +86,30 @@ func NewQueue(rabbitURL string, repo *Repository, l *slog.Logger) (*Queue, error
 		dlqName:   DefaultAuditDLQ,
 		logger:    l,
 	}, nil
+}
+
+// ensurePublishChannelLocked reopens the AMQP connection or publish channel if closed. Caller must hold q.pubMu.
+func (q *Queue) ensurePublishChannelLocked() error {
+	if q.conn == nil || q.conn.IsClosed() {
+		if q.rabbitURL == "" {
+			return errors.New("rabbitmq connection closed")
+		}
+		conn, err := amqp.Dial(q.rabbitURL)
+		if err != nil {
+			return fmt.Errorf("reconnect rabbitmq for audit: %w", err)
+		}
+		q.conn = conn
+		q.pubCh = nil
+	}
+	if q.pubCh == nil || q.pubCh.IsClosed() {
+		ch, err := q.conn.Channel()
+		if err != nil {
+			return fmt.Errorf("reopen audit rabbitmq channel: %w", err)
+		}
+		_, _ = ch.QueueDeclare(q.queueName, true, false, false, false, nil)
+		q.pubCh = ch
+	}
+	return nil
 }
 
 // Record captures an audit event asynchronously by publishing it to RabbitMQ.
@@ -117,19 +143,22 @@ func (q *Queue) Record(ctx context.Context, event Event) {
 	defer cancel()
 
 	q.pubMu.Lock()
-	err = q.pubCh.PublishWithContext(
-		pubCtx,
-		"",          // exchange
-		q.queueName, // routing key
-		true,        // mandatory
-		false,       // immediate
-		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			ContentType:  "application/json",
-			Timestamp:    event.Timestamp,
-			Body:         payload,
-		},
-	)
+	err = q.ensurePublishChannelLocked()
+	if err == nil {
+		err = q.pubCh.PublishWithContext(
+			pubCtx,
+			"",          // exchange
+			q.queueName, // routing key
+			true,        // mandatory
+			false,       // immediate
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				ContentType:  "application/json",
+				Timestamp:    event.Timestamp,
+				Body:         payload,
+			},
+		)
+	}
 	q.pubMu.Unlock()
 	if err != nil {
 		q.logger.Error("Failed to publish audit event to RabbitMQ", slog.String("action", event.Action), slog.Any("error", err))

@@ -291,7 +291,26 @@ func (s *Service) ConfigureSlots(
 	return nil
 }
 
-// UpdateSlotLinks modifies external project URLs for a slot.
+// sanitizeSubmissionArtifacts extracts a trimmed project_name (<=150 runes) and filters links to allowedSubmissionLinks.
+func sanitizeSubmissionArtifacts(projectName string, rawLinks map[string]string) (string, map[string]string, error) {
+	project := strings.TrimSpace(projectName)
+	if project == "" && rawLinks != nil {
+		project = strings.TrimSpace(rawLinks["project_name"])
+	}
+	if len([]rune(project)) > 150 {
+		return "", nil, ErrProjectNameTooLong
+	}
+	links := make(map[string]string, len(allowedSubmissionLinks))
+	for k, v := range rawLinks {
+		v = strings.TrimSpace(v)
+		if v != "" && allowedSubmissionLinks[k] {
+			links[k] = v
+		}
+	}
+	return project, links, nil
+}
+
+// UpdateSlotLinks modifies external project URLs for a slot's team.
 // If the caller is not an admin, verifies that the user belongs to the team assigned to this slot.
 func (s *Service) UpdateSlotLinks(
 	ctx context.Context,
@@ -316,23 +335,28 @@ func (s *Service) UpdateSlotLinks(
 			return ErrUnauthorizedSlot
 		}
 	}
+	teamID, err := s.repo.SlotTeamID(ctx, slotID)
+	if err != nil {
+		return err
+	}
 	if !auth.IsAdminRole(actorRole) {
-		if ok, _, err := s.canTeamSubmit(ctx, slotID); err != nil {
+		if ok, _, err := s.gateStatus(ctx, teamID); err != nil {
 			return err
 		} else if !ok {
 			return ErrNotPresent
 		}
 	}
-	if name := links["project_name"]; len([]rune(name)) > 150 {
-		return ErrProjectNameTooLong
+	project, cleanedLinks, err := sanitizeSubmissionArtifacts("", links)
+	if err != nil {
+		return err
 	}
-	if err := s.repo.UpdateSlotLinks(ctx, slotID, links); err != nil {
+	if err := s.repo.SetTeamSubmission(ctx, teamID, project, cleanedLinks); err != nil {
 		return err
 	}
 
 	// Record which links changed, not their URLs: they can carry private repo or deck addresses.
-	keys := make([]string, 0, len(links))
-	for k := range links {
+	keys := make([]string, 0, len(cleanedLinks))
+	for k := range cleanedLinks {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -343,7 +367,7 @@ func (s *Service) UpdateSlotLinks(
 		&slotID,
 		fmt.Sprintf("Submission links updated by %s", actorEmail),
 		&actorID, &actorEmail, &actorRole,
-		map[string]any{"slot_id": slotID, "link_keys": keys},
+		map[string]any{"slot_id": slotID, "team_id": teamID, "link_keys": keys, "has_project_name": project != ""},
 		&ip, &userAgent,
 	)
 	return nil
@@ -574,36 +598,13 @@ func (s *Service) withSubmitGate(ctx context.Context, teamID string) (*TeamStatu
 	if err != nil {
 		return nil, err
 	}
-	resp.CanSubmit = true
-	gate, err := s.repo.GetSubmissionGate(ctx)
+	can, reason, err := s.gateStatus(ctx, teamID)
 	if err != nil {
 		return nil, err
 	}
-	if gate.SessionID != nil {
-		present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
-		if err != nil {
-			return nil, fmt.Errorf("check attendance: %w", err)
-		}
-		if !present {
-			resp.CanSubmit = false
-			resp.SubmitBlockedReason = fmt.Sprintf("No member of your team was present at %q, so submissions are closed for your team.", *gate.SessionName)
-		}
-	}
+	resp.CanSubmit = can
+	resp.SubmitBlockedReason = reason
 	return resp, nil
-}
-
-// canTeamSubmit applies the attendance gate to the team that owns slotID.
-func (s *Service) canTeamSubmit(ctx context.Context, slotID string) (bool, SubmissionGate, error) {
-	gate, err := s.repo.GetSubmissionGate(ctx)
-	if err != nil {
-		return false, gate, err
-	}
-	teamID, err := s.repo.SlotTeamID(ctx, slotID)
-	if err != nil {
-		return false, gate, err
-	}
-	can, _, err := s.gateStatus(ctx, teamID)
-	return can, gate, err
 }
 
 // GetSubmissionGate returns the attendance session that gates submissions.
@@ -661,6 +662,9 @@ func (s *Service) gateStatus(ctx context.Context, teamID string) (bool, string, 
 	if present {
 		return true, "", nil
 	}
+	if gate.SessionName != nil && *gate.SessionName != "" {
+		return false, fmt.Sprintf("No member of your team was present at %q, so submissions are closed for your team.", *gate.SessionName), nil
+	}
 	return false, closed, nil
 }
 
@@ -700,16 +704,9 @@ func (s *Service) SetMySubmission(ctx context.Context, actorID, actorEmail, acto
 	} else if !can {
 		return ErrNotPresent
 	}
-	project := strings.TrimSpace(req.ProjectName)
-	if len([]rune(project)) > 150 {
-		return ErrProjectNameTooLong
-	}
-	links := map[string]string{}
-	for k, v := range req.Links {
-		v = strings.TrimSpace(v)
-		if v != "" && allowedSubmissionLinks[k] {
-			links[k] = v
-		}
+	project, links, err := sanitizeSubmissionArtifacts(req.ProjectName, req.Links)
+	if err != nil {
+		return err
 	}
 	if err := s.repo.SetTeamSubmission(ctx, *teamID, project, links); err != nil {
 		return err

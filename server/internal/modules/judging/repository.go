@@ -751,8 +751,8 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 	}
 
 	slotQuery := `
-		INSERT INTO judging_slots (panel_id, team_id, sequence_order, status, estimated_start_time, submission_links)
-		VALUES ($1, $2, $3, 'scheduled', $4, $5);
+		INSERT INTO judging_slots (panel_id, team_id, sequence_order, status, estimated_start_time)
+		VALUES ($1, $2, $3, 'scheduled', $4);
 	`
 	now := time.Now()
 	for i, s := range slots {
@@ -760,58 +760,46 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 			s.SequenceOrder = offset + i + 1
 		}
 		estTime := now.Add(time.Duration((s.SequenceOrder-1)*durationMins) * time.Minute)
-		linksJSON, _ := json.Marshal(s.SubmissionLinks)
-		if len(s.SubmissionLinks) == 0 {
-			linksJSON = []byte("{}")
-		}
 
-		if _, err := tx.Exec(ctx, slotQuery, panelID, s.TeamID, s.SequenceOrder, estTime, linksJSON); err != nil {
+		if _, err := tx.Exec(ctx, slotQuery, panelID, s.TeamID, s.SequenceOrder, estTime); err != nil {
 			return fmt.Errorf("insert slot team %s: %w", s.TeamID, err)
 		}
+		if len(s.SubmissionLinks) > 0 {
+			project, cleanedLinks, err := sanitizeSubmissionArtifacts("", s.SubmissionLinks)
+			if err != nil {
+				return err
+			}
+			if len(cleanedLinks) > 0 || project != "" {
+				linksJSON, _ := json.Marshal(cleanedLinks)
+				var projArg *string
+				if project != "" {
+					projArg = &project
+				}
+				if _, err := tx.Exec(ctx, `
+					UPDATE teams
+					SET project_name = COALESCE($2, project_name),
+					    submission_links = CASE WHEN $3::jsonb = '{}'::jsonb THEN submission_links ELSE $3::jsonb END
+					WHERE id = $1 AND competition_id = $4`, s.TeamID, projArg, linksJSON, compID); err != nil {
+					return fmt.Errorf("update team submission for slot %s: %w", s.TeamID, err)
+				}
+			}
+		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	return tx.Commit(ctx)
+}
+
+// UpdateSlotLinks modifies submission artifacts for the team owning slotID.
+func (r *Repository) UpdateSlotLinks(ctx context.Context, slotID string, links map[string]string) error {
+	teamID, err := r.SlotTeamID(ctx, slotID)
+	if err != nil {
 		return err
 	}
-	r.seedSlotsFromTeams(ctx, panelID)
-	return nil
-}
-
-// seedSlotsFromTeams copies each team's saved submission onto its new empty slots so judges see
-// links submitted before the slot existed. Best effort: the slots are already committed, and a
-// team re-saving its submission mirrors it again.
-func (r *Repository) seedSlotsFromTeams(ctx context.Context, panelID string) {
-	_, _ = r.db.Exec(ctx, `
-		UPDATE judging_slots s
-		SET submission_links = t.submission_links ||
-			CASE WHEN t.project_name IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('project_name', t.project_name) END
-		FROM teams t
-		WHERE s.panel_id = $1 AND t.id = s.team_id AND s.submission_links = '{}'::jsonb`, panelID)
-}
-
-// UpdateSlotLinks modifies submission artifacts for a slot.
-func (r *Repository) UpdateSlotLinks(ctx context.Context, slotID string, links map[string]string) error {
-	compID := r.resolveCompetitionID(ctx, "")
-	linksJSON, err := json.Marshal(links)
+	project, cleanedLinks, err := sanitizeSubmissionArtifacts("", links)
 	if err != nil {
-		return fmt.Errorf("marshal links: %w", err)
+		return err
 	}
-
-	query := `
-		UPDATE judging_slots s
-		SET submission_links = $2, updated_at = CURRENT_TIMESTAMP
-		FROM judging_panels p
-		JOIN judging_rounds r ON r.id = p.round_id
-		WHERE s.id = $1 AND s.panel_id = p.id AND r.competition_id = $3;
-	`
-	res, err := r.db.Exec(ctx, query, slotID, linksJSON, compID)
-	if err != nil {
-		return fmt.Errorf("update slot links: %w", err)
-	}
-	if res.RowsAffected() == 0 {
-		return ErrSlotNotFound
-	}
-	return nil
+	return r.SetTeamSubmission(ctx, teamID, project, cleanedLinks)
 }
 
 // SlotExists verifies if a judging slot exists in the active competition.
@@ -893,18 +881,79 @@ func (r *Repository) GetJudgePanels(ctx context.Context, judgeID string) ([]Judg
 		panels = append(panels, p)
 	}
 
-	// For each panel, fetch criteria and slots
-	for i := range panels {
-		crit, err := r.GetRoundCriteria(ctx, panels[i].RoundID)
-		if err != nil {
-			return nil, err
-		}
-		panels[i].Criteria = crit
+	// Batch-fetch criteria for all distinct rounds and slots for all panels in 2 set-based queries
+	if len(panels) == 0 {
+		return panels, nil
+	}
 
-		slots, err := r.GetPanelSlotsForJudge(ctx, panels[i].PanelID, judgeID)
-		if err != nil {
-			return nil, err
+	roundIDSet := make(map[string]struct{}, len(panels))
+	roundIDs := make([]string, 0, len(panels))
+	panelIDs := make([]string, 0, len(panels))
+	for i := range panels {
+		panelIDs = append(panelIDs, panels[i].PanelID)
+		if _, seen := roundIDSet[panels[i].RoundID]; !seen {
+			roundIDSet[panels[i].RoundID] = struct{}{}
+			roundIDs = append(roundIDs, panels[i].RoundID)
 		}
+	}
+
+	criteriaByRound := make(map[string][]CriterionOutput, len(roundIDs))
+	critRows, err := r.db.Query(ctx, `
+		SELECT round_id::text, id, name, COALESCE(description, ''), min_score, max_score, weight, order_index
+		FROM judging_criteria
+		WHERE round_id = ANY($1::uuid[]) AND team_id IS NULL
+		ORDER BY round_id, order_index ASC;
+	`, roundIDs)
+	if err != nil {
+		return nil, fmt.Errorf("batch query round criteria: %w", err)
+	}
+	for critRows.Next() {
+		var rID string
+		var c CriterionOutput
+		if err := critRows.Scan(&rID, &c.ID, &c.Name, &c.Description, &c.MinScore, &c.MaxScore, &c.Weight, &c.OrderIndex); err != nil {
+			critRows.Close()
+			return nil, fmt.Errorf("scan criterion: %w", err)
+		}
+		criteriaByRound[rID] = append(criteriaByRound[rID], c)
+	}
+	critRows.Close()
+	if err := critRows.Err(); err != nil {
+		return nil, err
+	}
+
+	slotsByPanel := make(map[string][]JudgeSlotSummary, len(panelIDs))
+	slotRows, err := r.db.Query(ctx, `
+		SELECT 
+			s.panel_id::text, s.id, s.team_id, tm.name, s.sequence_order, s.status::text,
+			s.estimated_start_time, s.actual_start_time, s.actual_end_time,
+			COALESCE(bool_and(sc.is_locked), false) as my_locked
+		FROM judging_slots s
+		JOIN teams tm ON tm.id = s.team_id
+		LEFT JOIN judging_scores sc ON sc.slot_id = s.id AND sc.judge_id = $2
+		WHERE s.panel_id = ANY($1::uuid[])
+		GROUP BY s.panel_id, s.id, tm.name
+		ORDER BY s.panel_id, s.sequence_order ASC;
+	`, panelIDs, judgeID)
+	if err != nil {
+		return nil, fmt.Errorf("batch query panel slots for judge: %w", err)
+	}
+	for slotRows.Next() {
+		var pID string
+		var s JudgeSlotSummary
+		if err := slotRows.Scan(&pID, &s.SlotID, &s.TeamID, &s.TeamName, &s.SequenceOrder, &s.Status, &s.EstimatedStartTime, &s.ActualStartTime, &s.ActualEndTime, &s.IsMyScorecardLocked); err != nil {
+			slotRows.Close()
+			return nil, fmt.Errorf("scan slot for judge: %w", err)
+		}
+		slotsByPanel[pID] = append(slotsByPanel[pID], s)
+	}
+	slotRows.Close()
+	if err := slotRows.Err(); err != nil {
+		return nil, err
+	}
+
+	for i := range panels {
+		panels[i].Criteria = criteriaByRound[panels[i].RoundID]
+		slots := slotsByPanel[panels[i].PanelID]
 		panels[i].Slots = slots
 		panels[i].TotalSlots = len(slots)
 
@@ -987,7 +1036,8 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 	query := `
 		SELECT 
 			s.id, s.panel_id, p.name, p.room, s.team_id, tm.name, s.sequence_order, s.status::text,
-			COALESCE(s.duration_mins, r.slot_duration_mins), s.actual_start_time, s.submission_links,
+			COALESCE(s.duration_mins, r.slot_duration_mins), s.actual_start_time,
+			tm.submission_links || CASE WHEN tm.project_name IS NULL OR tm.project_name = '' THEN '{}'::jsonb ELSE jsonb_build_object('project_name', tm.project_name) END,
 			s.paused_at, s.paused_total_ms, s.extra_secs, s.pitch_ended_at, CURRENT_TIMESTAMP
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
@@ -1010,27 +1060,21 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 		return nil, fmt.Errorf("query slot details: %w", err)
 	}
 
-	d.SlotDurationSeconds = d.SlotDurationMins * 60
-	d.PitchEnded = d.PitchEndedAt != nil
-	d.IsPaused = d.PausedAt != nil && !d.PitchEnded
-	if d.ActualStartTime != nil && d.Status == "in_progress" {
-		allowed := time.Duration(d.SlotDurationSeconds+d.ExtraSeconds) * time.Second
-		// Time spent paused so far doesn't count against the pitch.
-		paused := time.Duration(pausedTotalMs) * time.Millisecond
-		// The clock stops at whichever came first: the pitch ending or the current pause.
-		clockNow := d.ServerTime
-		if d.PitchEndedAt != nil {
-			clockNow = *d.PitchEndedAt
-		} else if d.PausedAt != nil {
-			clockNow = *d.PausedAt
-		}
-		remaining := int((allowed - (clockNow.Sub(*d.ActualStartTime) - paused)).Seconds())
-		d.RemainingSeconds = &remaining
-		if !d.IsPaused && !d.PitchEnded {
-			targetEnd := d.ServerTime.Add(time.Duration(remaining) * time.Second)
-			d.TargetEndTime = &targetEnd
-		}
-	}
+	timerState := ComputePitchTimerState(
+		d.Status,
+		d.SlotDurationMins,
+		d.ExtraSeconds,
+		pausedTotalMs,
+		d.ActualStartTime,
+		d.PausedAt,
+		d.PitchEndedAt,
+		d.ServerTime,
+	)
+	d.SlotDurationSeconds = timerState.SlotDurationSeconds
+	d.PitchEnded = timerState.PitchEnded
+	d.IsPaused = timerState.IsPaused
+	d.RemainingSeconds = timerState.RemainingSeconds
+	d.TargetEndTime = timerState.TargetEndTime
 
 	d.SubmissionLinks = make(map[string]string)
 	if len(linksJSON) > 0 {
@@ -1064,13 +1108,8 @@ func (r *Repository) GetJudgeSlotDetails(ctx context.Context, slotID string, jud
 		}
 		if c.Score != nil {
 			hasAnyScore = true
-			if c.MaxScore > c.MinScore {
-				norm := ((*c.Score - float64(c.MinScore)) / float64(c.MaxScore-c.MinScore)) * c.Weight
-				c.NormalizedScore = &norm
-			} else {
-				norm := c.Weight
-				c.NormalizedScore = &norm
-			}
+			norm := NormalizeCriterionScore(*c.Score, c.MinScore, c.MaxScore, c.Weight)
+			c.NormalizedScore = &norm
 		}
 		if !locked {
 			allMyLocked = false
@@ -1629,7 +1668,9 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 	query := `
 		SELECT 
 			r.name, p.name, p.room, s.status::text, s.sequence_order,
-			s.estimated_start_time, COALESCE(s.duration_mins, r.slot_duration_mins), s.submission_links, s.id::text,
+			s.estimated_start_time, COALESCE(s.duration_mins, r.slot_duration_mins),
+			tm.submission_links || CASE WHEN tm.project_name IS NULL OR tm.project_name = '' THEN '{}'::jsonb ELSE jsonb_build_object('project_name', tm.project_name) END,
+			s.id::text,
 			(
 				SELECT COUNT(*) + 1 
 				FROM judging_slots prev 
@@ -1640,6 +1681,7 @@ func (r *Repository) GetTeamActiveStatus(ctx context.Context, teamID string) (*T
 		FROM judging_slots s
 		JOIN judging_panels p ON p.id = s.panel_id
 		JOIN judging_rounds r ON r.id = p.round_id
+		JOIN teams tm ON tm.id = s.team_id
 		WHERE s.team_id = $1 AND r.competition_id = $2 AND r.status = 'active'
 		ORDER BY s.created_at DESC
 		LIMIT 1;
@@ -1712,49 +1754,68 @@ func (r *Repository) GetVolunteerSchedule(ctx context.Context, judgeID *string) 
 	}
 	rows.Close()
 
+	if len(panels) == 0 {
+		return panels, nil
+	}
+
+	panelIndex := make(map[string]int, len(panels))
+	panelIDs := make([]string, 0, len(panels))
 	for i := range panels {
-		slotQuery := `
-			SELECT 
-				s.id, s.team_id, tm.name, s.sequence_order, s.status::text,
-				s.estimated_start_time, s.actual_start_time, s.submission_links,
-				COALESCE(s.duration_mins, $2), s.duration_mins IS NOT NULL, s.scheduled_start_time
-			FROM judging_slots s
-			JOIN teams tm ON tm.id = s.team_id
-			WHERE s.panel_id = $1
-			ORDER BY s.sequence_order ASC;
-		`
-		slotRows, err := r.db.Query(ctx, slotQuery, panels[i].PanelID, panels[i].SlotDurationMins)
-		if err != nil {
-			return nil, fmt.Errorf("query slots: %w", err)
+		panelIndex[panels[i].PanelID] = i
+		panelIDs = append(panelIDs, panels[i].PanelID)
+	}
+
+	slotQuery := `
+		SELECT 
+			s.panel_id::text, s.id, s.team_id, tm.name, s.sequence_order, s.status::text,
+			s.estimated_start_time, s.actual_start_time,
+			tm.submission_links || CASE WHEN tm.project_name IS NULL OR tm.project_name = '' THEN '{}'::jsonb ELSE jsonb_build_object('project_name', tm.project_name) END,
+			COALESCE(s.duration_mins, r.slot_duration_mins), s.duration_mins IS NOT NULL, s.scheduled_start_time
+		FROM judging_slots s
+		JOIN judging_panels p ON p.id = s.panel_id
+		JOIN judging_rounds r ON r.id = p.round_id
+		JOIN teams tm ON tm.id = s.team_id
+		WHERE s.panel_id = ANY($1::uuid[])
+		ORDER BY s.panel_id, s.sequence_order ASC;
+	`
+	slotRows, err := r.db.Query(ctx, slotQuery, panelIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query slots: %w", err)
+	}
+	defer slotRows.Close()
+
+	for slotRows.Next() {
+		var pID string
+		var s TeamSlotSummary
+		var linksJSON []byte
+		if err := slotRows.Scan(&pID, &s.SlotID, &s.TeamID, &s.TeamName, &s.SequenceOrder, &s.Status, &s.EstimatedStartTime, &s.ActualStartTime, &linksJSON,
+			&s.DurationMins, &s.CustomDuration, &s.ScheduledStartTime); err != nil {
+			return nil, err
+		}
+		idx, ok := panelIndex[pID]
+		if !ok {
+			continue
+		}
+		s.SubmissionLinks = make(map[string]string)
+		if len(linksJSON) > 0 {
+			_ = json.Unmarshal(linksJSON, &s.SubmissionLinks)
 		}
 
-		for slotRows.Next() {
-			var s TeamSlotSummary
-			var linksJSON []byte
-			if err := slotRows.Scan(&s.SlotID, &s.TeamID, &s.TeamName, &s.SequenceOrder, &s.Status, &s.EstimatedStartTime, &s.ActualStartTime, &linksJSON,
-				&s.DurationMins, &s.CustomDuration, &s.ScheduledStartTime); err != nil {
-				slotRows.Close()
-				return nil, err
-			}
-			s.SubmissionLinks = make(map[string]string)
-			if len(linksJSON) > 0 {
-				_ = json.Unmarshal(linksJSON, &s.SubmissionLinks)
-			}
-
-			panels[i].TotalCount++
-			switch s.Status {
-			case "completed":
-				panels[i].CompletedCount++
-			case "in_progress":
-				copyS := s
-				panels[i].ActiveTeam = &copyS
-			case "queued":
-				panels[i].QueuedTeams = append(panels[i].QueuedTeams, s)
-			case "scheduled":
-				panels[i].UpcomingTeams = append(panels[i].UpcomingTeams, s)
-			}
+		panels[idx].TotalCount++
+		switch s.Status {
+		case "completed":
+			panels[idx].CompletedCount++
+		case "in_progress":
+			copyS := s
+			panels[idx].ActiveTeam = &copyS
+		case "queued":
+			panels[idx].QueuedTeams = append(panels[idx].QueuedTeams, s)
+		case "scheduled":
+			panels[idx].UpcomingTeams = append(panels[idx].UpcomingTeams, s)
 		}
-		slotRows.Close()
+	}
+	if err := slotRows.Err(); err != nil {
+		return nil, err
 	}
 
 	return panels, nil
@@ -1844,14 +1905,6 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 	}
 	defer rows.Close()
 
-	entries := make([]AdminLeaderboardEntry, 0)
-	gradedCount := 0
-	// Ranks count only teams with at least one locked scorecard; equal scores share a rank.
-	scoredSoFar := 0
-	rank := 0
-	var prevScore float64
-	var totalGradedWeightedScore float64
-
 	type rawEntry struct {
 		slotID               string
 		teamID               string
@@ -1873,62 +1926,126 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		rawList = append(rawList, re)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	entries := make([]AdminLeaderboardEntry, 0, len(rawList))
+	gradedCount := 0
+	var totalGradedWeightedScore float64
+
+	slotIDs := make([]string, 0, len(rawList))
+	teamIDs := make([]string, 0, len(rawList))
+	for _, re := range rawList {
+		slotIDs = append(slotIDs, re.slotID)
+		teamIDs = append(teamIDs, re.teamID)
+	}
+
+	// 1. Batch-fetch criterion averages across all slots in the round in a single query
+	type slotCritStat struct {
+		name     string
+		minScore int
+		maxScore int
+		weight   float64
+		avgScore float64
+	}
+	critStatsBySlot := make(map[string][]slotCritStat, len(rawList))
+	if len(slotIDs) > 0 {
+		critRows, err := r.db.Query(ctx, `
+			SELECT sc.slot_id::text, c.name, c.min_score, c.max_score, c.weight::float8, AVG(sc.score)::float8
+			FROM judging_scores sc
+			JOIN judging_slots sl ON sl.id = sc.slot_id
+			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = $2
+			     AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = sl.team_id)
+			WHERE sc.slot_id = ANY($1::uuid[]) AND sc.is_locked = true
+			GROUP BY sc.slot_id, c.id, c.name, c.min_score, c.max_score, c.weight;
+		`, slotIDs, roundID)
+		if err == nil {
+			for critRows.Next() {
+				var sID string
+				var st slotCritStat
+				if err := critRows.Scan(&sID, &st.name, &st.minScore, &st.maxScore, &st.weight, &st.avgScore); err == nil {
+					critStatsBySlot[sID] = append(critStatsBySlot[sID], st)
+				}
+			}
+			critRows.Close()
+		}
+	}
+
+	// 2. Batch-fetch pre-awarded custom team criteria for the round in a single query
+	type customCritStat struct {
+		name     string
+		minScore int
+		maxScore int
+		weight   float64
+		awarded  float64
+	}
+	customByTeam := make(map[string]customCritStat, len(rawList))
+	if len(teamIDs) > 0 {
+		cRows, err := r.db.Query(ctx, `
+			SELECT team_id::text, name, min_score, max_score, weight::float8, awarded_score::float8
+			FROM judging_criteria
+			WHERE round_id = $1 AND team_id = ANY($2::uuid[]) AND awarded_score IS NOT NULL
+		`, roundID, teamIDs)
+		if err == nil {
+			for cRows.Next() {
+				var tID string
+				var cs customCritStat
+				if err := cRows.Scan(&tID, &cs.name, &cs.minScore, &cs.maxScore, &cs.weight, &cs.awarded); err == nil {
+					customByTeam[tID] = cs
+				}
+			}
+			cRows.Close()
+		}
+	}
+
+	// 3. Batch-fetch team member names for all slotted teams in a single query
+	membersByTeam := make(map[string][]string, len(rawList))
+	if len(teamIDs) > 0 {
+		mRows, err := r.db.Query(ctx, `
+			SELECT tm.team_id::text, u.name
+			FROM team_members tm
+			JOIN users u ON u.id = tm.user_id
+			WHERE tm.team_id = ANY($1::uuid[]) AND u.deleted_at IS NULL
+			ORDER BY tm.team_id, tm.joined_at ASC, u.id ASC
+		`, teamIDs)
+		if err == nil {
+			for mRows.Next() {
+				var tID, n string
+				if err := mRows.Scan(&tID, &n); err == nil {
+					membersByTeam[tID] = append(membersByTeam[tID], n)
+				}
+			}
+			mRows.Close()
+		}
+	}
 
 	for _, re := range rawList {
-		// Fetch criteria averages and weighted scores for this slot
 		critAverages := make(map[string]float64)
 		critWeighted := make(map[string]float64)
 		var sumRawAvg, judgedScore float64
 		var critCount int
 
-		critRows, err := r.db.Query(ctx, `
-			SELECT c.name, c.min_score, c.max_score, c.weight, AVG(sc.score)
-			FROM judging_scores sc
-			JOIN judging_slots sl ON sl.id = sc.slot_id
-			JOIN judging_criteria c ON c.id = sc.criterion_id AND c.round_id = $2
-			     AND c.awarded_score IS NULL AND (c.team_id IS NULL OR c.team_id = sl.team_id)
-			WHERE sc.slot_id = $1 AND sc.is_locked = true
-			GROUP BY c.id, c.name, c.min_score, c.max_score, c.weight;
-		`, re.slotID, roundID)
-		if err == nil {
-			for critRows.Next() {
-				var cName string
-				var minScore, maxScore int
-				var weight, avgSc float64
-				if err := critRows.Scan(&cName, &minScore, &maxScore, &weight, &avgSc); err == nil {
-					critAverages[cName] = avgSc
-					sumRawAvg += avgSc
-					critCount++
-					var wScore float64
-					if maxScore > minScore {
-						wScore = ((avgSc - float64(minScore)) / float64(maxScore-minScore)) * weight
-					} else {
-						wScore = weight
-					}
-					critWeighted[cName] = wScore
-					judgedScore += wScore
-				}
-			}
-			critRows.Close()
+		for _, st := range critStatsBySlot[re.slotID] {
+			critAverages[st.name] = st.avgScore
+			sumRawAvg += st.avgScore
+			critCount++
+			wScore := NormalizeCriterionScore(st.avgScore, st.minScore, st.maxScore, st.weight)
+			critWeighted[st.name] = wScore
+			judgedScore += wScore
 		}
 
-		// Pre-awarded team criterion: shown alongside the judged ones.
 		var awName string
-		var awMin, awMax int
-		var awWeight, awScore float64
-		var customScore float64
+		var awMax int
+		var awWeight, customScore float64
 		var custom *float64
-		if err := r.db.QueryRow(ctx, `
-			SELECT name, min_score, max_score, weight::float8, awarded_score::float8
-			FROM judging_criteria
-			WHERE round_id = $1 AND team_id = $2 AND awarded_score IS NOT NULL`, roundID, re.teamID,
-		).Scan(&awName, &awMin, &awMax, &awWeight, &awScore); err == nil {
+		if cs, ok := customByTeam[re.teamID]; ok {
+			awName = cs.name
+			awMax = cs.maxScore
+			awWeight = cs.weight
+			awScore := cs.awarded
 			critAverages[awName] = awScore
-			if awMax > awMin {
-				customScore = ((awScore - float64(awMin)) / float64(awMax-awMin)) * awWeight
-			} else {
-				customScore = awWeight
-			}
+			customScore = NormalizeCriterionScore(awScore, cs.minScore, cs.maxScore, cs.weight)
 			critWeighted[awName] = customScore
 			custom = &awScore
 		}
@@ -1938,30 +2055,9 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			avgRawScore = sumRawAvg / float64(critCount)
 		}
 
-		entryRank := 0
-		if re.judgesEvaluatedCount > 0 {
-			scoredSoFar++
-			if scoredSoFar == 1 || math.Abs(re.totalWeightedScore-prevScore) > 1e-9 {
-				rank = scoredSoFar
-			}
-			prevScore = re.totalWeightedScore
-			entryRank = rank
-		}
-
-		memberNames := []string{}
-		if mRows, err := r.db.Query(ctx, `
-			SELECT u.name
-			FROM team_members tm
-			JOIN users u ON u.id = tm.user_id
-			WHERE tm.team_id = $1 AND u.deleted_at IS NULL
-			ORDER BY tm.joined_at ASC, u.id ASC`, re.teamID); err == nil {
-			for mRows.Next() {
-				var n string
-				if err := mRows.Scan(&n); err == nil {
-					memberNames = append(memberNames, n)
-				}
-			}
-			mRows.Close()
+		memberNames := membersByTeam[re.teamID]
+		if memberNames == nil {
+			memberNames = []string{}
 		}
 
 		allLocked := re.totalJudgesOnPanel > 0 && re.judgesEvaluatedCount >= re.totalJudgesOnPanel
@@ -1971,7 +2067,6 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 		}
 
 		entries = append(entries, AdminLeaderboardEntry{
-			Rank:                   entryRank,
 			TeamID:                 re.teamID,
 			TeamName:               re.teamName,
 			MemberNames:            memberNames,
@@ -1995,6 +2090,8 @@ func (r *Repository) GetAdminLeaderboard(ctx context.Context, roundID string) (*
 			CustomAwarded:          custom,
 		})
 	}
+
+	AssignCompetitionRanks(entries)
 
 	var roundAverageScore float64
 	if gradedCount > 0 {
@@ -2602,38 +2699,24 @@ func (r *Repository) GetTeamSubmission(ctx context.Context, teamID string) (name
 	return name, project, links, nil
 }
 
-// SetTeamSubmission saves the team's submission and mirrors it onto any judging slots it holds,
-// so judges and volunteers keep reading links from the slot.
+// SetTeamSubmission saves the team's project_name and submission_links on the teams table (the single source of truth).
 func (r *Repository) SetTeamSubmission(ctx context.Context, teamID, project string, links map[string]string) error {
 	linksJSON, err := json.Marshal(links)
 	if err != nil {
 		return fmt.Errorf("marshal links: %w", err)
 	}
-	slotLinks := map[string]string{}
-	for k, v := range links {
-		slotLinks[k] = v
-	}
-	if project != "" {
-		slotLinks["project_name"] = project
-	}
-	slotJSON, _ := json.Marshal(slotLinks)
-
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer tx.Rollback(ctx)
 	var projArg *string
 	if project != "" {
 		projArg = &project
 	}
-	if _, err := tx.Exec(ctx, `UPDATE teams SET project_name = $2, submission_links = $3 WHERE id = $1`, teamID, projArg, linksJSON); err != nil {
+	tag, err := r.db.Exec(ctx, `UPDATE teams SET project_name = COALESCE($2, project_name), submission_links = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, teamID, projArg, linksJSON)
+	if err != nil {
 		return fmt.Errorf("update team submission: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE judging_slots SET submission_links = $2, updated_at = CURRENT_TIMESTAMP WHERE team_id = $1`, teamID, slotJSON); err != nil {
-		return fmt.Errorf("mirror slot links: %w", err)
+	if tag.RowsAffected() == 0 {
+		return ErrUnknownTeam
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // ListSubmissions lists every team's project name and links in the active competition for the CSV export.

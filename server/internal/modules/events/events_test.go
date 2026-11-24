@@ -494,4 +494,97 @@ func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 		}
 		_, _ = db.Exec(ctx, "DELETE FROM users WHERE email IN ($1, $2)", ownerEmail, newEmail)
 	})
+
+	t.Run("blacklisted user is never un-blacklisted by Google OAuth or Event member onboarding, and soft-delete restoration synchronizes Redis", func(t *testing.T) {
+		ownerEmail := fmt.Sprintf("inv-owner-%d@example.com", nano)
+		ev, err := svc.CreateEvent(ctx, CreateEventRequest{
+			Slug:       fmt.Sprintf("inv-event-%d", nano),
+			Name:       "Invariant Event",
+			OwnerEmail: &ownerEmail,
+		}, creatorDevID)
+		if err != nil {
+			t.Fatalf("create event: %v", err)
+		}
+		var ownerID string
+		if err := db.QueryRow(ctx, "SELECT id FROM users WHERE email = $1", ownerEmail).Scan(&ownerID); err != nil {
+			t.Fatalf("get owner id: %v", err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.Exec(ctx, "DELETE FROM events WHERE id = $1", ev.ID)
+			_, _ = db.Exec(ctx, "DELETE FROM users WHERE id = $1", ownerID)
+		})
+
+		// 1. Create a user, blacklist them in DB + Redis
+		blacklistedEmail := fmt.Sprintf("blacklisted-%d@example.com", nano)
+		var blacklistedID string
+		if err := db.QueryRow(ctx, `
+			INSERT INTO users (email, name, role, is_active)
+			VALUES ($1, 'Blacklisted User', 'user', FALSE)
+			RETURNING id
+		`, blacklistedEmail).Scan(&blacklistedID); err != nil {
+			t.Fatalf("insert blacklisted user: %v", err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.Exec(ctx, "DELETE FROM users WHERE id = $1", blacklistedID)
+		})
+		_ = rdb.Set(ctx, fmt.Sprintf("blocked:user:%s", blacklistedID), "blacklisted", time.Hour).Err()
+
+		// 2. Google OAuth UpsertGoogleUser must NOT flip is_active = TRUE for a blacklisted user!
+		authRepo := auth.NewRepository(db)
+		upserted, err := authRepo.UpsertGoogleUser(ctx, fmt.Sprintf("gid-%d", nano), blacklistedEmail, "Blacklisted User", nil, "user")
+		if err != nil {
+			t.Fatalf("UpsertGoogleUser: %v", err)
+		}
+		if upserted.IsActive {
+			t.Fatalf("expected blacklisted user to remain is_active=false after UpsertGoogleUser, got true")
+		}
+
+		// 3. Event admin calling AddEventUser or GetOrCreateUserByEmail must NOT flip is_active = TRUE for a blacklisted user!
+		_, _, _ = svc.AddEventUser(ctx, ev.ID, ownerID, "owner", AddEventUserRequest{
+			Email: blacklistedEmail,
+			Role:  "participant",
+		})
+		var isActiveAfterAdd bool
+		if err := db.QueryRow(ctx, "SELECT is_active FROM users WHERE id = $1", blacklistedID).Scan(&isActiveAfterAdd); err != nil {
+			t.Fatalf("check is_active: %v", err)
+		}
+		if isActiveAfterAdd {
+			t.Fatalf("expected blacklisted user to remain is_active=false after AddEventUser, got true")
+		}
+
+		// 4. Soft-deleted user re-added via AddEventUser must have deleted_at cleared, is_active restored to TRUE,
+		// AND blocked:user:{id} cleared in Redis while user:min_token_version:{id} is updated!
+		softDelEmail := fmt.Sprintf("softdel-%d@example.com", nano)
+		var softDelID string
+		if err := db.QueryRow(ctx, `
+			INSERT INTO users (email, name, role, is_active, deleted_at, token_version)
+			VALUES ($1, 'Soft Deleted', 'user', FALSE, CURRENT_TIMESTAMP, 2)
+			RETURNING id
+		`, softDelEmail).Scan(&softDelID); err != nil {
+			t.Fatalf("insert soft-deleted user: %v", err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.Exec(ctx, "DELETE FROM users WHERE id = $1", softDelID)
+		})
+		_ = rdb.Set(ctx, fmt.Sprintf("blocked:user:%s", softDelID), "deleted", time.Hour).Err()
+
+		if _, _, err := svc.AddEventUser(ctx, ev.ID, ownerID, "owner", AddEventUserRequest{
+			Email: softDelEmail,
+			Role:  "participant",
+		}); err != nil {
+			t.Fatalf("AddEventUser for soft-deleted user: %v", err)
+		}
+
+		var restoredActive bool
+		var restoredDeletedAt *time.Time
+		if err := db.QueryRow(ctx, "SELECT is_active, deleted_at FROM users WHERE id = $1", softDelID).Scan(&restoredActive, &restoredDeletedAt); err != nil {
+			t.Fatalf("query restored user: %v", err)
+		}
+		if !restoredActive || restoredDeletedAt != nil {
+			t.Fatalf("expected soft-deleted user to be restored (is_active=true, deleted_at=nil), got is_active=%v deleted_at=%v", restoredActive, restoredDeletedAt)
+		}
+		if exists := rdb.Exists(ctx, fmt.Sprintf("blocked:user:%s", softDelID)).Val(); exists != 0 {
+			t.Fatalf("expected Redis blocked:user:%s to be cleared when soft-deleted user is restored via AddEventUser, got exists=%d", softDelID, exists)
+		}
+	})
 }

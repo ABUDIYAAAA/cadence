@@ -87,6 +87,7 @@ func (r *Repository) GetUserByGoogleID(ctx context.Context, googleID string) (*U
 }
 
 // UpsertGoogleUser creates or updates a user via Google OAuth identity.
+// Never overwrites is_active = FALSE (a blacklisted or soft-deleted user remains inactive until restored by an admin/dev).
 func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultRole string) (*User, error) {
 	if defaultRole == "" {
 		defaultRole = RoleUser
@@ -100,8 +101,6 @@ func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name
 		    google_id = COALESCE(users.google_id, EXCLUDED.google_id),
 		    avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
 		    role = CASE WHEN users.role = 'dev' THEN 'dev' ELSE EXCLUDED.role END,
-		    is_active = TRUE,
-		    deleted_at = NULL,
 		    updated_at = CURRENT_TIMESTAMP
 		RETURNING id, email, name, google_id, avatar_url, role, phone_number,
 		          is_active, token_version, created_at, updated_at

@@ -75,10 +75,18 @@ func deriveNameFromEmail(email string) string {
 }
 
 // GetOrCreateUserByEmail retrieves an existing user's ID by email, or creates a new user account in the background if they don't exist.
+// Soft-deleted accounts (deleted_at IS NOT NULL) are reactivated; platform-blacklisted accounts (is_active = FALSE AND deleted_at IS NULL) remain inactive.
 func (r *Repository) GetOrCreateUserByEmail(ctx context.Context, email, name string) (string, error) {
+	id, _, _, err := r.FindOrProvisionUserByEmail(ctx, email, name)
+	return id, err
+}
+
+// FindOrProvisionUserByEmail provisions or looks up a user by email, returning (id, restoredFromSoftDelete, tokenVersion, error).
+// A platform-blacklisted account (is_active = FALSE AND deleted_at IS NULL) is never un-blacklisted.
+func (r *Repository) FindOrProvisionUserByEmail(ctx context.Context, email, name string) (string, bool, int, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
-		return "", errors.New("owner email cannot be empty")
+		return "", false, 0, errors.New("owner email cannot be empty")
 	}
 
 	if strings.TrimSpace(name) == "" {
@@ -89,17 +97,20 @@ func (r *Repository) GetOrCreateUserByEmail(ctx context.Context, email, name str
 		INSERT INTO users (email, name, role, is_active)
 		VALUES ($1, $2, 'user', TRUE)
 		ON CONFLICT (email) DO UPDATE
-		SET deleted_at = NULL,
-		    is_active = TRUE,
+		SET is_active = CASE WHEN users.deleted_at IS NOT NULL THEN TRUE ELSE users.is_active END,
+		    token_version = CASE WHEN users.deleted_at IS NOT NULL THEN users.token_version + 1 ELSE users.token_version END,
+		    deleted_at = NULL,
 		    updated_at = CURRENT_TIMESTAMP
-		RETURNING id;
+		RETURNING id, (xmax <> 0 AND is_active = TRUE) AS active_existing, token_version;
 	`
 	var id string
-	err := r.db.QueryRow(ctx, query, email, name).Scan(&id)
+	var activeExisting bool
+	var tokenVersion int
+	err := r.db.QueryRow(ctx, query, email, name).Scan(&id, &activeExisting, &tokenVersion)
 	if err != nil {
-		return "", fmt.Errorf("get or create owner account: %w", err)
+		return "", false, 0, fmt.Errorf("get or create owner account: %w", err)
 	}
-	return id, nil
+	return id, activeExisting, tokenVersion, nil
 }
 
 // CreateEvent inserts a new event and binds the designated user as 'owner' within a single transaction.
@@ -390,13 +401,16 @@ func (r *Repository) AddEventUser(
 	}
 	defer tx.Rollback(ctx)
 
-	// Step 1: Upsert user account in users table
+	// Step 1: Upsert user account in users table.
+	// Soft-deleted accounts (deleted_at IS NOT NULL) are restored to is_active = TRUE;
+	// platform-blacklisted accounts (is_active = FALSE AND deleted_at IS NULL) keep is_active = FALSE!
 	upsertUserQuery := `
 		INSERT INTO users (email, name, phone_number, role, is_active)
 		VALUES ($1, $2, $3, 'user', TRUE)
 		ON CONFLICT (email) DO UPDATE
-		SET deleted_at = NULL,
-		    is_active = CASE WHEN users.is_active = FALSE THEN TRUE ELSE users.is_active END,
+		SET is_active = CASE WHEN users.deleted_at IS NOT NULL THEN TRUE ELSE users.is_active END,
+		    token_version = CASE WHEN users.deleted_at IS NOT NULL THEN users.token_version + 1 ELSE users.token_version END,
+		    deleted_at = NULL,
 		    phone_number = COALESCE(users.phone_number, EXCLUDED.phone_number),
 		    updated_at = CURRENT_TIMESTAMP
 		RETURNING id, (xmax = 0) AS created

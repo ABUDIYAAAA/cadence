@@ -510,3 +510,154 @@ func TestMultiTenantCompetitionIsolationAndSettings(t *testing.T) {
 		}
 	})
 }
+
+func TestSubmissionSingleSourceOfTruthAndGateConsistency(t *testing.T) {
+	pool, _ := newTestJudgingPool(t, 20)
+	repo := NewRepository(pool)
+	svc := NewService(repo, nil)
+	baseCtx := context.Background()
+
+	// 1. Verify redundant judging_slots.submission_links column is dropped from the schema
+	var colCount int
+	if err := pool.QueryRow(baseCtx, `
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'judging_slots' AND column_name = 'submission_links'
+	`).Scan(&colCount); err != nil {
+		t.Fatalf("check judging_slots.submission_links column: %v", err)
+	}
+	if colCount != 0 {
+		t.Fatalf("expected judging_slots.submission_links column to be dropped (0 rows), got %d", colCount)
+	}
+
+	var eventID, compID, judgeID, leaderID, teamID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO events (slug, name) VALUES ('ev-sub', 'Event Sub') RETURNING id`).Scan(&eventID); err != nil {
+		t.Fatalf("create event: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-sub', 'Comp Sub') RETURNING id`, eventID).Scan(&compID); err != nil {
+		t.Fatalf("create comp: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO users (email, name, is_active) VALUES ('judge.sub@cadence.local', 'Judge Sub', true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatalf("create judge: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO users (email, name, is_active) VALUES ('lead.sub@cadence.local', 'Lead Sub', true) RETURNING id`).Scan(&leaderID); err != nil {
+		t.Fatalf("create leader: %v", err)
+	}
+	if _, err := pool.Exec(baseCtx, `INSERT INTO user_events (user_id, event_id, role) VALUES ($1, $2, 'judge'), ($3, $2, 'participant')`, judgeID, eventID, leaderID); err != nil {
+		t.Fatalf("assign event roles: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO teams (competition_id, name, join_code, leader_id) VALUES ($1, 'Team Sub', 'SUB001', $2) RETURNING id`, compID, leaderID).Scan(&teamID); err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	if _, err := pool.Exec(baseCtx, `INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, teamID, leaderID, compID); err != nil {
+		t.Fatalf("insert team member: %v", err)
+	}
+
+	ctxComp := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventID, Slug: "ev-sub", Name: "Event Sub", UserID: leaderID, Role: "participant"}),
+		&competitions.Context{CompetitionID: compID, EventID: eventID, Slug: "comp-sub", Name: "Comp Sub", UserID: leaderID, Role: "participant"},
+	)
+
+	roundID, err := repo.CreateRound(ctxComp, CreateRoundRequest{
+		Name:             "Round Sub",
+		BufferSize:       2,
+		SlotDurationMins: 10,
+		Criteria: []CreateCriteriaRequest{
+			{Name: "Code", MinScore: 0, MaxScore: 10, Weight: 100, OrderIndex: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create round: %v", err)
+	}
+	panelID, err := repo.CreatePanel(ctxComp, CreatePanelRequest{
+		RoundID:  roundID,
+		Name:     "Panel Sub",
+		Room:     "Room 201",
+		JudgeIDs: []string{judgeID},
+	})
+	if err != nil {
+		t.Fatalf("create panel: %v", err)
+	}
+	if err := repo.ConfigureSlots(ctxComp, panelID, []SlotAssignment{
+		{TeamID: teamID, SequenceOrder: 1, SubmissionLinks: map[string]string{"github": "https://github.com/cadence/seeded"}},
+	}, false); err != nil {
+		t.Fatalf("configure slots: %v", err)
+	}
+	if err := repo.ActivateRound(ctxComp, roundID); err != nil {
+		t.Fatalf("activate round: %v", err)
+	}
+	var slotID string
+	if err := pool.QueryRow(baseCtx, `SELECT id FROM judging_slots WHERE panel_id = $1`, panelID).Scan(&slotID); err != nil {
+		t.Fatalf("get slot id: %v", err)
+	}
+
+	// 2. When no attendance gate session is configured (gate.SessionID == nil), BOTH GetTeamStatusForUser and GetMySubmission
+	// must report CanSubmit == false with the same blocked reason!
+	statusResp, err := svc.GetTeamStatusForUser(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetTeamStatusForUser: %v", err)
+	}
+	mySub, err := svc.GetMySubmission(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetMySubmission: %v", err)
+	}
+	if statusResp.CanSubmit != mySub.CanSubmit || statusResp.CanSubmit {
+		t.Fatalf("expected both statusResp.CanSubmit and mySub.CanSubmit to be false when no gate session is set; got status=%v (%q), mySub=%v (%q)",
+			statusResp.CanSubmit, statusResp.SubmitBlockedReason, mySub.CanSubmit, mySub.SubmitBlockedReason)
+	}
+	if statusResp.SubmitBlockedReason == "" || statusResp.SubmitBlockedReason != mySub.SubmitBlockedReason {
+		t.Fatalf("expected identical non-empty SubmitBlockedReason, got status=%q vs mySub=%q",
+			statusResp.SubmitBlockedReason, mySub.SubmitBlockedReason)
+	}
+
+	// 3. Updating slot links via UpdateSlotLinks (as admin) writes to teams and is immediately reflected in:
+	//    - GetMySubmission
+	//    - ListSubmissions (CSV export)
+	//    - GetJudgeSlotDetails
+	//    - GetVolunteerSchedule
+	//    - GetTeamStatusForUser
+	if err := svc.UpdateSlotLinks(ctxComp, slotID, judgeID, "admin@cadence.local", "admin", map[string]string{
+		"project_name": "Unified Project",
+		"github":       "https://github.com/cadence/unified-repo",
+		"demo":         "https://demo.cadence.local",
+		"arbitrary":    "https://ignored.invalid",
+	}, "127.0.0.1", "test"); err != nil {
+		t.Fatalf("UpdateSlotLinks: %v", err)
+	}
+
+	mySubAfter, err := svc.GetMySubmission(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetMySubmission after UpdateSlotLinks: %v", err)
+	}
+	if mySubAfter.ProjectName != "Unified Project" || mySubAfter.Links["github"] != "https://github.com/cadence/unified-repo" || mySubAfter.Links["demo"] != "https://demo.cadence.local" {
+		t.Fatalf("expected GetMySubmission to reflect UpdateSlotLinks on teams table, got %+v", mySubAfter)
+	}
+	if _, hasArbitrary := mySubAfter.Links["arbitrary"]; hasArbitrary {
+		t.Fatalf("expected UpdateSlotLinks to filter out disallowed link keys, got %+v", mySubAfter.Links)
+	}
+
+	exportResp, err := svc.ListSubmissions(ctxComp)
+	if err != nil {
+		t.Fatalf("ListSubmissions: %v", err)
+	}
+	if len(exportResp.Submissions) != 1 || exportResp.Submissions[0].ProjectName != "Unified Project" || exportResp.Submissions[0].Repository != "https://github.com/cadence/unified-repo" {
+		t.Fatalf("expected ListSubmissions CSV export to reflect UpdateSlotLinks, got %+v", exportResp.Submissions)
+	}
+
+	slotDetails, err := svc.GetJudgeSlotDetails(ctxComp, slotID, judgeID)
+	if err != nil {
+		t.Fatalf("GetJudgeSlotDetails: %v", err)
+	}
+	if slotDetails.SubmissionLinks["github"] != "https://github.com/cadence/unified-repo" || slotDetails.SubmissionLinks["project_name"] != "Unified Project" {
+		t.Fatalf("expected GetJudgeSlotDetails to join submission_links from teams, got %+v", slotDetails.SubmissionLinks)
+	}
+
+	volSched, err := svc.GetVolunteerSchedule(ctxComp, nil)
+	if err != nil || len(volSched) != 1 || len(volSched[0].QueuedTeams) != 1 {
+		t.Fatalf("GetVolunteerSchedule: err=%v sched=%+v", err, volSched)
+	}
+	if volSched[0].QueuedTeams[0].SubmissionLinks["github"] != "https://github.com/cadence/unified-repo" || volSched[0].QueuedTeams[0].SubmissionLinks["project_name"] != "Unified Project" {
+		t.Fatalf("expected GetVolunteerSchedule to join submission_links from teams, got %+v", volSched[0].QueuedTeams[0].SubmissionLinks)
+	}
+}
+

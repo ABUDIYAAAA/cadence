@@ -72,6 +72,7 @@ func (s *Service) CreateEvent(ctx context.Context, req CreateEventRequest, creat
 		if err != nil {
 			return nil, err
 		}
+		s.clearRestoredSoftDeleteBlock(ctx, resolvedID)
 		ownerUserID = resolvedID
 	}
 
@@ -177,6 +178,7 @@ func (s *Service) TransferOwnership(ctx context.Context, eventID, currentOwnerID
 		if err != nil {
 			return err
 		}
+		s.clearRestoredSoftDeleteBlock(ctx, resolvedID)
 		newOwnerID = resolvedID
 	}
 	if newOwnerID == "" {
@@ -229,6 +231,7 @@ func (s *Service) AddEventUser(
 	if s.rdb != nil {
 		_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, detail.ID), role, 15*time.Minute).Err()
 		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", detail.ID), eventID).Err()
+		s.clearRestoredSoftDeleteBlock(ctx, detail.ID)
 	}
 
 	actionDesc := fmt.Sprintf("Added existing user %s to event as %s", req.Email, role)
@@ -285,6 +288,7 @@ func (s *Service) BulkAddEventUsers(
 		if s.rdb != nil {
 			_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, detail.ID), role, 15*time.Minute).Err()
 			_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", detail.ID), eventID).Err()
+			s.clearRestoredSoftDeleteBlock(ctx, detail.ID)
 		}
 
 		resp.Users = append(resp.Users, *detail)
@@ -467,6 +471,18 @@ func (s *Service) ListEventUsers(ctx context.Context, eventID string, filter Eve
 // ListMembers lists event members.
 func (s *Service) ListMembers(ctx context.Context, eventID, roleFilter string) ([]MemberWithUser, error) {
 	return s.repo.ListMembers(ctx, eventID, roleFilter)
+}
+
+// clearRestoredSoftDeleteBlock removes the Redis "deleted" block key if a soft-deleted account was restored,
+// while preserving any "blacklisted" or "deactivated" Redis block keys.
+func (s *Service) clearRestoredSoftDeleteBlock(ctx context.Context, userID string) {
+	if s.rdb == nil || userID == "" {
+		return
+	}
+	blockedKey := fmt.Sprintf("blocked:user:%s", userID)
+	if val, err := s.rdb.Get(ctx, blockedKey).Result(); err == nil && val == "deleted" {
+		_ = s.rdb.Del(ctx, blockedKey).Err()
+	}
 }
 
 func (s *Service) recordAudit(ctx context.Context, action, eventID, description string, actorID *string, meta map[string]any) {

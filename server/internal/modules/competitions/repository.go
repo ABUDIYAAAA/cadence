@@ -27,6 +27,20 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
+// GetUserIDByEmail retrieves the ID of an active user by email.
+func (r *Repository) GetUserIDByEmail(ctx context.Context, email string) (string, error) {
+	var id string
+	query := `SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL`
+	err := r.db.QueryRow(ctx, query, email).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errors.New("owner user not found with specified email")
+		}
+		return "", fmt.Errorf("lookup user by email: %w", err)
+	}
+	return id, nil
+}
+
 // CreateCompetition inserts a new competition and binds the creator as 'owner' within a single transaction.
 // A user is strictly prevented from owning more than one competition simultaneously.
 func (r *Repository) CreateCompetition(ctx context.Context, slug, name string, description *string, ownerUserID string) (*Competition, error) {

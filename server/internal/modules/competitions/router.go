@@ -3,6 +3,7 @@ package competitions
 import (
 	"net/http"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -15,9 +16,10 @@ func RegisterRoutes(
 	rdb *redis.Client,
 	authMiddleware func(http.Handler) http.Handler,
 ) {
-	// Global competition creation
+	// Global competition creation - restricted to devs only
 	r.Route("/competitions", func(r chi.Router) {
 		r.Use(authMiddleware)
+		r.Use(auth.RequireDev())
 		r.Post("/", h.HandleCreateCompetition)
 	})
 

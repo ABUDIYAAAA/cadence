@@ -32,10 +32,21 @@ func NewService(repo *Repository, rdb *redis.Client, auditor audit.Recorder) *Se
 	}
 }
 
-// CreateCompetition validates inputs, ensures slug format, and binds the caller as owner.
-func (s *Service) CreateCompetition(ctx context.Context, req CreateCompetitionRequest, ownerUserID string) (*Competition, error) {
+// CreateCompetition validates inputs, ensures slug format, and binds the owner.
+func (s *Service) CreateCompetition(ctx context.Context, req CreateCompetitionRequest, creatorUserID string) (*Competition, error) {
 	if !slugRegex.MatchString(req.Slug) {
 		return nil, ErrInvalidSlug
+	}
+
+	ownerUserID := creatorUserID
+	if req.OwnerID != nil && *req.OwnerID != "" {
+		ownerUserID = *req.OwnerID
+	} else if req.OwnerEmail != nil && *req.OwnerEmail != "" {
+		resolvedID, err := s.repo.GetUserIDByEmail(ctx, *req.OwnerEmail)
+		if err != nil {
+			return nil, err
+		}
+		ownerUserID = resolvedID
 	}
 
 	comp, err := s.repo.CreateCompetition(ctx, req.Slug, req.Name, req.Description, ownerUserID)
@@ -43,9 +54,10 @@ func (s *Service) CreateCompetition(ctx context.Context, req CreateCompetitionRe
 		return nil, err
 	}
 
-	s.recordAudit(ctx, audit.ActionCompetitionCreate, comp.ID, fmt.Sprintf("Created competition %s (%s)", comp.Name, comp.Slug), &ownerUserID, map[string]any{
-		"slug": comp.Slug,
-		"name": comp.Name,
+	s.recordAudit(ctx, audit.ActionCompetitionCreate, comp.ID, fmt.Sprintf("Created competition %s (%s)", comp.Name, comp.Slug), &creatorUserID, map[string]any{
+		"slug":          comp.Slug,
+		"name":          comp.Name,
+		"owner_user_id": ownerUserID,
 	})
 
 	return comp, nil

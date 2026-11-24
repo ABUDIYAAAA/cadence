@@ -5,6 +5,8 @@ type CreateCompetitionRequest struct {
 	Slug        string  `json:"slug" validate:"required,min=3,max=64"`
 	Name        string  `json:"name" validate:"required,min=2,max=255"`
 	Description *string `json:"description,omitempty" validate:"omitempty,max=2000"`
+	OwnerEmail  *string `json:"owner_email,omitempty" validate:"omitempty,email,max=254"`
+	OwnerID     *string `json:"owner_id,omitempty" validate:"omitempty,uuid"`
 }
 
 // UpdateCompetitionRequest defines payload to update competition metadata.

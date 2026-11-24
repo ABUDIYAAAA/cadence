@@ -1,12 +1,16 @@
 package competitions
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/utils"
+	"github.com/go-chi/chi/v5"
 )
 
 func TestRequireCompetitionRoles(t *testing.T) {
@@ -201,6 +205,107 @@ func TestValidationDTOs(t *testing.T) {
 		errs := utils.ValidateStruct(req)
 		if len(errs) > 0 {
 			t.Fatalf("unexpected validation error: %v", errs)
+		}
+	})
+
+	t.Run("valid CreateCompetitionRequest with optional owner email and id passes", func(t *testing.T) {
+		email := "organizer@example.com"
+		uid := "00000000-0000-0000-0000-000000000002"
+		req := CreateCompetitionRequest{
+			Slug:       "ai-hackathon",
+			Name:       "AI Hackathon",
+			OwnerEmail: &email,
+			OwnerID:    &uid,
+		}
+		errs := utils.ValidateStruct(req)
+		if len(errs) > 0 {
+			t.Fatalf("unexpected validation error: %v", errs)
+		}
+	})
+
+	t.Run("invalid CreateCompetitionRequest with bad owner email fails", func(t *testing.T) {
+		badEmail := "not-an-email"
+		req := CreateCompetitionRequest{
+			Slug:       "ai-hackathon",
+			Name:       "AI Hackathon",
+			OwnerEmail: &badEmail,
+		}
+		errs := utils.ValidateStruct(req)
+		if len(errs) == 0 {
+			t.Fatalf("expected validation error for invalid email")
+		}
+	})
+}
+
+func TestCreateCompetitionDevOnlyRestriction(t *testing.T) {
+	// Mount router using RegisterRoutes
+	r := chi.NewRouter()
+	handler := NewHandler(&Service{})
+
+	// Dummy auth middleware that reads claims injected in request context
+	authMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	RegisterRoutes(r, handler, nil, nil, authMiddleware)
+
+	t.Run("unauthenticated user is rejected with 401 by RequireDev", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"slug":"hack-2026","name":"Hack 2026"}`)
+		req := httptest.NewRequest(http.MethodPost, "/competitions", body)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 Unauthorized, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("regular user with global_role=user is rejected with 403", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"slug":"hack-2026","name":"Hack 2026"}`)
+		req := httptest.NewRequest(http.MethodPost, "/competitions", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		claims := &utils.AccessTokenClaims{
+			UserID:     "user-regular-1",
+			Email:      "regular@cadence.local",
+			GlobalRole: "user",
+		}
+		ctx := auth.WithUserClaims(req.Context(), claims)
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req.WithContext(ctx))
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden for global_role=user, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+
+		var resp map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		if resp["error"] != "developer access required" {
+			t.Fatalf("expected 'developer access required', got %v", resp["error"])
+		}
+	})
+
+	t.Run("dev user with global_role=dev passes RequireDev gate", func(t *testing.T) {
+		// Send invalid JSON body so it passes RequireDev and reaches HandleCreateCompetition body decoder
+		body := bytes.NewBufferString(`{invalid-json`)
+		req := httptest.NewRequest(http.MethodPost, "/competitions", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		claims := &utils.AccessTokenClaims{
+			UserID:     "user-dev-1",
+			Email:      "dev@cadence.local",
+			GlobalRole: "dev",
+		}
+		ctx := auth.WithUserClaims(req.Context(), claims)
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req.WithContext(ctx))
+		// Passed RequireDev and failed on invalid request body in handler (400)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request (passed dev check), got %d (body: %s)", rec.Code, rec.Body.String())
 		}
 	})
 }

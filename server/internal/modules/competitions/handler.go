@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/utils"
@@ -20,11 +21,16 @@ func NewHandler(service *Service) *Handler {
 
 const maxCompetitionBodyBytes = 16 << 10 // 16 KiB
 
-// HandleCreateCompetition creates a new competition and assigns the caller as owner.
+// HandleCreateCompetition creates a new competition and assigns the designated user or caller as owner.
+// Strictly restricted to users with global 'dev' role.
 func (h *Handler) HandleCreateCompetition(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.GetUserClaims(r.Context())
 	if !ok || claims.UserID == "" {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if claims.GlobalRole != "dev" {
+		utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
 		return
 	}
 
@@ -48,7 +54,9 @@ func (h *Handler) HandleCreateCompetition(w http.ResponseWriter, r *http.Request
 		case errors.Is(err, ErrSlugAlreadyExists):
 			utils.ErrorJSON(w, http.StatusConflict, "competition slug is already taken")
 		case errors.Is(err, ErrUserAlreadyOwnsCompetition):
-			utils.ErrorJSON(w, http.StatusConflict, "you may only be the owner of one competition at a time")
+			utils.ErrorJSON(w, http.StatusConflict, "competition owner already owns another competition")
+		case strings.Contains(err.Error(), "owner user not found"):
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		default:
 			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to create competition")
 		}

@@ -255,7 +255,7 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 	return r.GetUserByID(ctx, id)
 }
 
-func (r *Repository) SoftDeleteUser(ctx context.Context, id string) error {
+func (r *Repository) DeleteUser(ctx context.Context, id string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin delete tx: %w", err)
@@ -264,30 +264,12 @@ func (r *Repository) SoftDeleteUser(ctx context.Context, id string) error {
 
 	_ = evictUserFromTeamTx(ctx, tx, id)
 
-	delQuery := `
-		UPDATE users
-		SET is_active = FALSE,
-		    deleted_at = CURRENT_TIMESTAMP,
-		    team_id = NULL,
-		    token_version = token_version + 1,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND deleted_at IS NULL
-	`
-	tag, err := tx.Exec(ctx, delQuery, id)
+	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 	if err != nil {
-		return fmt.Errorf("soft delete user: %w", err)
+		return fmt.Errorf("delete user: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound
-	}
-
-	_, err = tx.Exec(ctx, `
-		UPDATE refresh_tokens
-		SET is_revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
-		WHERE user_id = $1 AND is_revoked = FALSE
-	`, id)
-	if err != nil {
-		return fmt.Errorf("revoke refresh tokens on delete: %w", err)
 	}
 
 	return tx.Commit(ctx)

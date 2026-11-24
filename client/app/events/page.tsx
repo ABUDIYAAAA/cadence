@@ -298,16 +298,9 @@ export default function EventsSelectionPage() {
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] truncate">
-                        {item.name}
-                      </h2>
-                      {isSelected && (
-                        <Badge variant="emerald" dot size="sm">
-                          Active
-                        </Badge>
-                      )}
-                    </div>
+                    <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] truncate">
+                      {item.name}
+                    </h2>
                     <p className="text-xs text-[var(--ink-secondary)] mt-0.5">
                       {item.member_count}{" "}
                       {item.member_count === 1 ? "member" : "members"}

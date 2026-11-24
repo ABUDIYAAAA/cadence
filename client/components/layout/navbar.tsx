@@ -63,6 +63,7 @@ export function Navbar() {
     activeCompetition,
     competitions,
     selectCompetition,
+    clearEvent,
   } = useTenant();
   const { isSupported, isSubscribed, enablePush, disablePush } =
     useNotificationsContext();
@@ -368,139 +369,6 @@ export function Navbar() {
                 </span>
               </span>
             </Link>
-
-            {/* Active Event & Header Competition Switcher */}
-            {isAuthenticated && user && eventSlug && (
-              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 pl-1 sm:pl-2 border-l border-[var(--card-line)]">
-                {/* Active Event Pill */}
-                <div className="flex items-center gap-1 min-w-0">
-                  <Link
-                    href="/events"
-                    title="Switch Event"
-                    className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] text-xs font-semibold text-[var(--ink-primary)] hover:border-[var(--color-blue)] transition-colors truncate max-w-[175px] sm:max-w-[240px]"
-                  >
-                    {(eventDetail?.logo_url || activeEvent?.logo_url) ? (
-                      <img
-                        src={(eventDetail?.logo_url || activeEvent?.logo_url)!}
-                        alt={displayEventName || "Event logo"}
-                        className="h-4 w-4 shrink-0 rounded-[4px] object-cover"
-                      />
-                    ) : (
-                      <Calendar className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
-                    )}
-                    <span className="truncate">{displayEventName}</span>
-                    {role && (
-                      <span className="hidden sm:inline-flex items-center rounded-[6px] px-1.5 py-0.5 text-[11px] font-medium capitalize bg-[var(--card-solid)] text-[var(--ink-secondary)] border border-[var(--card-line)] shrink-0">
-                        {isDev ? "dev" : role}
-                      </span>
-                    )}
-                    <ArrowLeftRight className="h-3 w-3 shrink-0 text-[var(--ink-tertiary)]" />
-                  </Link>
-
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={openEventSettings}
-                      title="Event settings & ownership"
-                      aria-label="Event settings"
-                      className="hidden sm:flex items-center justify-center h-8 w-8 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:border-[var(--color-blue)] transition-colors cursor-pointer"
-                    >
-                      <Settings className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Competition Switcher Dropdown */}
-                <div className="relative" ref={compDropdownRef}>
-                  <button
-                    type="button"
-                    onClick={() => setCompDropdownOpen((prev) => !prev)}
-                    aria-expanded={compDropdownOpen}
-                    aria-label="Switch competition"
-                    className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] text-xs font-semibold text-[var(--ink-primary)] hover:border-[var(--color-blue)] transition-colors cursor-pointer max-w-[140px] sm:max-w-[200px]"
-                  >
-                    <Layers className="h-3.5 w-3.5 shrink-0 text-[var(--ink-secondary)]" />
-                    <span className="truncate">
-                      {activeCompetition
-                        ? activeCompetition.name
-                        : competitions.length === 0
-                          ? "No competitions"
-                          : "Select competition"}
-                    </span>
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)]" />
-                  </button>
-
-                  {compDropdownOpen && (
-                    <div className="absolute left-0 mt-2 w-64 origin-top-left rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 p-1.5 text-xs font-sans">
-                      <div className="px-2.5 py-1.5 text-[11px] font-medium text-[var(--ink-secondary)] flex items-center justify-between">
-                        <span>Competitions</span>
-                        <span>{competitions.length}</span>
-                      </div>
-
-                      {competitions.length === 0 ? (
-                        <div className="px-2.5 py-3 text-xs text-[var(--ink-secondary)]">
-                          No competitions created in this event yet.
-                        </div>
-                      ) : (
-                        <div className="max-h-56 overflow-y-auto space-y-0.5">
-                          {competitions.map((comp) => {
-                            const selected = comp.slug === competitionSlug;
-                            return (
-                              <button
-                                key={comp.id}
-                                type="button"
-                                onClick={() => {
-                                  selectCompetition(comp.slug);
-                                  setCompDropdownOpen(false);
-                                  toast.info(
-                                    `Switched to ${comp.name}`,
-                                    "Competition active"
-                                  );
-                                }}
-                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-[8px] text-left transition-colors cursor-pointer ${selected
-                                  ? "bg-[var(--color-blue-dim)] text-[var(--ink-primary)] font-semibold"
-                                  : "hover:bg-[var(--card-solid-subtle)] text-[var(--ink-primary)]"
-                                  }`}
-                              >
-                                <div className="min-w-0">
-                                  <div className="truncate">{comp.name}</div>
-                                </div>
-                                {selected && (
-                                  <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {isAdmin && (
-                        <div className="mt-1 pt-1 border-t border-[var(--card-line)] space-y-0.5">
-                          <button
-                            type="button"
-                            onClick={openCreateCompetition}
-                            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-[8px] text-xs font-semibold text-[var(--color-blue)] hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            <span>New competition</span>
-                          </button>
-                          {activeCompetition && (
-                            <button
-                              type="button"
-                              onClick={openEditCompetition}
-                              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-[8px] text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer"
-                            >
-                              <Settings className="h-3.5 w-3.5" />
-                              <span>Manage &ldquo;{activeCompetition.name}&rdquo;</span>
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Right Section: Theme Switcher, Notification Bell & User Avatar */}
@@ -556,8 +424,17 @@ export function Navbar() {
                       <div className="space-y-0.5">
                         {showDashboard && (
                           <Link
-                            href={getAuthenticatedHomeRoute(user, eventSlug)}
-                            onClick={() => setDropdownOpen(false)}
+                            href={
+                              pathname === "/events" && isDev
+                                ? "/dashboard/dev"
+                                : getAuthenticatedHomeRoute(user, eventSlug)
+                            }
+                            onClick={() => {
+                              if (pathname === "/events" && isDev) {
+                                clearEvent();
+                              }
+                              setDropdownOpen(false);
+                            }}
                             className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
                           >
                             <LayoutDashboard className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />

@@ -272,7 +272,7 @@ func updateMinTokenVersion(ctx context.Context, rdb *redis.Client, userID string
 
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	user, _ := s.repo.GetUserByID(ctx, id)
-	if err := s.repo.SoftDeleteUser(ctx, id); err != nil {
+	if err := s.repo.DeleteUser(ctx, id); err != nil {
 		return err
 	}
 
@@ -280,6 +280,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	if s.redis != nil {
 		blockedKey := fmt.Sprintf("blocked:user:%s", id)
 		_ = s.redis.Set(ctx, blockedKey, "deleted", 24*time.Hour).Err()
+		_ = s.redis.Del(ctx, fmt.Sprintf("user:%s:events", id)).Err()
 	}
 
 	if s.auditor != nil {

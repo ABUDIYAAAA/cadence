@@ -281,9 +281,6 @@ export default function EventsSelectionPage() {
                           {item.name}
                         </h2>
                       </div>
-                      <p className="text-xs text-[var(--ink-tertiary)] truncate mt-0.5">
-                        /e/{item.slug}
-                      </p>
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -435,7 +432,7 @@ export default function EventsSelectionPage() {
         title="Delete Event?"
         description={
           deletingEvent
-            ? `Permanently delete "${deletingEvent.name}" (/e/${deletingEvent.slug}) and all of its competitions, teams, tickets, and judging rounds.`
+            ? `Permanently delete "${deletingEvent.name}" and all of its competitions, teams, tickets, and judging rounds.`
             : ""
         }
         footer={

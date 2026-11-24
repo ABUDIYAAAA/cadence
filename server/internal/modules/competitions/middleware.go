@@ -56,7 +56,7 @@ func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) 
 					userID = claims.UserID
 				}
 				if role == "" {
-					if claims.GlobalRole == "dev" {
+					if claims.Role == "dev" {
 						role = "owner"
 					} else {
 						role = claims.Role
@@ -161,12 +161,12 @@ func RequireCompetitionRoles(allowedRoles ...string) func(http.Handler) http.Han
 				return
 			}
 
-			// Global dev role has top-level bypass across all competition roles
+			// Dev role has top-level bypass across all competition roles
 			if activeRole == "dev" {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if claims, hasClaims := auth.GetUserClaims(r.Context()); hasClaims && claims.GlobalRole == "dev" {
+			if claims, hasClaims := auth.GetUserClaims(r.Context()); hasClaims && claims.Role == "dev" {
 				next.ServeHTTP(w, r)
 				return
 			}

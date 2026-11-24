@@ -59,15 +59,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const role: UserRole | null =
-    permissions.effectiveRole ?? rawUser?.role ?? null;
+    permissions.isDev
+      ? "dev"
+      : permissions.effectiveRole ?? rawUser?.role ?? null;
 
   const user = useMemo<UserResponse | null>(() => {
     if (!rawUser) return null;
     return {
       ...rawUser,
-      role: (role ?? "participant") as UserRole,
+      role: (permissions.isDev ? "dev" : role ?? "participant") as UserRole,
     };
-  }, [rawUser, role]);
+  }, [rawUser, role, permissions.isDev]);
 
   const handleLogout = useCallback(async () => {
     // 1. Attempt push notification cleanup with strict 400ms timeout

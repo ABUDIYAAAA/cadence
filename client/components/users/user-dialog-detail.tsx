@@ -143,15 +143,6 @@ export function UserDetailDialog({
             </Badge>
           </div>
 
-          {user.global_role && (
-            <div className="flex justify-between p-3">
-              <span className="text-[var(--ink-secondary)]">Global Role</span>
-              <Badge variant="subtle" size="sm" className="uppercase">
-                {user.global_role}
-              </Badge>
-            </div>
-          )}
-
           <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
             <span className="text-[var(--ink-secondary)]">Status</span>
             <span className="font-bold text-[var(--ink-primary)]">

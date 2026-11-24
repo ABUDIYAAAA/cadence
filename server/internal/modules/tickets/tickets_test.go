@@ -32,6 +32,9 @@ func newTestDBPool(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Skipf("skipping tickets db test, db unreachable: %v", err)
 	}
+	t.Cleanup(func() {
+		pool.Close()
+	})
 	return pool
 }
 
@@ -45,6 +48,9 @@ func seedTestEvent(t *testing.T, pool *pgxpool.Pool, slug, name string) string {
 	`, slug, name).Scan(&id); err != nil {
 		t.Fatalf("failed to seed test event: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM events WHERE id = $1`, id)
+	})
 	return id
 }
 
@@ -53,12 +59,15 @@ func seedTestEventUser(t *testing.T, pool *pgxpool.Pool, eventID, email, name, r
 	ctx := context.Background()
 	var userID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, global_role, is_active)
+		INSERT INTO users (email, name, role, is_active)
 		VALUES ($1, $2, 'user', TRUE)
 		RETURNING id
 	`, email, name).Scan(&userID); err != nil {
 		t.Fatalf("failed to seed test user: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO user_events (event_id, user_id, role)
 		VALUES ($1, $2, $3::event_role)
@@ -70,7 +79,6 @@ func seedTestEventUser(t *testing.T, pool *pgxpool.Pool, eventID, email, name, r
 
 func TestTicketSettingsSanitizationAndExcludedDomains(t *testing.T) {
 	pool := newTestDBPool(t)
-	defer pool.Close()
 
 	ts := time.Now().UnixNano()
 	evSlug := fmt.Sprintf("tkt-settings-ev-%d", ts)
@@ -116,7 +124,6 @@ func TestTicketSettingsSanitizationAndExcludedDomains(t *testing.T) {
 
 func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *testing.T) {
 	pool := newTestDBPool(t)
-	defer pool.Close()
 
 	ts := time.Now().UnixNano()
 	evSlug := fmt.Sprintf("tkt-flow-ev-%d", ts)
@@ -268,8 +275,11 @@ func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *test
 
 	// Verify non-member of the event cannot auto-mint a ticket even when event tickets are released
 	var outsiderID string
-	_ = pool.QueryRow(ctx, `INSERT INTO users (email, name, global_role, is_active) VALUES ($1, 'Outsider', 'user', TRUE) RETURNING id`,
+	_ = pool.QueryRow(ctx, `INSERT INTO users (email, name, role, is_active) VALUES ($1, 'Outsider', 'user', TRUE) RETURNING id`,
 		fmt.Sprintf("outsider_%d@gmail.com", ts)).Scan(&outsiderID)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, outsiderID)
+	})
 	if _, err := svc.GetMyTicket(ctx, outsiderID); !errors.Is(err, ErrTicketNotFound) {
 		t.Fatalf("expected outsider (not in user_events) to receive ErrTicketNotFound, got: %v", err)
 	}
@@ -277,7 +287,6 @@ func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *test
 
 func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing.T) {
 	pool := newTestDBPool(t)
-	defer pool.Close()
 
 	ts := time.Now().UnixNano()
 	evSlug := fmt.Sprintf("scan-ev-%d", ts)
@@ -452,7 +461,6 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 
 func TestCheckInCodeGenerationRotationAndDirectParticipantCheckIn(t *testing.T) {
 	pool := newTestDBPool(t)
-	defer pool.Close()
 
 	ts := time.Now().UnixNano()
 	evSlug := fmt.Sprintf("code-ev-%d", ts)

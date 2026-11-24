@@ -3,8 +3,8 @@ package auth
 import "time"
 
 const (
-	GlobalRoleDev  = "dev"
-	GlobalRoleUser = "user"
+	RoleDev  = "dev"
+	RoleUser = "user"
 )
 
 // User represents the core account identity in the users table.
@@ -14,7 +14,7 @@ type User struct {
 	Name         string
 	GoogleID     *string
 	AvatarURL    *string
-	GlobalRole   string
+	Role         string
 	PhoneNumber  *string
 	TeamID       *string
 	IsActive     bool

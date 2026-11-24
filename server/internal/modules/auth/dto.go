@@ -13,7 +13,6 @@ type UserResponse struct {
 	Email       string          `json:"email"`
 	Name        string          `json:"name"`
 	PhoneNumber *string         `json:"phone_number,omitempty"`
-	GlobalRole  string          `json:"global_role"`
 	GoogleID    *string         `json:"google_id,omitempty"`
 	AvatarURL   *string         `json:"avatar_url,omitempty"`
 	Role        string          `json:"role,omitempty"`

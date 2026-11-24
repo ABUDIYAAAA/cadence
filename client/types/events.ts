@@ -1,4 +1,4 @@
-import { AssignableEventRole, EventRole, GlobalRole } from "./auth";
+import { AssignableEventRole, EventRole, UserRole } from "./auth";
 import { CheckinStatus } from "./users";
 
 export interface Event {
@@ -54,9 +54,8 @@ export interface EventUserDetailResponse {
   email: string;
   name: string;
   phone_number?: string | null;
-  global_role: GlobalRole;
   avatar_url?: string | null;
-  role: EventRole;
+  role: UserRole;
   is_banned: boolean;
   banned_at?: string | null;
   team_id?: string | null;

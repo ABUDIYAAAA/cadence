@@ -12,6 +12,7 @@ export interface EffectivePermissions {
 
 export function getDashboardRoute(role?: EventRole | string | null): string {
   switch (role) {
+    case "dev":
     case "owner":
     case "admin":
       return "/dashboard/admin";
@@ -55,7 +56,7 @@ export function resolveEffectivePermissions(
     };
   }
 
-  const isDev = user.global_role === "dev";
+  const isDev = user.role === "dev";
   let effectiveRole: EventRole | null = null;
 
   if (isDev) {
@@ -65,10 +66,10 @@ export function resolveEffectivePermissions(
       effectiveRole =
         user.events.find((e) => e.event_slug === activeEventSlug)?.role ?? null;
     } else {
-      effectiveRole = user.role ?? null;
+      effectiveRole = (user.role as EventRole) ?? null;
     }
   } else if (!Array.isArray(user.events)) {
-    effectiveRole = user.role ?? null;
+    effectiveRole = (user.role as EventRole) ?? null;
   }
 
   const isOwner = isDev || effectiveRole === "owner";

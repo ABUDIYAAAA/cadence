@@ -1,4 +1,4 @@
-import { GlobalRole, UserRole } from "./auth";
+import { UserRole } from "./auth";
 import { PaginatedResponse } from "./api";
 
 export interface UserDetailResponse {
@@ -6,7 +6,6 @@ export interface UserDetailResponse {
   email: string;
   name: string;
   phone_number?: string | null;
-  global_role?: GlobalRole;
   avatar_url?: string | null;
   role: UserRole;
   team_id?: string | null;

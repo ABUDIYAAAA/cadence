@@ -136,12 +136,20 @@ function NavList({ items, activeIndex, pinned, onNavigate }: NavListProps) {
 function UserChip({
 	name,
 	role,
+	avatarUrl,
 	pinned,
 }: {
 	name: string;
 	role: string;
+	avatarUrl?: string | null;
 	pinned?: boolean;
 }) {
+	const [avatarFailed, setAvatarFailed] = useState(false);
+
+	useEffect(() => {
+		setAvatarFailed(false);
+	}, [avatarUrl]);
+
 	const initials = name
 		.split(' ')
 		.map((p) => p[0])
@@ -150,6 +158,8 @@ function UserChip({
 		.join('')
 		.toUpperCase();
 
+	const showAvatarImage = Boolean(avatarUrl && !avatarFailed);
+
 	return (
 		<div
 			className='flex items-center rounded-[14px]'
@@ -157,8 +167,18 @@ function UserChip({
 			<span
 				className='grid place-items-center shrink-0'
 				style={{ width: ITEM_H, height: ITEM_H }}>
-				<span className='grid h-8 w-8 place-items-center rounded-full bg-[var(--color-blue-dim)] text-[11px] font-semibold text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]'>
-					{initials || '?'}
+				<span className='grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-[var(--color-blue-dim)] text-[11px] font-semibold text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]'>
+					{showAvatarImage ? (
+						<img
+							src={avatarUrl!}
+							alt={name || 'User avatar'}
+							referrerPolicy='no-referrer'
+							onError={() => setAvatarFailed(true)}
+							className='h-full w-full object-cover'
+						/>
+					) : (
+						initials || '?'
+					)}
 				</span>
 			</span>
 			<span
@@ -317,6 +337,7 @@ export function Sidebar() {
 							<UserChip
 								name={user.name}
 								role={user.role}
+								avatarUrl={user.avatar_url}
 								pinned
 							/>
 						</div>
@@ -344,6 +365,7 @@ export function Sidebar() {
 							<UserChip
 								name={user.name}
 								role={user.role}
+								avatarUrl={user.avatar_url}
 							/>
 						</div>
 					)}

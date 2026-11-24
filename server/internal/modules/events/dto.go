@@ -101,7 +101,6 @@ type EventUserDetailResponse struct {
 	Email         string     `json:"email"`
 	Name          string     `json:"name"`
 	PhoneNumber   *string    `json:"phone_number,omitempty"`
-	GlobalRole    string     `json:"global_role"`
 	AvatarURL     *string    `json:"avatar_url,omitempty"`
 	Role          string     `json:"role"`
 	IsBanned      bool       `json:"is_banned"`

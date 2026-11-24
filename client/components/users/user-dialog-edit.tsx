@@ -35,8 +35,14 @@ function UserEditForm({
 }) {
   const [name, setName] = useState(user.name);
   const [phoneNumber, setPhoneNumber] = useState(user.phone_number || "");
-  const [role, setRole] = useState<UserRole>(
-    user.role === "owner" ? "admin" : user.role
+  const [role, setRole] = useState<string>(
+    mode === "platform"
+      ? user.role === "dev"
+        ? "dev"
+        : "user"
+      : user.role === "owner"
+      ? "admin"
+      : user.role
   );
   const [isActive, setIsActive] = useState(
     mode === "event" ? !user.is_banned : user.is_active
@@ -61,13 +67,13 @@ function UserEditForm({
         user.id,
         mode === "event"
           ? {
-              role,
+              role: role as UserRole,
               is_active: isActive,
             }
           : {
               name: name.trim(),
               phone_number: phoneNumber.trim() || undefined,
-              role,
+              role: role as UserRole,
               is_active: isActive,
             }
       );
@@ -106,16 +112,25 @@ function UserEditForm({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Select
-          label={mode === "event" ? "Event Role" : "Role"}
+          label={mode === "event" ? "Event Role" : "Platform Role"}
           value={role}
-          onChange={(e) => setRole(e.target.value as UserRole)}
+          onChange={(e) => setRole(e.target.value)}
           disabled={isLoading}
         >
-          <option value="participant">Participant</option>
-          <option value="judge">Judge</option>
-          <option value="volunteer">Volunteer</option>
-          {(canAssignAdmin || user.role === "admin" || user.role === "owner") && (
-            <option value="admin">Admin</option>
+          {mode === "platform" ? (
+            <>
+              <option value="user">User</option>
+              <option value="dev">Dev</option>
+            </>
+          ) : (
+            <>
+              <option value="participant">Participant</option>
+              <option value="judge">Judge</option>
+              <option value="volunteer">Volunteer</option>
+              {(canAssignAdmin ||
+                user.role === "admin" ||
+                user.role === "owner") && <option value="admin">Admin</option>}
+            </>
           )}
         </Select>
 

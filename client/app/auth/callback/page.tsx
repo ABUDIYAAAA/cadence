@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,12 +35,15 @@ function OAuthCallbackContent() {
 
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
+  const hasCompletedRef = useRef(false);
 
   useEffect(() => {
     if (parsed.status !== "success") return;
+    if (hasCompletedRef.current) return;
+    hasCompletedRef.current = true;
 
     const targetRedirect = parsed.redirectPath;
-    let cancelled = false;
+    const urlEvents = parsed.events;
 
     async function completeSignIn() {
       try {
@@ -50,15 +53,20 @@ function OAuthCallbackContent() {
         const user = await queryClient.fetchQuery({
           queryKey: AUTH_QUERY_KEY,
           queryFn: () => authService.me(),
-          staleTime: 0,
+          staleTime: 60_000,
         });
 
-        if (cancelled) return;
+        if (urlEvents.length > 0 && (!user.events || user.events.length === 0)) {
+          queryClient.setQueryData(AUTH_QUERY_KEY, {
+            ...user,
+            events: urlEvents,
+          });
+        }
 
         toast.success(`Welcome, ${user.name}`, "AUTHENTICATED");
         router.replace(targetRedirect);
       } catch {
-        if (cancelled) return;
+        hasCompletedRef.current = false;
         setVerifyError(
           "We could not verify your active session cookie. Please try signing in again."
         );
@@ -66,10 +74,6 @@ function OAuthCallbackContent() {
     }
 
     completeSignIn();
-
-    return () => {
-      cancelled = true;
-    };
   }, [parsed, queryClient, router, toast]);
 
   const handleRetryGoogle = () => {

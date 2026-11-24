@@ -160,7 +160,7 @@ func (r *Repository) IsEventMember(ctx context.Context, userID string) (bool, er
 			WHERE u.id = $2
 			  AND u.deleted_at IS NULL
 			  AND u.is_active = TRUE
-			  AND (u.global_role = 'dev' OR (ue.user_id IS NOT NULL AND ue.is_banned = FALSE))
+			  AND (u.role = 'dev' OR (ue.user_id IS NOT NULL AND ue.is_banned = FALSE))
 		)
 	`, eventID, userID).Scan(&allowed)
 	if err != nil {

@@ -38,22 +38,28 @@ func newTestDBPool(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Skipf("skipping db test, db unreachable: %v", err)
 	}
+	t.Cleanup(func() {
+		pool.Close()
+	})
 	return pool
 }
 
-// createTestUser creates an active user with a given email and global role in the database.
-func createTestUser(t *testing.T, pool *pgxpool.Pool, email, name, globalRole string) string {
+// createTestUser creates an active user with a given email and role in the database.
+func createTestUser(t *testing.T, pool *pgxpool.Pool, email, name, role string) string {
 	t.Helper()
 	ctx := context.Background()
 	var userID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, global_role, is_active)
+		INSERT INTO users (email, name, role, is_active)
 		VALUES ($1, $2, $3, TRUE)
 		RETURNING id
-	`, email, name, globalRole).Scan(&userID)
+	`, email, name, role).Scan(&userID)
 	if err != nil {
 		t.Fatalf("failed to create test user: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
 	return userID
 }
 
@@ -70,6 +76,9 @@ func createTestEventAndCompetition(t *testing.T, pool *pgxpool.Pool, eventSlug, 
 	if err != nil {
 		t.Fatalf("failed to create test event: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM events WHERE id = $1`, eventID)
+	})
 
 	_, err = pool.Exec(ctx, `
 		INSERT INTO user_events (event_id, user_id, role)
@@ -108,7 +117,6 @@ func linkEventMember(t *testing.T, pool *pgxpool.Pool, eventID, userID, role str
 
 func TestTeamingWorkflow(t *testing.T) {
 	pool := newTestDBPool(t)
-	defer pool.Close()
 
 	ctx := context.Background()
 	ts := time.Now().UnixNano()
@@ -386,7 +394,6 @@ func TestTeamingWorkflow(t *testing.T) {
 
 func TestTeamsHTTPRoutes(t *testing.T) {
 	pool := newTestDBPool(t)
-	defer pool.Close()
 
 	ts := time.Now().UnixNano()
 
@@ -410,11 +417,11 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 		RegisterScopedRoutes(tr, teamsHandler)
 	})
 
-	withContext := func(userID, role, globalRole string) context.Context {
+	withContext := func(userID, role string) context.Context {
 		c := context.Background()
 		c = auth.WithUserClaims(c, &utils.AccessTokenClaims{
-			UserID:     userID,
-			GlobalRole: globalRole,
+			UserID: userID,
+			Role:   role,
 		})
 		c = events.WithEventContext(c, &events.Context{
 			EventID: eventID,
@@ -436,7 +443,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 
 	// 1. Participant 1 creates a team
 	createBody := bytes.NewBufferString(`{"name":"HTTP Rockets"}`)
-	req := httptest.NewRequest(http.MethodPost, baseURL, createBody).WithContext(withContext(p1ID, "participant", "user"))
+	req := httptest.NewRequest(http.MethodPost, baseURL, createBody).WithContext(withContext(p1ID, "participant"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -454,7 +461,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 
 	// 2. Participant 2 joins by code
 	joinBody := bytes.NewBufferString(fmt.Sprintf(`{"code":"%s"}`, createResp.JoinCode))
-	req = httptest.NewRequest(http.MethodPost, baseURL+"/join", joinBody).WithContext(withContext(p2ID, "participant", "user"))
+	req = httptest.NewRequest(http.MethodPost, baseURL+"/join", joinBody).WithContext(withContext(p2ID, "participant"))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -465,7 +472,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 
 	// 3. Participant 1 transfers leadership to Participant 2
 	transferBody := bytes.NewBufferString(fmt.Sprintf(`{"new_leader_id":"%s"}`, p2ID))
-	req = httptest.NewRequest(http.MethodPost, baseURL+"/my-team/transfer-leadership", transferBody).WithContext(withContext(p1ID, "participant", "user"))
+	req = httptest.NewRequest(http.MethodPost, baseURL+"/my-team/transfer-leadership", transferBody).WithContext(withContext(p1ID, "participant"))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -475,7 +482,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 	}
 
 	// 4. Verify my-team for Participant 2 shows them as leader
-	req = httptest.NewRequest(http.MethodGet, baseURL+"/my-team", nil).WithContext(withContext(p2ID, "participant", "user"))
+	req = httptest.NewRequest(http.MethodGet, baseURL+"/my-team", nil).WithContext(withContext(p2ID, "participant"))
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 

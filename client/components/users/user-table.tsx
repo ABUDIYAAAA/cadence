@@ -84,6 +84,12 @@ export function UserTable({
 
   const renderRoleBadge = (role: string) => {
     switch (role) {
+      case "dev":
+        return (
+          <Badge variant="amber" size="sm" className="uppercase">
+            {role}
+          </Badge>
+        );
       case "owner":
         return (
           <Badge variant="blue" size="sm" className="capitalize gap-1">
@@ -146,7 +152,7 @@ export function UserTable({
                   <div className="flex flex-col">
                     <div className="flex items-center gap-1.5 font-semibold text-[var(--ink-primary)]">
                       <span>{user.name}</span>
-                      {user.global_role === "dev" && (
+                      {user.role === "dev" && (
                         <Badge variant="amber" size="sm">
                           dev
                         </Badge>
@@ -172,15 +178,6 @@ export function UserTable({
                 {/* Role */}
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-1">
-                    {mode === "platform" && user.global_role && (
-                      <Badge
-                        variant={user.global_role === "dev" ? "amber" : "subtle"}
-                        size="sm"
-                        className="uppercase"
-                      >
-                        {user.global_role}
-                      </Badge>
-                    )}
                     {renderRoleBadge(user.role)}
                   </div>
                 </TableCell>

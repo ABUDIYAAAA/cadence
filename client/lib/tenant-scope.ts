@@ -166,7 +166,6 @@ export function normalizeEventUser(
     email: u.email,
     name: u.name,
     phone_number: u.phone_number,
-    global_role: u.global_role,
     avatar_url: u.avatar_url,
     role: u.role,
     team_id: u.team_id,

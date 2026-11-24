@@ -14,8 +14,7 @@ import (
 )
 
 var (
-	ErrPasswordAlreadyConfigured = errors.New("user has already configured their password")
-	ErrRoleNotPermitted          = errors.New("volunteers can only add participants")
+	ErrRoleNotPermitted = errors.New("insufficient permissions to assign this role")
 )
 
 type Service struct {
@@ -53,8 +52,8 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 
 	for i, u := range req.Users {
 		role := u.Role
-		if role == "" {
-			role = "participant"
+		if role != "dev" {
+			role = "user"
 		}
 
 		// Savepoint per row: any single-row DB error (bad enum, length, etc.) must not abort the whole batch.
@@ -118,13 +117,6 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 }
 
 func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserDetailResponse, error) {
-	// Volunteers add participants (for example, someone who registered with a wrong email); nothing else.
-	if volunteerCaller(ctx) {
-		if req.Role != "" && req.Role != "participant" {
-			return nil, ErrRoleNotPermitted
-		}
-		req.Role = "participant"
-	}
 	bulkResp, err := s.BulkCreateUsers(ctx, BulkCreateUsersRequest{
 		Users: []CreateUserRequest{req},
 	})
@@ -412,10 +404,4 @@ func (s *Service) UnblacklistUser(ctx context.Context, id string) error {
 		})
 	}
 	return nil
-}
-
-// volunteerCaller reports whether the caller in ctx is a volunteer, who may only add participants.
-func volunteerCaller(ctx context.Context) bool {
-	claims, ok := auth.GetUserClaims(ctx)
-	return ok && claims.Role == "volunteer"
 }

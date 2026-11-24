@@ -143,10 +143,10 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 		return nil, "", "", errors.New("google account has no email address")
 	}
 
-	// Determine default global role: seed admin email receives dev superuser role
-	defaultGlobalRole := GlobalRoleUser
+	// Determine default role: seed admin email receives dev superuser role
+	defaultRole := RoleUser
 	if s.cfg.SeedAdminEmail != "" && strings.EqualFold(cleanEmail, s.cfg.SeedAdminEmail) {
-		defaultGlobalRole = GlobalRoleDev
+		defaultRole = RoleDev
 	}
 
 	var pic *string
@@ -155,7 +155,7 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 	}
 
 	// 3. Upsert user in database
-	user, err := s.repo.UpsertGoogleUser(ctx, gUser.Sub, cleanEmail, gUser.Name, pic, defaultGlobalRole)
+	user, err := s.repo.UpsertGoogleUser(ctx, gUser.Sub, cleanEmail, gUser.Name, pic, defaultRole)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("upsert user: %w", err)
 	}
@@ -263,24 +263,10 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*UserResponse, erro
 }
 
 func (s *Service) createSession(ctx context.Context, user *User, deviceID string, familyID *string, parentID *string, userAgent, ip string) (string, string, error) {
-	var defaultRole string
-	if evs, err := s.repo.GetUserEvents(ctx, user.ID); err == nil && len(evs) > 0 {
-		for _, e := range evs {
-			if e.EventID == "00000000-0000-0000-0000-000000000001" {
-				defaultRole = e.Role
-				break
-			}
-		}
-		if defaultRole == "" {
-			defaultRole = evs[0].Role
-		}
-	}
-
 	accessToken, err := utils.GenerateAccessToken(
 		user.ID,
 		user.Email,
-		user.GlobalRole,
-		defaultRole,
+		user.Role,
 		user.TokenVersion,
 		s.cfg.JWTAccessSecret,
 		s.cfg.JWTAccessExpiry,
@@ -343,14 +329,8 @@ func (s *Service) recordAudit(
 }
 
 func toUserResponse(u *User, evs []UserEventRole) *UserResponse {
-	var role string
-	for _, e := range evs {
-		if e.EventID == "00000000-0000-0000-0000-000000000001" {
-			role = e.Role
-			break
-		}
-	}
-	if role == "" && len(evs) > 0 {
+	role := u.Role
+	if role != RoleDev && len(evs) > 0 {
 		role = evs[0].Role
 	}
 	if evs == nil {
@@ -362,7 +342,6 @@ func toUserResponse(u *User, evs []UserEventRole) *UserResponse {
 		Email:       u.Email,
 		Name:        u.Name,
 		PhoneNumber: u.PhoneNumber,
-		GlobalRole:  u.GlobalRole,
 		GoogleID:    u.GoogleID,
 		AvatarURL:   u.AvatarURL,
 		Role:        role,

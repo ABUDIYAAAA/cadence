@@ -40,7 +40,7 @@ func TestNonDevCannotAccessGlobalUsersEndpoints(t *testing.T) {
 
 	for _, tc := range roles {
 		t.Run(tc.name+" GET /users", func(t *testing.T) {
-			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", "user", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
+			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
 			if err != nil {
 				t.Fatalf("failed to generate access token: %v", err)
 			}
@@ -65,7 +65,7 @@ func TestNonDevCannotAccessGlobalUsersEndpoints(t *testing.T) {
 		})
 
 		t.Run(tc.name+" GET /users/{id}", func(t *testing.T) {
-			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", "user", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
+			token, err := utils.GenerateAccessToken("u-123", tc.role+"@cadence.local", tc.role, 1, cfg.JWTAccessSecret, time.Hour)
 			if err != nil {
 				t.Fatalf("failed to generate access token: %v", err)
 			}
@@ -91,7 +91,7 @@ func TestNonDevCannotAccessGlobalUsersEndpoints(t *testing.T) {
 	}
 
 	t.Run("Dev role passes gate on GET /users", func(t *testing.T) {
-		token, err := utils.GenerateAccessToken("u-dev-1", "dev@cadence.local", "dev", "admin", 1, cfg.JWTAccessSecret, time.Hour)
+		token, err := utils.GenerateAccessToken("u-dev-1", "dev@cadence.local", "dev", 1, cfg.JWTAccessSecret, time.Hour)
 		if err != nil {
 			t.Fatalf("failed to generate access token: %v", err)
 		}
@@ -113,10 +113,9 @@ func TestHandlerDefenseInDepthRejectsNonDev(t *testing.T) {
 
 	// Context with claims of regular user
 	claims := &utils.AccessTokenClaims{
-		UserID:     "u-admin-1",
-		Email:      "admin@test.com",
-		GlobalRole: "user",
-		Role:       "admin",
+		UserID: "u-admin-1",
+		Email:  "admin@test.com",
+		Role:   "admin",
 	}
 
 	t.Run("HandleList rejects non-dev", func(t *testing.T) {

@@ -3,7 +3,6 @@ package teams
 import (
 	"net/http"
 
-	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/internal/modules/competitions"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/go-chi/chi/v5"
@@ -25,58 +24,7 @@ func validateIDParams(next http.Handler) http.Handler {
 	})
 }
 
-// RegisterRoutes mounts all teams endpoints (API v2) with role gating.
-func RegisterRoutes(r chi.Router, h *Handler, authMiddleware func(http.Handler) http.Handler) {
-	r.Route("/teams", func(r chi.Router) {
-		r.Use(authMiddleware)
-
-		// Self team lookup (any signed-in user; non-participants simply have no team)
-		r.Get("/my-team", h.HandleMyTeam)
-
-		// Participant self-service
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireRoles("participant"), validateIDParams)
-			r.Post("/", h.HandleCreate)
-			r.Post("/join", h.HandleJoin)
-			r.Post("/leave", h.HandleLeave)
-			r.Patch("/my-team", h.HandleRenameOwn)
-			r.Post("/my-team/regenerate-code", h.HandleRegenerateOwnCode)
-			r.Delete("/my-team/members/{userId}", h.HandleKick)
-			r.Post("/my-team/transfer-leadership", h.HandleTransferLeadership)
-		})
-
-		// Read routes: Admin, Volunteer, Judge
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireRoles("admin", "volunteer", "judge"), validateIDParams)
-			r.Get("/", h.HandleList)
-			r.Get("/{id}", h.HandleGet)
-		})
-
-		// Staff management: Admin, Volunteer
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireRoles("admin", "volunteer"), validateIDParams)
-			r.Get("/settings", h.HandleGetSettings)
-			r.Post("/freeze-all", h.HandleFreezeAll)
-			r.Post("/unfreeze-all", h.HandleUnfreezeAll)
-			r.Patch("/{id}", h.HandleUpdate)
-			r.Post("/{id}/freeze", h.HandleFreeze)
-			r.Post("/{id}/unfreeze", h.HandleUnfreeze)
-			r.Post("/{id}/regenerate-code", h.HandleRegenerateCode)
-			r.Post("/{id}/members", h.HandleAddMember)
-			r.Delete("/{id}/members/{userId}", h.HandleRemoveMember)
-		})
-
-		// Admin-only
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireRoles("admin"), validateIDParams)
-			r.Patch("/settings", h.HandleUpdateSettings)
-			r.Delete("/{id}", h.HandleDelete)
-		})
-	})
-}
-
-// RegisterScopedRoutes mounts teaming endpoints directly inside a competition router (e.g. /c/{competitionSlug}/teams).
-// It relies on competitions.RequireCompetitionRoles for role verification.
+// RegisterScopedRoutes mounts teaming endpoints directly inside a competition router (/e/{eventSlug}/c/{competitionSlug}/teams).
 func RegisterScopedRoutes(r chi.Router, h *Handler) {
 	// Self team lookup (any authenticated member in competition)
 	r.Get("/my-team", h.HandleMyTeam)

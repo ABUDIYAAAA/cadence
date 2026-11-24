@@ -106,8 +106,8 @@ func RequireMembership(repo *Repository, rdb *redis.Client) func(http.Handler) h
 				return
 			}
 
-			// Dev bypass: global dev automatically gets full owner powers across all events
-			if claims.GlobalRole == "dev" {
+			// Dev bypass: dev automatically gets full owner powers across all events
+			if claims.Role == "dev" {
 				evCtx := &Context{
 					EventID: ev.ID,
 					Slug:    ev.Slug,
@@ -115,10 +115,7 @@ func RequireMembership(repo *Repository, rdb *redis.Client) func(http.Handler) h
 					UserID:  claims.UserID,
 					Role:    "owner",
 				}
-				updatedClaims := *claims
-				updatedClaims.Role = "owner"
-				ctx := auth.WithUserClaims(r.Context(), &updatedClaims)
-				ctx = WithEventContext(ctx, evCtx)
+				ctx := WithEventContext(r.Context(), evCtx)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -208,12 +205,12 @@ func RequireEventRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Global dev role has top-level bypass across all event roles
+			// Dev role has top-level bypass across all event roles
 			if evCtx.Role == "dev" {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if claims, hasClaims := auth.GetUserClaims(r.Context()); hasClaims && claims.GlobalRole == "dev" {
+			if claims, hasClaims := auth.GetUserClaims(r.Context()); hasClaims && claims.Role == "dev" {
 				next.ServeHTTP(w, r)
 				return
 			}

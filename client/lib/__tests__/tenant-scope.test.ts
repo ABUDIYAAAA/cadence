@@ -92,7 +92,6 @@ describe("Seam 1: resolveScopedPath & tenantScope", () => {
           id: "u-1",
           email: "alice@event.com",
           name: "Alice",
-          global_role: "user",
           role: "participant",
           is_banned: true,
           banned_at: "2026-11-24T10:00:00Z",

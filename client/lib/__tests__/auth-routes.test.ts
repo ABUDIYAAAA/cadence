@@ -21,8 +21,7 @@ describe("Seam 3: resolveEffectivePermissions & getDashboardRoute", () => {
       id: "u-dev",
       email: "dev@cadence.com",
       name: "Dev User",
-      global_role: "dev",
-      role: "owner",
+      role: "dev",
       events: [],
       created_at: "2026-11-24T00:00:00Z",
     };
@@ -58,7 +57,6 @@ describe("Seam 3: resolveEffectivePermissions & getDashboardRoute", () => {
       id: "u-1",
       email: "owner@event.com",
       name: "Event Owner",
-      global_role: "user",
       role: "participant",
       events: [
         {
@@ -95,7 +93,6 @@ describe("Seam 3: resolveEffectivePermissions & getDashboardRoute", () => {
       id: "u-2",
       email: "judge@event.com",
       name: "Judge",
-      global_role: "user",
       role: "judge",
       events: [
         {
@@ -122,7 +119,6 @@ describe("Seam 3: resolveEffectivePermissions & getDashboardRoute", () => {
       id: "u-3",
       email: "admin@event.com",
       name: "Admin",
-      global_role: "user",
       role: "admin",
       events: [
         {

@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(255) NOT NULL,
     google_id VARCHAR(255) NULL UNIQUE,
     avatar_url TEXT NULL,
-    global_role VARCHAR(32) NOT NULL DEFAULT 'user',
+    role VARCHAR(32) NOT NULL DEFAULT 'user',
     phone_number VARCHAR(32) NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     token_version INT NOT NULL DEFAULT 1,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
-CREATE INDEX IF NOT EXISTS idx_users_global_role ON users(global_role);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
 
 -- 5. User Competitions (Scoped Membership & Single-Ownership)

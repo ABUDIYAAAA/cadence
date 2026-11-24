@@ -25,14 +25,14 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		SELECT id, email, name, google_id, avatar_url, role, phone_number, team_id,
 		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE LOWER(email) = LOWER($1)
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -46,14 +46,14 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) {
 	query := `
-		SELECT id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		SELECT id, email, name, google_id, avatar_url, role, phone_number, team_id,
 		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -67,14 +67,14 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) 
 
 func (r *Repository) GetUserByGoogleID(ctx context.Context, googleID string) (*User, error) {
 	query := `
-		SELECT id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		SELECT id, email, name, google_id, avatar_url, role, phone_number, team_id,
 		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE google_id = $1
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, googleID).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -87,55 +87,46 @@ func (r *Repository) GetUserByGoogleID(ctx context.Context, googleID string) (*U
 }
 
 // UpsertGoogleUser creates or updates a user via Google OAuth identity.
-func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultGlobalRole string) (*User, error) {
-	if defaultGlobalRole == "" {
-		defaultGlobalRole = GlobalRoleUser
+func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultRole string) (*User, error) {
+	if defaultRole == "" {
+		defaultRole = RoleUser
 	}
 
 	query := `
-		INSERT INTO users (email, name, google_id, avatar_url, global_role, is_active)
+		INSERT INTO users (email, name, google_id, avatar_url, role, is_active)
 		VALUES (LOWER($1), $2, $3, $4, $5, TRUE)
 		ON CONFLICT (email) DO UPDATE
 		SET name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END,
 		    google_id = COALESCE(users.google_id, EXCLUDED.google_id),
 		    avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
-		    global_role = CASE WHEN users.global_role = 'dev' THEN 'dev' ELSE EXCLUDED.global_role END,
+		    role = CASE WHEN users.role = 'dev' THEN 'dev' ELSE EXCLUDED.role END,
 		    is_active = TRUE,
 		    deleted_at = NULL,
 		    updated_at = CURRENT_TIMESTAMP
-		RETURNING id, email, name, google_id, avatar_url, global_role, phone_number, team_id,
+		RETURNING id, email, name, google_id, avatar_url, role, phone_number, team_id,
 		          is_active, token_version, created_at, updated_at
 	`
 	var u User
-	err := r.db.QueryRow(ctx, query, email, name, googleID, avatarURL, defaultGlobalRole).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.GlobalRole, &u.PhoneNumber, &u.TeamID,
+	err := r.db.QueryRow(ctx, query, email, name, googleID, avatarURL, defaultRole).Scan(
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("upsert google user: %w", err)
 	}
 
-	// Link dev user to default event
-	if u.GlobalRole == GlobalRoleDev {
-		_, _ = r.db.Exec(ctx, `
-			INSERT INTO user_events (user_id, event_id, role)
-			VALUES ($1, '00000000-0000-0000-0000-000000000001', 'owner'::event_role)
-			ON CONFLICT (event_id, user_id) DO NOTHING
-		`, u.ID)
-	}
-
 	return &u, nil
 }
 
 // GetUserEvents retrieves all non-banned events and associated roles for a user.
-// Global devs automatically see all events with 'owner' role unless explicitly assigned another non-banned role.
+// Platform devs automatically see all events with 'owner' role unless explicitly assigned another non-banned role.
 func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEventRole, error) {
 	query := `
 		SELECT e.id, e.slug, e.name, e.logo_url, COALESCE(ue.role::text, 'owner') AS role
 		FROM events e
 		JOIN users u ON u.id = $1
 		LEFT JOIN user_events ue ON ue.event_id = e.id AND ue.user_id = u.id
-		WHERE (u.global_role = 'dev' OR ue.user_id IS NOT NULL)
+		WHERE (u.role = 'dev' OR ue.user_id IS NOT NULL)
 		  AND COALESCE(ue.is_banned, FALSE) = FALSE
 		ORDER BY e.created_at DESC
 	`
@@ -159,15 +150,15 @@ func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEv
 	return evs, nil
 }
 
-func (r *Repository) SetGlobalRole(ctx context.Context, userID, globalRole string) error {
+func (r *Repository) SetRole(ctx context.Context, userID, role string) error {
 	query := `
 		UPDATE users
-		SET global_role = $1, token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
+		SET role = $1, token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $2
 	`
-	tag, err := r.db.Exec(ctx, query, globalRole, userID)
+	tag, err := r.db.Exec(ctx, query, role, userID)
 	if err != nil {
-		return fmt.Errorf("set global role: %w", err)
+		return fmt.Errorf("set user role: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound

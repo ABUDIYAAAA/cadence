@@ -19,7 +19,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// HandleBulkCreate imports multiple users. They set their own password through "forgot password".
+// HandleBulkCreate imports multiple platform users (restricted to devs).
 func (h *Handler) HandleBulkCreate(w http.ResponseWriter, r *http.Request) {
 	var req BulkCreateUsersRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -41,7 +41,7 @@ func (h *Handler) HandleBulkCreate(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusCreated, resp)
 }
 
-// HandleCreate creates a single user.
+// HandleCreate creates a single platform user (restricted to devs).
 func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -56,10 +56,6 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.service.CreateUser(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, ErrRoleNotPermitted) {
-			utils.ErrorJSON(w, http.StatusForbidden, "volunteers can only add participants")
-			return
-		}
 		if errors.Is(err, ErrUserAlreadyExists) {
 			utils.ErrorJSON(w, http.StatusConflict, "user with this email already exists")
 			return
@@ -71,10 +67,10 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusCreated, user)
 }
 
-// HandleList returns paginated users with optional role, team, active, and search filters.
-// Global user listing is restricted to devs.
+// HandleList returns paginated platform users with optional role, active, deleted, and search filters.
+// Restricted strictly to devs.
 func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
-	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.GlobalRole != "dev" {
+	if claims, ok := auth.GetUserClaims(r.Context()); !ok || claims.Role != "dev" {
 		utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
 		return
 	}
@@ -84,29 +80,11 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(query.Get("limit"))
 
 	filter := UserFilter{
-		Page:   page,
-		Limit:  limit,
-		Role:   query.Get("role"),
-		TeamID: query.Get("team_id"),
-		Search: query.Get("search"),
-		NoTeam: query.Get("no_team") == "true" || query.Get("no_team") == "1",
-	}
-
-	switch cs := query.Get("checkin_status"); cs {
-	case "checked_in", "not_checked_in", "no_pass":
-		filter.CheckinStatus = cs
-	case "":
-	default:
-		utils.ErrorJSON(w, http.StatusBadRequest, "invalid checkin_status")
-		return
-	}
-
-	if query.Get("deleted") == "true" || query.Get("deleted") == "1" {
-		if claims, ok := auth.GetUserClaims(r.Context()); !ok || claims.GlobalRole != "dev" {
-			utils.ErrorJSON(w, http.StatusForbidden, "only developers can view globally removed users")
-			return
-		}
-		filter.Deleted = true
+		Page:    page,
+		Limit:   limit,
+		Role:    query.Get("role"),
+		Search:  query.Get("search"),
+		Deleted: query.Get("deleted") == "true" || query.Get("deleted") == "1",
 	}
 
 	if activeParam := query.Get("is_active"); activeParam != "" {
@@ -123,10 +101,10 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusOK, resp)
 }
 
-// HandleGet returns a single user's details.
-// Global user detail lookup is restricted to devs.
+// HandleGet returns a single platform user's details.
+// Restricted strictly to devs.
 func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
-	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.GlobalRole != "dev" {
+	if claims, ok := auth.GetUserClaims(r.Context()); !ok || claims.Role != "dev" {
 		utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
 		return
 	}

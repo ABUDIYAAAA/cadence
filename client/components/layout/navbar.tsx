@@ -120,13 +120,13 @@ export function Navbar() {
       document.documentElement.classList.remove("light");
       try {
         localStorage.setItem("theme", "dark");
-      } catch {}
+      } catch { }
     } else {
       document.documentElement.classList.remove("dark");
       document.documentElement.classList.add("light");
       try {
         localStorage.setItem("theme", "light");
-      } catch {}
+      } catch { }
     }
   };
 
@@ -304,14 +304,22 @@ export function Navbar() {
       ? getAuthenticatedHomeRoute(user, eventSlug)
       : "/login";
 
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [user?.avatar_url]);
+
   const initials = user?.name
     ? user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase()
     : "CD";
+
+  const showAvatarImage = Boolean(user?.avatar_url && !avatarFailed);
 
   const isDashboard = pathname.startsWith("/dashboard");
   const displayEventName =
@@ -395,8 +403,8 @@ export function Navbar() {
                       {activeCompetition
                         ? activeCompetition.name
                         : competitions.length === 0
-                        ? "No competitions"
-                        : "Select competition"}
+                          ? "No competitions"
+                          : "Select competition"}
                     </span>
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)]" />
                   </button>
@@ -428,17 +436,13 @@ export function Navbar() {
                                     "Competition active"
                                   );
                                 }}
-                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-[8px] text-left transition-colors cursor-pointer ${
-                                  selected
-                                    ? "bg-[var(--color-blue-dim)] text-[var(--ink-primary)] font-semibold"
-                                    : "hover:bg-[var(--card-solid-subtle)] text-[var(--ink-primary)]"
-                                }`}
+                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-[8px] text-left transition-colors cursor-pointer ${selected
+                                  ? "bg-[var(--color-blue-dim)] text-[var(--ink-primary)] font-semibold"
+                                  : "hover:bg-[var(--card-solid-subtle)] text-[var(--ink-primary)]"
+                                  }`}
                               >
                                 <div className="min-w-0">
                                   <div className="truncate">{comp.name}</div>
-                                  <div className="text-[11px] text-[var(--ink-tertiary)] truncate">
-                                    /c/{comp.slug}
-                                  </div>
                                 </div>
                                 {selected && (
                                   <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
@@ -503,37 +507,65 @@ export function Navbar() {
                     onClick={() => setDropdownOpen((prev) => !prev)}
                     aria-label="User menu"
                     aria-expanded={dropdownOpen}
-                    className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] font-semibold text-xs shadow-xs hover:border-[var(--color-blue)] transition-[border-color,transform] active:scale-95 cursor-pointer select-none"
+                    className="flex items-center justify-center h-8 w-8 rounded-[8px] overflow-hidden bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] font-semibold text-xs shadow-xs hover:border-[var(--color-blue)] transition-[border-color,transform] active:scale-95 cursor-pointer select-none"
                   >
-                    {initials}
+                    {showAvatarImage ? (
+                      <img
+                        src={user.avatar_url!}
+                        alt={user.name || "User avatar"}
+                        referrerPolicy="no-referrer"
+                        onError={() => setAvatarFailed(true)}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      initials
+                    )}
                   </button>
 
                   {dropdownOpen && (
                     <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
                       <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[8px] border border-[var(--card-line)] mb-1.5">
-                        <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center justify-between mb-1.5">
                           <span className="text-[11px] font-medium text-[var(--ink-secondary)]">
                             Signed in
                           </span>
                           <div className="flex items-center gap-1">
-                            {isDev && (
+                            {isDev ? (
                               <Badge variant="amber" size="sm">
                                 dev
                               </Badge>
-                            )}
-                            {role && (
-                              <Badge variant="subtle" size="sm" className="capitalize">
-                                {role}
-                              </Badge>
+                            ) : (
+                              role && (
+                                <Badge variant="subtle" size="sm" className="capitalize">
+                                  {role}
+                                </Badge>
+                              )
                             )}
                           </div>
                         </div>
-                        <p className="text-xs font-semibold text-[var(--ink-primary)] truncate">
-                          {user.name}
-                        </p>
-                        <p className="text-[11px] text-[var(--ink-secondary)] truncate font-mono">
-                          {user.email}
-                        </p>
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] overflow-hidden bg-[var(--card-solid)] border border-[var(--card-line)] text-xs font-semibold text-[var(--ink-primary)]">
+                            {showAvatarImage ? (
+                              <img
+                                src={user.avatar_url!}
+                                alt={user.name || "User avatar"}
+                                referrerPolicy="no-referrer"
+                                onError={() => setAvatarFailed(true)}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              initials
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-[var(--ink-primary)] truncate">
+                              {user.name}
+                            </p>
+                            <p className="text-[11px] text-[var(--ink-secondary)] truncate font-mono">
+                              {user.email}
+                            </p>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="space-y-0.5">

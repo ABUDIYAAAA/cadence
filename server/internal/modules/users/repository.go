@@ -33,12 +33,17 @@ func (r *Repository) CreateUserTx(
 	email, name, role string,
 	phone *string,
 ) (string, error) {
+	if role != "dev" {
+		role = "user"
+	}
+
 	query := `
-		INSERT INTO users (email, name, phone_number, is_active)
-		VALUES (LOWER($1), $2, $3, TRUE)
+		INSERT INTO users (email, name, phone_number, role, is_active)
+		VALUES (LOWER($1), $2, $3, $4, TRUE)
 		ON CONFLICT (email) DO UPDATE
 		SET name = EXCLUDED.name,
 		    phone_number = EXCLUDED.phone_number,
+		    role = EXCLUDED.role,
 		    is_active = TRUE,
 		    deleted_at = NULL,
 		    token_version = users.token_version + 1,
@@ -47,7 +52,7 @@ func (r *Repository) CreateUserTx(
 		RETURNING id
 	`
 	var id string
-	err := tx.QueryRow(ctx, query, email, name, phone).Scan(&id)
+	err := tx.QueryRow(ctx, query, email, name, phone, role).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrUserAlreadyExists
@@ -55,44 +60,18 @@ func (r *Repository) CreateUserTx(
 		return "", fmt.Errorf("insert user: %w", err)
 	}
 
-	// Insert into user_events default mapping
-	if role != "" {
-		evRoleQuery := `
-			INSERT INTO user_events (user_id, event_id, role)
-			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::event_role)
-			ON CONFLICT (event_id, user_id) 
-			DO UPDATE SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
-		`
-		if _, err := tx.Exec(ctx, evRoleQuery, id, role); err != nil {
-			return "", fmt.Errorf("insert user event mapping: %w", err)
-		}
-	}
-
 	return id, nil
 }
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url, COALESCE(ue.role::text, 'participant') AS role,
-		       tm_sub.team_id, tm_sub.team_name, tm_sub.is_leader, u.is_active, u.token_version, u.created_at
-		FROM users u
-		LEFT JOIN user_events ue ON u.id = ue.user_id AND ue.event_id = '00000000-0000-0000-0000-000000000001'
-		LEFT JOIN LATERAL (
-			SELECT t.id AS team_id, t.name AS team_name, (t.leader_id = u.id) AS is_leader
-			FROM team_members tm
-			JOIN teams t ON t.id = tm.team_id
-			WHERE tm.user_id = u.id
-			ORDER BY tm.joined_at DESC
-			LIMIT 1
-		) tm_sub ON TRUE
-		WHERE u.id = $1 AND u.deleted_at IS NULL
+		SELECT id, email, name, phone_number, avatar_url, role, is_active, token_version, created_at
+		FROM users
+		WHERE id = $1 AND deleted_at IS NULL
 	`
 	var u UserDetailResponse
-	var teamName *string
-	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.GlobalRole, &u.AvatarURL, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
+		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.AvatarURL, &u.Role, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -100,45 +79,24 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 		}
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
-	u.TeamName = teamName
-	if isLeader != nil {
-		u.IsLeader = *isLeader
-	}
 	return &u, nil
 }
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url, COALESCE(ue.role::text, 'participant') AS role,
-		       tm_sub.team_id, tm_sub.team_name, tm_sub.is_leader, u.is_active, u.token_version, u.created_at
-		FROM users u
-		LEFT JOIN user_events ue ON u.id = ue.user_id AND ue.event_id = '00000000-0000-0000-0000-000000000001'
-		LEFT JOIN LATERAL (
-			SELECT t.id AS team_id, t.name AS team_name, (t.leader_id = u.id) AS is_leader
-			FROM team_members tm
-			JOIN teams t ON t.id = tm.team_id
-			WHERE tm.user_id = u.id
-			ORDER BY tm.joined_at DESC
-			LIMIT 1
-		) tm_sub ON TRUE
-		WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL
+		SELECT id, email, name, phone_number, avatar_url, role, is_active, token_version, created_at
+		FROM users
+		WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL
 	`
 	var u UserDetailResponse
-	var teamName *string
-	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.GlobalRole, &u.AvatarURL, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
+		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.AvatarURL, &u.Role, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("get user by email: %w", err)
-	}
-	u.TeamName = teamName
-	if isLeader != nil {
-		u.IsLeader = *isLeader
 	}
 	return &u, nil
 }
@@ -149,52 +107,33 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	argIndex := 1
 
 	if filter.Deleted {
-		conditions = append(conditions, "u.deleted_at IS NOT NULL")
+		conditions = append(conditions, "deleted_at IS NOT NULL")
 	} else {
-		conditions = append(conditions, "u.deleted_at IS NULL")
+		conditions = append(conditions, "deleted_at IS NULL")
 	}
 
 	if filter.Role != "" {
-		conditions = append(conditions, fmt.Sprintf("ue.role = $%d", argIndex))
+		conditions = append(conditions, fmt.Sprintf("role = $%d", argIndex))
 		args = append(args, filter.Role)
 		argIndex++
 	}
 
-	if filter.TeamID != "" {
-		conditions = append(conditions, fmt.Sprintf("EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = u.id AND tm.team_id = $%d)", argIndex))
-		args = append(args, filter.TeamID)
-		argIndex++
-	}
-
-	if filter.NoTeam {
-		conditions = append(conditions, "NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = u.id)")
-	}
-
 	if filter.IsActive != nil {
-		conditions = append(conditions, fmt.Sprintf("u.is_active = $%d", argIndex))
+		conditions = append(conditions, fmt.Sprintf("is_active = $%d", argIndex))
 		args = append(args, *filter.IsActive)
 		argIndex++
 	}
 
 	if filter.Search != "" {
 		searchTerm := "%" + strings.ToLower(filter.Search) + "%"
-		conditions = append(conditions, fmt.Sprintf("(LOWER(u.name) LIKE $%d OR LOWER(u.email) LIKE $%d)", argIndex, argIndex))
+		conditions = append(conditions, fmt.Sprintf("(LOWER(name) LIKE $%d OR LOWER(email) LIKE $%d)", argIndex, argIndex))
 		args = append(args, searchTerm)
 		argIndex++
 	}
 
-	switch filter.CheckinStatus {
-	case "checked_in":
-		conditions = append(conditions, "tk.is_checked_in = true")
-	case "not_checked_in":
-		conditions = append(conditions, "tk.id IS NOT NULL AND tk.is_checked_in = false")
-	case "no_pass":
-		conditions = append(conditions, "tk.id IS NULL")
-	}
-
 	whereClause := strings.Join(conditions, " AND ")
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users u LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = '00000000-0000-0000-0000-000000000001' LEFT JOIN tickets tk ON tk.user_id = u.id AND tk.event_id = '00000000-0000-0000-0000-000000000001' WHERE %s", whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users WHERE %s", whereClause)
 	var totalCount int64
 	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
@@ -213,31 +152,13 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	}
 	offset := (page - 1) * limit
 
-	orderBy := "u.created_at DESC"
-	if filter.CheckinStatus == "checked_in" {
-		orderBy = "tk.checked_in_at DESC NULLS LAST, u.created_at DESC"
-	}
-
 	query := fmt.Sprintf(`
-		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url, COALESCE(ue.role::text, 'participant') AS role,
-		       tm_sub.team_id, tm_sub.team_name, tm_sub.is_leader, u.is_active, u.created_at,
-		       CASE WHEN tk.id IS NULL THEN 'no_pass' WHEN tk.is_checked_in THEN 'checked_in' ELSE 'not_checked_in' END,
-		       tk.checked_in_at, u.deleted_at
-		FROM users u
-		LEFT JOIN user_events ue ON u.id = ue.user_id AND ue.event_id = '00000000-0000-0000-0000-000000000001'
-		LEFT JOIN LATERAL (
-			SELECT t.id AS team_id, t.name AS team_name, (t.leader_id = u.id) AS is_leader
-			FROM team_members tm
-			JOIN teams t ON t.id = tm.team_id
-			WHERE tm.user_id = u.id
-			ORDER BY tm.joined_at DESC
-			LIMIT 1
-		) tm_sub ON TRUE
-		LEFT JOIN tickets tk ON tk.user_id = u.id AND tk.event_id = '00000000-0000-0000-0000-000000000001'
+		SELECT id, email, name, phone_number, avatar_url, role, is_active, created_at, deleted_at
+		FROM users
 		WHERE %s
-		ORDER BY %s
+		ORDER BY created_at DESC
 		LIMIT $%d OFFSET $%d
-	`, whereClause, orderBy, argIndex, argIndex+1)
+	`, whereClause, argIndex, argIndex+1)
 
 	args = append(args, limit, offset)
 
@@ -250,18 +171,10 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	usersList := make([]UserDetailResponse, 0, limit)
 	for rows.Next() {
 		var u UserDetailResponse
-		var teamName *string
-		var isLeader *bool
 		if err := rows.Scan(
-			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.GlobalRole, &u.AvatarURL, &u.Role, &u.TeamID, &teamName,
-			&isLeader, &u.IsActive, &u.CreatedAt,
-			&u.CheckinStatus, &u.CheckedInAt, &u.DeletedAt,
+			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.AvatarURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.DeletedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan user row: %w", err)
-		}
-		u.TeamName = teamName
-		if isLeader != nil {
-			u.IsLeader = *isLeader
 		}
 		usersList = append(usersList, u)
 	}
@@ -286,6 +199,12 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		argIndex++
 	}
 
+	if req.Role != nil {
+		sets = append(sets, fmt.Sprintf("role = $%d", argIndex))
+		args = append(args, *req.Role)
+		argIndex++
+	}
+
 	if req.IsActive != nil {
 		sets = append(sets, fmt.Sprintf("is_active = $%d", argIndex))
 		args = append(args, *req.IsActive)
@@ -296,7 +215,7 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		sets = append(sets, "token_version = token_version + 1")
 	}
 
-	if len(sets) == 0 && req.Role == nil {
+	if len(sets) == 0 {
 		return r.GetUserByID(ctx, id)
 	}
 
@@ -306,30 +225,16 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 	}
 	defer tx.Rollback(ctx)
 
-	if len(sets) > 0 {
-		sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
-		query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d AND deleted_at IS NULL", strings.Join(sets, ", "), argIndex)
-		args = append(args, id)
+	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d AND deleted_at IS NULL", strings.Join(sets, ", "), argIndex)
+	args = append(args, id)
 
-		tag, err := tx.Exec(ctx, query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("update user: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return nil, ErrUserNotFound
-		}
+	tag, err := tx.Exec(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("update user: %w", err)
 	}
-
-	if req.Role != nil {
-		evRoleQuery := `
-			INSERT INTO user_events (user_id, event_id, role)
-			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::event_role)
-			ON CONFLICT (event_id, user_id) 
-			DO UPDATE SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
-		`
-		if _, err := tx.Exec(ctx, evRoleQuery, id, *req.Role); err != nil {
-			return nil, fmt.Errorf("update user event role: %w", err)
-		}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrUserNotFound
 	}
 
 	if req.Role != nil || (req.IsActive != nil && !*req.IsActive) {

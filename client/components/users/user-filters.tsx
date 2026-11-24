@@ -85,11 +85,20 @@ export function UserFilters({
             className="text-xs"
           >
             <option value="">All Roles</option>
-            {mode === "event" && <option value="owner">Owner</option>}
-            <option value="admin">Admin</option>
-            <option value="judge">Judge</option>
-            <option value="volunteer">Volunteer</option>
-            <option value="participant">Participant</option>
+            {mode === "platform" ? (
+              <>
+                <option value="dev">Dev</option>
+                <option value="user">User</option>
+              </>
+            ) : (
+              <>
+                <option value="owner">Owner</option>
+                <option value="admin">Admin</option>
+                <option value="judge">Judge</option>
+                <option value="volunteer">Volunteer</option>
+                <option value="participant">Participant</option>
+              </>
+            )}
           </Select>
         </div>
 

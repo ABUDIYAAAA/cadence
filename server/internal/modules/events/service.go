@@ -483,9 +483,6 @@ func (s *Service) recordAudit(ctx context.Context, action, eventID, description 
 		if claims.Role != "" {
 			role := claims.Role
 			actorRole = &role
-		} else if claims.GlobalRole != "" {
-			gRole := claims.GlobalRole
-			actorRole = &gRole
 		}
 	}
 	if evCtx, ok := FromContext(ctx); ok && evCtx != nil && evCtx.Role != "" {

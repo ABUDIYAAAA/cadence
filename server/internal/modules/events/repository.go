@@ -62,7 +62,7 @@ func (r *Repository) GetOrCreateUserByEmail(ctx context.Context, email, name str
 	}
 
 	query := `
-		INSERT INTO users (email, name, global_role, is_active)
+		INSERT INTO users (email, name, role, is_active)
 		VALUES ($1, $2, 'user', TRUE)
 		ON CONFLICT (email) DO UPDATE
 		SET deleted_at = NULL,
@@ -366,7 +366,7 @@ func (r *Repository) AddEventUser(
 
 	// Step 1: Upsert user account in users table
 	upsertUserQuery := `
-		INSERT INTO users (email, name, phone_number, global_role, is_active)
+		INSERT INTO users (email, name, phone_number, role, is_active)
 		VALUES ($1, $2, $3, 'user', TRUE)
 		ON CONFLICT (email) DO UPDATE
 		SET deleted_at = NULL,
@@ -424,7 +424,7 @@ func (r *Repository) AddEventUser(
 
 	// Step 3: Fetch detail response
 	fetchQuery := `
-		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url,
+		SELECT u.id, u.email, u.name, u.phone_number, u.avatar_url,
 		       ue.role::text, ue.is_banned, ue.banned_at,
 		       tm_sub.team_id, tm_sub.team_name, tm_sub.is_leader,
 		       u.created_at
@@ -445,7 +445,7 @@ func (r *Repository) AddEventUser(
 	var isLeader *bool
 	var bannedAt *time.Time
 	err = tx.QueryRow(ctx, fetchQuery, eventID, targetUserID).Scan(
-		&detail.ID, &detail.Email, &detail.Name, &detail.PhoneNumber, &detail.GlobalRole, &detail.AvatarURL,
+		&detail.ID, &detail.Email, &detail.Name, &detail.PhoneNumber, &detail.AvatarURL,
 		&detail.Role, &detail.IsBanned, &bannedAt,
 		&detail.TeamID, &detail.TeamName, &isLeader,
 		&detail.CreatedAt,
@@ -796,7 +796,7 @@ func (r *Repository) ListEventUsers(ctx context.Context, eventID string, filter 
 	offset := (page - 1) * limit
 
 	query := fmt.Sprintf(`
-		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url,
+		SELECT u.id, u.email, u.name, u.phone_number, u.avatar_url,
 		       ue.role::text, ue.is_banned, ue.banned_at,
 		       tm_sub.team_id, tm_sub.team_name, tm_sub.is_leader,
 		       u.created_at,
@@ -833,7 +833,7 @@ func (r *Repository) ListEventUsers(ctx context.Context, eventID string, filter 
 		var teamName *string
 		var isLeader *bool
 		if err := rows.Scan(
-			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.GlobalRole, &u.AvatarURL,
+			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.AvatarURL,
 			&u.Role, &u.IsBanned, &u.BannedAt,
 			&u.TeamID, &teamName, &isLeader,
 			&u.CreatedAt,

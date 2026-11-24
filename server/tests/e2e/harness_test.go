@@ -402,7 +402,7 @@ func ResetState(t *testing.T) {
 
 	// 5. Seed deterministic root administrator account, default event, and default competition
 	insertAdminSQL := `
-		INSERT INTO users (email, name, global_role, is_active)
+		INSERT INTO users (email, name, role, is_active)
 		VALUES ($1, $2, 'dev', TRUE)
 		RETURNING id
 	`

@@ -187,9 +187,9 @@ func TestEventScopedCompetitionCreationPermissions(t *testing.T) {
 
 		ctx := req.Context()
 		ctx = auth.WithUserClaims(ctx, &utils.AccessTokenClaims{
-			UserID:     "user-1",
-			Email:      "user1@cadence.local",
-			GlobalRole: "user",
+			UserID: "user-1",
+			Email:  "user1@cadence.local",
+			Role:   "user",
 		})
 		if role != "" {
 			ctx = events.WithEventContext(ctx, &events.Context{
@@ -258,6 +258,9 @@ func newTestDBPool(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Skipf("skipping db test: ping failed: %v", err)
 	}
+	t.Cleanup(func() {
+		pool.Close()
+	})
 	return pool
 }
 
@@ -273,14 +276,15 @@ func newTestRedisClient(t *testing.T) *redis.Client {
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		t.Skipf("skipping Redis test: redis not reachable: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = rdb.Close()
+	})
 	return rdb
 }
 
 func TestCompetitionCRUDUnderEvents(t *testing.T) {
 	db := newTestDBPool(t)
-	defer db.Close()
 	rdb := newTestRedisClient(t)
-	defer rdb.Close()
 
 	eventsRepo := events.NewRepository(db)
 	eventsSvc := events.NewService(eventsRepo, rdb, nil)
@@ -311,6 +315,10 @@ func TestCompetitionCRUDUnderEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create event B: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(context.Background(), `DELETE FROM events WHERE id IN ($1, $2)`, evA.ID, evB.ID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM users WHERE email IN ($1, $2)`, ownerAEmail, ownerBEmail)
+	})
 
 	sharedCompSlug := fmt.Sprintf("shared-comp-%d", nano)
 

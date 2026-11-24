@@ -6,7 +6,7 @@ import "time"
 type CreateUserRequest struct {
 	Email       string  `json:"email" validate:"required,email,max=254"`
 	Name        string  `json:"name" validate:"required,max=255"`
-	Role        string  `json:"role" validate:"omitempty,oneof=admin judge volunteer participant"`
+	Role        string  `json:"role" validate:"omitempty,oneof=dev user"`
 	PhoneNumber *string `json:"phone_number,omitempty"`
 }
 
@@ -28,44 +28,33 @@ type BulkCreateResponse struct {
 type UpdateUserRequest struct {
 	Name        *string `json:"name,omitempty"`
 	PhoneNumber *string `json:"phone_number,omitempty"`
-	Role        *string `json:"role,omitempty" validate:"omitempty,oneof=admin judge volunteer participant"`
+	Role        *string `json:"role,omitempty" validate:"omitempty,oneof=dev user"`
 	IsActive    *bool   `json:"is_active,omitempty"`
 }
 
 // UserFilter defines query parameters for paginated user listing.
 type UserFilter struct {
-	Page   int    `json:"page"`
-	Limit  int    `json:"limit"`
-	Role   string `json:"role"`
-	TeamID string `json:"team_id"`
-	// NoTeam narrows to users who are not on any team.
-	NoTeam   bool   `json:"no_team"`
+	Page     int    `json:"page"`
+	Limit    int    `json:"limit"`
+	Role     string `json:"role"`
 	Search   string `json:"search"`
 	IsActive *bool  `json:"is_active"`
-	// CheckinStatus narrows to "checked_in", "not_checked_in" (has a pass, not yet arrived) or "no_pass".
-	CheckinStatus string `json:"checkin_status"`
-	// Deleted lists removed (soft-deleted) users instead of live ones. Admin-only.
+	// Deleted lists removed (soft-deleted) users instead of live ones. Dev-only.
 	Deleted bool `json:"deleted"`
 }
 
-// UserDetailResponse is the complete user view returned to administrators.
+// UserDetailResponse is the complete user view returned to platform developers.
 type UserDetailResponse struct {
-	ID            string     `json:"id"`
-	Email         string     `json:"email"`
-	Name          string     `json:"name"`
-	PhoneNumber   *string    `json:"phone_number,omitempty"`
-	GlobalRole    string     `json:"global_role"`
-	AvatarURL     *string    `json:"avatar_url,omitempty"`
-	Role          string     `json:"role"`
-	TeamID        *string    `json:"team_id,omitempty"`
-	TeamName      *string    `json:"team_name,omitempty"`
-	IsLeader      bool       `json:"is_leader"`
-	IsActive      bool       `json:"is_active"`
-	TokenVersion  int        `json:"token_version"`
-	CreatedAt     time.Time  `json:"created_at"`
-	CheckinStatus string     `json:"checkin_status,omitempty"`
-	CheckedInAt   *time.Time `json:"checked_in_at,omitempty"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	ID           string     `json:"id"`
+	Email        string     `json:"email"`
+	Name         string     `json:"name"`
+	PhoneNumber  *string    `json:"phone_number,omitempty"`
+	AvatarURL    *string    `json:"avatar_url,omitempty"`
+	Role         string     `json:"role"`
+	IsActive     bool       `json:"is_active"`
+	TokenVersion int        `json:"token_version"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 }
 
 // PaginatedUsersResponse wraps user lists with pagination metadata.

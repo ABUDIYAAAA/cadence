@@ -195,34 +195,34 @@ func TestCreateAndDeleteEventDevOnlyRestriction(t *testing.T) {
 		}
 	})
 
-	t.Run("regular user with global_role=user is rejected with 403 on create event", func(t *testing.T) {
+	t.Run("regular user with role=user is rejected with 403 on create event", func(t *testing.T) {
 		body := bytes.NewBufferString(`{"slug":"fest-2026","name":"Fest 2026"}`)
 		req := httptest.NewRequest(http.MethodPost, "/events", body)
 		req.Header.Set("Content-Type", "application/json")
 
 		claims := &utils.AccessTokenClaims{
-			UserID:     "user-regular-1",
-			Email:      "regular@cadence.local",
-			GlobalRole: "user",
+			UserID: "user-regular-1",
+			Email:  "regular@cadence.local",
+			Role:   "user",
 		}
 		ctx := auth.WithUserClaims(req.Context(), claims)
 		rec := httptest.NewRecorder()
 
 		r.ServeHTTP(rec, req.WithContext(ctx))
 		if rec.Code != http.StatusForbidden {
-			t.Fatalf("expected 403 Forbidden for global_role=user, got %d (body: %s)", rec.Code, rec.Body.String())
+			t.Fatalf("expected 403 Forbidden for role=user, got %d (body: %s)", rec.Code, rec.Body.String())
 		}
 	})
 
-	t.Run("dev user with global_role=dev passes RequireDev gate", func(t *testing.T) {
+	t.Run("dev user with role=dev passes RequireDev gate", func(t *testing.T) {
 		body := bytes.NewBufferString(`{invalid-json`)
 		req := httptest.NewRequest(http.MethodPost, "/events", body)
 		req.Header.Set("Content-Type", "application/json")
 
 		claims := &utils.AccessTokenClaims{
-			UserID:     "user-dev-1",
-			Email:      "dev@cadence.local",
-			GlobalRole: "dev",
+			UserID: "user-dev-1",
+			Email:  "dev@cadence.local",
+			Role:   "dev",
 		}
 		ctx := auth.WithUserClaims(req.Context(), claims)
 		rec := httptest.NewRecorder()
@@ -262,9 +262,9 @@ func TestRequireMembershipBanEnforcement(t *testing.T) {
 		}))
 
 		claims := &utils.AccessTokenClaims{
-			UserID:     "user-banned-1",
-			Email:      "banned@cadence.local",
-			GlobalRole: "user",
+			UserID: "user-banned-1",
+			Email:  "banned@cadence.local",
+			Role:   "user",
 		}
 		ev := &Event{
 			ID:   "ev-1",
@@ -301,9 +301,9 @@ func TestRequireMembershipBanEnforcement(t *testing.T) {
 		}))
 
 		claims := &utils.AccessTokenClaims{
-			UserID:     "user-dev-1",
-			Email:      "dev@cadence.local",
-			GlobalRole: "dev",
+			UserID: "user-dev-1",
+			Email:  "dev@cadence.local",
+			Role:   "dev",
 		}
 		ev := &Event{
 			ID:   "ev-1",
@@ -344,14 +344,18 @@ func newTestDBPool(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Skipf("skipping db test: ping failed: %v", err)
 	}
+	t.Cleanup(func() {
+		pool.Close()
+	})
 	return pool
 }
 
 func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 	db := newTestDBPool(t)
-	defer db.Close()
 	rdb := newTestRedisClient(t)
-	defer rdb.Close()
+	t.Cleanup(func() {
+		_ = rdb.Close()
+	})
 
 	repo := NewRepository(db)
 	svc := NewService(repo, rdb, nil)
@@ -437,5 +441,6 @@ func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 		if err := svc.DeleteEvent(ctx, ev.ID, creatorDevID); err != nil {
 			t.Fatalf("failed to delete event: %v", err)
 		}
+		_, _ = db.Exec(ctx, "DELETE FROM users WHERE email IN ($1, $2)", ownerEmail, newEmail)
 	})
 }

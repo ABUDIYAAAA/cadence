@@ -39,7 +39,7 @@ func main() {
 		updateQuery := `
 			UPDATE users
 			SET name = $1,
-			    global_role = 'dev',
+			    role = 'dev',
 			    is_active = TRUE,
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE id = $2
@@ -49,7 +49,7 @@ func main() {
 		}
 	} else {
 		insertQuery := `
-			INSERT INTO users (email, name, global_role, is_active)
+			INSERT INTO users (email, name, role, is_active)
 			VALUES ($1, $2, 'dev', TRUE)
 			RETURNING id
 		`

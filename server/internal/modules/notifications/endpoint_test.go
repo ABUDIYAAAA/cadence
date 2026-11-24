@@ -139,12 +139,14 @@ func newTestDBPool(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Skipf("skipping notifications db test, db unreachable: %v", err)
 	}
+	t.Cleanup(func() {
+		pool.Close()
+	})
 	return pool
 }
 
 func TestNotificationTargetingUserTeamCompetitionAndEvent(t *testing.T) {
 	pool := newTestDBPool(t)
-	defer pool.Close()
 
 	ctx := context.Background()
 	ts := time.Now().UnixNano()
@@ -159,16 +161,22 @@ func TestNotificationTargetingUserTeamCompetitionAndEvent(t *testing.T) {
 	`, evSlug, logo).Scan(&eventID); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM events WHERE id = $1`, eventID)
+	})
 
 	seedUser := func(prefix, role string) string {
 		var uid string
 		if err := pool.QueryRow(ctx, `
-			INSERT INTO users (email, name, global_role, is_active)
+			INSERT INTO users (email, name, role, is_active)
 			VALUES ($1, $2, 'user', TRUE)
 			RETURNING id
 		`, fmt.Sprintf("%s_%d@example.com", prefix, ts), prefix).Scan(&uid); err != nil {
 			t.Fatalf("seed user: %v", err)
 		}
+		t.Cleanup(func() {
+			_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, uid)
+		})
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO user_events (event_id, user_id, role)
 			VALUES ($1, $2, $3::event_role)

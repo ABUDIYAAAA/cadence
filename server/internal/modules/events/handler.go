@@ -33,7 +33,7 @@ func (h *Handler) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	if claims.GlobalRole != "dev" {
+	if claims.Role != "dev" {
 		utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
 		return
 	}
@@ -77,7 +77,7 @@ func (h *Handler) HandleDeleteEvent(w http.ResponseWriter, r *http.Request) {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	if claims.GlobalRole != "dev" {
+	if claims.Role != "dev" {
 		utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
 		return
 	}

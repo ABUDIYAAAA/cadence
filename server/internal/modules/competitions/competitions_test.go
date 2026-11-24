@@ -486,6 +486,68 @@ func TestCompetitionUserRoutesGating(t *testing.T) {
 		}
 	})
 
+	t.Run("Volunteer cannot add competition users", func(t *testing.T) {
+		ctx := setupContext("volunteer", "user")
+		req := httptest.NewRequest(http.MethodPost, "/c/hack-2026/users", bytes.NewBufferString(`{"email":"foo@example.com"}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("volunteer must receive 403 Forbidden on add users, got %d", rec.Code)
+		}
+	})
+
+	t.Run("Volunteer cannot bulk add competition users", func(t *testing.T) {
+		ctx := setupContext("volunteer", "user")
+		req := httptest.NewRequest(http.MethodPost, "/c/hack-2026/users/bulk", bytes.NewBufferString(`{"users":[{"email":"foo@example.com"}]}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("volunteer must receive 403 Forbidden on bulk add users, got %d", rec.Code)
+		}
+	})
+
+	t.Run("Judge cannot add competition users", func(t *testing.T) {
+		ctx := setupContext("judge", "user")
+		req := httptest.NewRequest(http.MethodPost, "/c/hack-2026/users", bytes.NewBufferString(`{"email":"foo@example.com"}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("judge must receive 403 Forbidden on add users, got %d", rec.Code)
+		}
+	})
+
+	t.Run("Admin can access add users route", func(t *testing.T) {
+		ctx := setupContext("admin", "user")
+		req := httptest.NewRequest(http.MethodPost, "/c/hack-2026/users", bytes.NewBufferString(`{"email":"foo@example.com"}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		defer func() { _ = recover() }()
+		r.ServeHTTP(rec, req)
+		if rec.Code == http.StatusForbidden {
+			t.Fatalf("admin should pass role gate on add users, got 403 Forbidden")
+		}
+	})
+
+	t.Run("Owner can access bulk add users route", func(t *testing.T) {
+		ctx := setupContext("owner", "user")
+		req := httptest.NewRequest(http.MethodPost, "/c/hack-2026/users/bulk", bytes.NewBufferString(`{"users":[{"email":"foo@example.com"}]}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		defer func() { _ = recover() }()
+		r.ServeHTTP(rec, req)
+		if rec.Code == http.StatusForbidden {
+			t.Fatalf("owner should pass role gate on bulk add users, got 403 Forbidden")
+		}
+	})
+
 	t.Run("Admin can access ban route", func(t *testing.T) {
 		ctx := setupContext("admin", "user")
 		req := httptest.NewRequest(http.MethodPost, "/c/hack-2026/members/victim-id/ban", bytes.NewBufferString("{}")).WithContext(ctx)
@@ -711,6 +773,149 @@ func TestCreateCompetitionOwnerAccountCreationInBackground(t *testing.T) {
 		}
 		if oldRole != "admin" {
 			t.Errorf("expected old role 'admin', got %q", oldRole)
+		}
+	})
+}
+
+func TestAddCompetitionUsersAndBulkDetection(t *testing.T) {
+	db := newTestDBPool(t)
+	defer db.Close()
+	rdb := newTestRedisClient(t)
+	defer rdb.Close()
+
+	repo := NewRepository(db)
+	svc := NewService(repo, rdb, nil)
+	ctx := context.Background()
+
+	nano := time.Now().UnixNano()
+	ownerEmail := fmt.Sprintf("comp-owner-%d@example.com", nano)
+	comp, err := svc.CreateCompetition(ctx, CreateCompetitionRequest{
+		Slug:       fmt.Sprintf("bulk-add-comp-%d", nano),
+		Name:       "Bulk Add Competition",
+		OwnerEmail: &ownerEmail,
+	}, "00000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("failed to create competition: %v", err)
+	}
+
+	var ownerID string
+	_ = db.QueryRow(ctx, "SELECT id FROM users WHERE email = $1", ownerEmail).Scan(&ownerID)
+
+	// Pre-create an existing user in the database (who is not in this competition yet)
+	existingUserEmail := fmt.Sprintf("pre-existing-%d@example.com", nano)
+	existingUserName := "Pre Existing User"
+	var existingUserID string
+	err = db.QueryRow(ctx, `
+		INSERT INTO users (email, name, global_role, is_active)
+		VALUES ($1, $2, 'user', TRUE)
+		RETURNING id
+	`, existingUserEmail, existingUserName).Scan(&existingUserID)
+	if err != nil {
+		t.Fatalf("failed to insert pre-existing user: %v", err)
+	}
+
+	t.Run("single user add: creates account in bg when user does not exist", func(t *testing.T) {
+		newEmail := fmt.Sprintf("new-single-%d@example.com", nano)
+		detail, created, err := svc.AddCompetitionUser(ctx, comp.ID, ownerID, "owner", AddCompetitionUserRequest{
+			Email: newEmail,
+			Role:  "participant",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error adding user: %v", err)
+		}
+		if !created {
+			t.Fatalf("expected created to be true for non-existent user")
+		}
+		if detail.Email != newEmail {
+			t.Errorf("expected email %q, got %q", newEmail, detail.Email)
+		}
+		if detail.Role != "participant" {
+			t.Errorf("expected role 'participant', got %q", detail.Role)
+		}
+
+		// Verify Redis
+		roleCached, err := rdb.Get(ctx, fmt.Sprintf("comp:%s:member:%s", comp.ID, detail.ID)).Result()
+		if err != nil || roleCached != "participant" {
+			t.Errorf("expected Redis role 'participant', got %v (err: %v)", roleCached, err)
+		}
+		isMember, err := rdb.SIsMember(ctx, fmt.Sprintf("user:%s:competitions", detail.ID), comp.ID).Result()
+		if err != nil || !isMember {
+			t.Errorf("expected Redis user competitions to have %s", comp.ID)
+		}
+	})
+
+	t.Run("single user add: links existing account without duplicate creation", func(t *testing.T) {
+		detail, created, err := svc.AddCompetitionUser(ctx, comp.ID, ownerID, "owner", AddCompetitionUserRequest{
+			Email: existingUserEmail,
+			Role:  "volunteer",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if created {
+			t.Fatalf("expected created to be false for pre-existing user")
+		}
+		if detail.ID != existingUserID {
+			t.Errorf("expected user ID %s, got %s", existingUserID, detail.ID)
+		}
+		if detail.Role != "volunteer" {
+			t.Errorf("expected role 'volunteer', got %q", detail.Role)
+		}
+	})
+
+	t.Run("bulk add: correctly identifies which users need accounts and which already exist", func(t *testing.T) {
+		newUser1 := fmt.Sprintf("bulk-user-1-%d@example.com", nano)
+		newUser2 := fmt.Sprintf("bulk-user-2-%d@example.com", nano)
+		existingEmail := existingUserEmail // already created above
+
+		req := BulkAddCompetitionUsersRequest{
+			Users: []AddCompetitionUserRequest{
+				{Email: newUser1, Role: "participant"},
+				{Email: newUser2, Role: "judge"},
+				{Email: existingEmail, Role: "judge"},        // existing user, update role
+				{Email: "not-an-email", Role: "participant"}, // invalid email, should be skipped
+			},
+		}
+
+		resp, err := svc.BulkAddCompetitionUsers(ctx, comp.ID, ownerID, "owner", req)
+		if err != nil {
+			t.Fatalf("unexpected bulk add error: %v", err)
+		}
+
+		if resp.TotalProcessed != 4 {
+			t.Errorf("expected TotalProcessed 4, got %d", resp.TotalProcessed)
+		}
+		if resp.TotalCreated != 2 {
+			t.Errorf("expected TotalCreated 2 (the 2 new users), got %d", resp.TotalCreated)
+		}
+		if resp.TotalAdded != 1 {
+			t.Errorf("expected TotalAdded 1 (the 1 existing user), got %d", resp.TotalAdded)
+		}
+		if resp.SkippedCount != 1 {
+			t.Errorf("expected SkippedCount 1, got %d", resp.SkippedCount)
+		}
+		if len(resp.Users) != 3 {
+			t.Errorf("expected 3 successful users, got %d", len(resp.Users))
+		}
+	})
+
+	t.Run("role hierarchy: admin cannot add another user as admin", func(t *testing.T) {
+		adminEmail := fmt.Sprintf("comp-admin-%d@example.com", nano)
+		adminDetail, _, err := svc.AddCompetitionUser(ctx, comp.ID, ownerID, "owner", AddCompetitionUserRequest{
+			Email: adminEmail,
+			Role:  "admin",
+		})
+		if err != nil {
+			t.Fatalf("failed to add admin: %v", err)
+		}
+
+		targetEmail := fmt.Sprintf("target-by-admin-%d@example.com", nano)
+		_, _, err = svc.AddCompetitionUser(ctx, comp.ID, adminDetail.ID, "admin", AddCompetitionUserRequest{
+			Email: targetEmail,
+			Role:  "admin", // Admin trying to assign admin role
+		})
+		if err != ErrPermissionDenied {
+			t.Fatalf("expected ErrPermissionDenied, got %v", err)
 		}
 	})
 }

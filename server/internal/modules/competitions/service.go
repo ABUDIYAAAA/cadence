@@ -4,12 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/mail"
 	"regexp"
+	"strings"
 	"time"
 
 	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/redis/go-redis/v9"
 )
+
+func isValidEmail(email string) bool {
+	email = strings.TrimSpace(email)
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		return false
+	}
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	return strings.Contains(parts[1], ".")
+}
 
 var (
 	slugRegex           = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -138,6 +153,105 @@ func (s *Service) TransferOwnership(ctx context.Context, compID, currentOwnerID 
 	})
 
 	return nil
+}
+
+// AddCompetitionUser adds a single user to a competition by email, creating a background account if needed.
+func (s *Service) AddCompetitionUser(
+	ctx context.Context,
+	compID, actorID, actorRole string,
+	req AddCompetitionUserRequest,
+) (*CompetitionUserDetailResponse, bool, error) {
+	if !isValidEmail(req.Email) {
+		return nil, false, errors.New("invalid email address")
+	}
+
+	role := req.Role
+	if role == "" {
+		role = "participant"
+	}
+
+	detail, createdAccount, err := s.repo.AddCompetitionUser(ctx, compID, actorID, actorRole, req.Email, req.Name, req.PhoneNumber, role)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Update Redis cache immediately
+	if s.rdb != nil {
+		_ = s.rdb.Set(ctx, fmt.Sprintf("comp:%s:member:%s", compID, detail.ID), role, 15*time.Minute).Err()
+		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:competitions", detail.ID), compID).Err()
+	}
+
+	actionDesc := fmt.Sprintf("Added existing user %s to competition as %s", req.Email, role)
+	if createdAccount {
+		actionDesc = fmt.Sprintf("Created background account and added user %s to competition as %s", req.Email, role)
+	}
+	s.recordAudit(ctx, audit.ActionCompetitionMemberAssign, compID, actionDesc, &actorID, map[string]any{
+		"target_user_id":  detail.ID,
+		"target_email":    req.Email,
+		"role":            role,
+		"account_created": createdAccount,
+	})
+
+	return detail, createdAccount, nil
+}
+
+// BulkAddCompetitionUsers adds multiple users to a competition in bulk by email.
+func (s *Service) BulkAddCompetitionUsers(
+	ctx context.Context,
+	compID, actorID, actorRole string,
+	req BulkAddCompetitionUsersRequest,
+) (*BulkAddCompetitionUsersResponse, error) {
+	resp := &BulkAddCompetitionUsersResponse{
+		TotalProcessed: len(req.Users),
+		Users:          make([]CompetitionUserDetailResponse, 0, len(req.Users)),
+		SkippedErrors:  make([]string, 0),
+	}
+
+	for i, u := range req.Users {
+		if !isValidEmail(u.Email) {
+			resp.SkippedCount++
+			resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("user %d (%s): invalid email address", i+1, u.Email))
+			continue
+		}
+
+		role := u.Role
+		if role == "" {
+			role = "participant"
+		}
+
+		detail, createdAccount, err := s.repo.AddCompetitionUser(ctx, compID, actorID, actorRole, u.Email, u.Name, u.PhoneNumber, role)
+		if err != nil {
+			resp.SkippedCount++
+			resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("user %d (%s): %v", i+1, u.Email, err))
+			continue
+		}
+
+		if createdAccount {
+			resp.TotalCreated++
+		} else {
+			resp.TotalAdded++
+		}
+
+		// Update Redis cache immediately
+		if s.rdb != nil {
+			_ = s.rdb.Set(ctx, fmt.Sprintf("comp:%s:member:%s", compID, detail.ID), role, 15*time.Minute).Err()
+			_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:competitions", detail.ID), compID).Err()
+		}
+
+		resp.Users = append(resp.Users, *detail)
+	}
+
+	s.recordAudit(ctx, audit.ActionCompetitionMemberAssign, compID,
+		fmt.Sprintf("Bulk added users: %d created, %d added, %d skipped", resp.TotalCreated, resp.TotalAdded, resp.SkippedCount),
+		&actorID, map[string]any{
+			"total_processed": resp.TotalProcessed,
+			"total_created":   resp.TotalCreated,
+			"total_added":     resp.TotalAdded,
+			"skipped_count":   resp.SkippedCount,
+		},
+	)
+
+	return resp, nil
 }
 
 // AssignOrUpdateMemberRole handles role assignment with strict hierarchy enforcement:

@@ -50,6 +50,8 @@ func RegisterRoutes(
 				r.Use(RequireCompetitionRoles("owner", "admin"))
 
 				r.Patch("/", h.HandleUpdateCompetition)
+				r.Post("/users", h.HandleAddCompetitionUser)
+				r.Post("/users/bulk", h.HandleBulkAddCompetitionUsers)
 				r.Post("/members", h.HandleAssignMember)
 				r.Patch("/members/{userId}", h.HandleUpdateMemberRole)
 				r.Delete("/members/{userId}", h.HandleRemoveMember)

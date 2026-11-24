@@ -27,8 +27,33 @@ type TransferOwnershipRequest struct {
 
 // AssignMemberRoleRequest defines payload to assign or update a member's role.
 type AssignMemberRoleRequest struct {
-	UserID string `json:"user_id" validate:"required,uuid"`
-	Role   string `json:"role" validate:"required,oneof=admin volunteer judge participant"`
+	UserID *string `json:"user_id,omitempty" validate:"omitempty,uuid"`
+	Email  *string `json:"email,omitempty" validate:"omitempty,email,max=254"`
+	Name   *string `json:"name,omitempty" validate:"omitempty,max=255"`
+	Role   string  `json:"role" validate:"required,oneof=admin volunteer judge participant"`
+}
+
+// AddCompetitionUserRequest defines payload to add a single user to a competition by email.
+type AddCompetitionUserRequest struct {
+	Email       string  `json:"email" validate:"required,email,max=254"`
+	Name        *string `json:"name,omitempty" validate:"omitempty,max=255"`
+	Role        string  `json:"role" validate:"omitempty,oneof=admin volunteer judge participant"`
+	PhoneNumber *string `json:"phone_number,omitempty" validate:"omitempty,max=32"`
+}
+
+// BulkAddCompetitionUsersRequest defines payload to bulk add users to a competition via emails.
+type BulkAddCompetitionUsersRequest struct {
+	Users []AddCompetitionUserRequest `json:"users" validate:"required,min=1,dive"`
+}
+
+// BulkAddCompetitionUsersResponse reports outcome of a bulk user add operation in a competition.
+type BulkAddCompetitionUsersResponse struct {
+	TotalProcessed int                             `json:"total_processed"`
+	TotalCreated   int                             `json:"total_created"`
+	TotalAdded     int                             `json:"total_added"`
+	SkippedCount   int                             `json:"skipped_count"`
+	SkippedErrors  []string                        `json:"skipped_errors,omitempty"`
+	Users          []CompetitionUserDetailResponse `json:"users"`
 }
 
 // UpdateMemberRoleRequest defines payload to update a member's role.

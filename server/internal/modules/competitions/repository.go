@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -75,6 +76,140 @@ func (r *Repository) GetOrCreateUserByEmail(ctx context.Context, email, name str
 		return "", fmt.Errorf("get or create owner account: %w", err)
 	}
 	return id, nil
+}
+
+// AddCompetitionUser inserts or links a user to a competition by email.
+// If the user does not exist in users table, it creates their account in the background (returning created=true).
+// If the user already exists, it links or updates their membership in this competition (returning created=false).
+func (r *Repository) AddCompetitionUser(
+	ctx context.Context,
+	compID, actorID, actorRole string,
+	email string,
+	name *string,
+	phone *string,
+	role string,
+) (*CompetitionUserDetailResponse, bool, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return nil, false, errors.New("email cannot be empty")
+	}
+	if role == "" {
+		role = "participant"
+	}
+	if role == "owner" {
+		return nil, false, errors.New("cannot assign owner role; use transfer ownership endpoint")
+	}
+
+	// Role hierarchy check: admin cannot assign admin or owner
+	if actorRole == "admin" && (role == "admin" || role == "owner") {
+		return nil, false, ErrPermissionDenied
+	}
+
+	userName := ""
+	if name != nil && strings.TrimSpace(*name) != "" {
+		userName = strings.TrimSpace(*name)
+	} else {
+		userName = deriveNameFromEmail(email)
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Step 1: Upsert user account in users table (detecting whether it was freshly created)
+	upsertUserQuery := `
+		INSERT INTO users (email, name, phone_number, global_role, is_active)
+		VALUES ($1, $2, $3, 'user', TRUE)
+		ON CONFLICT (email) DO UPDATE
+		SET deleted_at = NULL,
+		    is_active = CASE WHEN users.is_active = FALSE THEN TRUE ELSE users.is_active END,
+		    phone_number = COALESCE(users.phone_number, EXCLUDED.phone_number),
+		    updated_at = CURRENT_TIMESTAMP
+		RETURNING id, (xmax = 0) AS created
+	`
+	var targetUserID string
+	var createdAccount bool
+	if err := tx.QueryRow(ctx, upsertUserQuery, email, userName, phone).Scan(&targetUserID, &createdAccount); err != nil {
+		return nil, false, fmt.Errorf("upsert user: %w", err)
+	}
+
+	// Step 2: Check current membership status in this competition
+	var existingRole string
+	var isBanned bool
+	checkQuery := `
+		SELECT role::text, is_banned
+		FROM user_competitions
+		WHERE competition_id = $1 AND user_id = $2
+		FOR UPDATE
+	`
+	err = tx.QueryRow(ctx, checkQuery, compID, targetUserID).Scan(&existingRole, &isBanned)
+	if err == nil {
+		// User is already in this competition
+		if isBanned {
+			return nil, false, errors.New("user is banned from this competition; unban first")
+		}
+		if existingRole == "owner" && role != "owner" {
+			return nil, false, ErrCannotModifyOwner
+		}
+		if actorRole == "admin" && (existingRole == "admin" || existingRole == "owner") {
+			return nil, false, ErrPermissionDenied
+		}
+
+		// Update role
+		updateQuery := `
+			UPDATE user_competitions
+			SET role = $1::competition_role, updated_at = CURRENT_TIMESTAMP
+			WHERE competition_id = $2 AND user_id = $3
+		`
+		if _, err := tx.Exec(ctx, updateQuery, role, compID, targetUserID); err != nil {
+			return nil, false, fmt.Errorf("update member role: %w", err)
+		}
+	} else if errors.Is(err, pgx.ErrNoRows) {
+		// User is not in this competition, insert membership
+		insertQuery := `
+			INSERT INTO user_competitions (competition_id, user_id, role)
+			VALUES ($1, $2, $3::competition_role)
+		`
+		if _, err := tx.Exec(ctx, insertQuery, compID, targetUserID, role); err != nil {
+			return nil, false, fmt.Errorf("insert member: %w", err)
+		}
+	} else {
+		return nil, false, fmt.Errorf("check membership: %w", err)
+	}
+
+	// Step 3: Fetch detail response
+	fetchQuery := `
+		SELECT u.id, u.email, u.name, u.phone_number, u.global_role, u.avatar_url,
+		       uc.role::text, uc.is_banned, uc.banned_at,
+		       u.team_id, t.name AS team_name, (t.leader_id = u.id) AS is_leader,
+		       u.created_at
+		FROM users u
+		JOIN user_competitions uc ON uc.user_id = u.id AND uc.competition_id = $1
+		LEFT JOIN teams t ON u.team_id = t.id AND t.competition_id = $1
+		WHERE u.id = $2
+	`
+	var detail CompetitionUserDetailResponse
+	var isLeader *bool
+	var bannedAt *time.Time
+	err = tx.QueryRow(ctx, fetchQuery, compID, targetUserID).Scan(
+		&detail.ID, &detail.Email, &detail.Name, &detail.PhoneNumber, &detail.GlobalRole, &detail.AvatarURL,
+		&detail.Role, &detail.IsBanned, &bannedAt,
+		&detail.TeamID, &detail.TeamName, &isLeader,
+		&detail.CreatedAt,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("fetch created user detail: %w", err)
+	}
+	detail.BannedAt = bannedAt
+	detail.IsLeader = isLeader
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return &detail, createdAccount, nil
 }
 
 // GetUserIDByEmail retrieves the ID of an active user by email.

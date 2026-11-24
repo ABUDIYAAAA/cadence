@@ -20,7 +20,10 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-const maxCompetitionBodyBytes = 16 << 10 // 16 KiB
+const (
+	maxCompetitionBodyBytes = 16 << 10 // 16 KiB
+	maxBulkBodyBytes        = 4 << 20  // 4 MiB
+)
 
 // HandleCreateCompetition creates a new competition and assigns the designated user or caller as owner.
 // Strictly restricted to users with global 'dev' role.
@@ -158,6 +161,75 @@ func (h *Handler) HandleTransferOwnership(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// HandleAddCompetitionUser adds a single user to a competition by email, creating a background account if needed.
+func (h *Handler) HandleAddCompetitionUser(w http.ResponseWriter, r *http.Request) {
+	compCtx, ok := FromContext(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusForbidden, "competition context missing")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxCompetitionBodyBytes)
+	var req AddCompetitionUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if errs := utils.ValidateStruct(req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	user, _, err := h.service.AddCompetitionUser(r.Context(), compCtx.CompetitionID, compCtx.UserID, compCtx.Role, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrPermissionDenied):
+			utils.ErrorJSON(w, http.StatusForbidden, "admins cannot assign the admin role or modify existing admins")
+		case errors.Is(err, ErrCannotModifyOwner):
+			utils.ErrorJSON(w, http.StatusForbidden, err.Error())
+		default:
+			if strings.Contains(err.Error(), "banned") {
+				utils.ErrorJSON(w, http.StatusForbidden, err.Error())
+				return
+			}
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+
+	utils.JSON(w, http.StatusCreated, user)
+}
+
+// HandleBulkAddCompetitionUsers adds multiple users to a competition in bulk by email.
+func (h *Handler) HandleBulkAddCompetitionUsers(w http.ResponseWriter, r *http.Request) {
+	compCtx, ok := FromContext(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusForbidden, "competition context missing")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBulkBodyBytes)
+	var req BulkAddCompetitionUsersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorJSON(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if errs := utils.ValidateStruct(req); len(errs) > 0 {
+		utils.ValidationErrorJSON(w, errs)
+		return
+	}
+
+	resp, err := h.service.BulkAddCompetitionUsers(r.Context(), compCtx.CompetitionID, compCtx.UserID, compCtx.Role, req)
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	utils.JSON(w, http.StatusCreated, resp)
+}
+
 // HandleAssignMember assigns a role to a user in the competition.
 func (h *Handler) HandleAssignMember(w http.ResponseWriter, r *http.Request) {
 	compCtx, ok := FromContext(r.Context())
@@ -178,7 +250,37 @@ func (h *Handler) HandleAssignMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.service.AssignOrUpdateMemberRole(r.Context(), compCtx.CompetitionID, compCtx.UserID, compCtx.Role, req.UserID, req.Role)
+	if (req.UserID == nil || *req.UserID == "") && (req.Email == nil || *req.Email == "") {
+		utils.ErrorJSON(w, http.StatusBadRequest, "either user_id or email must be provided")
+		return
+	}
+
+	if req.Email != nil && *req.Email != "" {
+		user, _, err := h.service.AddCompetitionUser(r.Context(), compCtx.CompetitionID, compCtx.UserID, compCtx.Role, AddCompetitionUserRequest{
+			Email: *req.Email,
+			Name:  req.Name,
+			Role:  req.Role,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrPermissionDenied):
+				utils.ErrorJSON(w, http.StatusForbidden, "admins cannot assign the admin role or modify existing admins")
+			case errors.Is(err, ErrCannotModifyOwner):
+				utils.ErrorJSON(w, http.StatusForbidden, err.Error())
+			default:
+				if strings.Contains(err.Error(), "banned") {
+					utils.ErrorJSON(w, http.StatusForbidden, err.Error())
+					return
+				}
+				utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			}
+			return
+		}
+		utils.JSON(w, http.StatusOK, user)
+		return
+	}
+
+	err := h.service.AssignOrUpdateMemberRole(r.Context(), compCtx.CompetitionID, compCtx.UserID, compCtx.Role, *req.UserID, req.Role)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrPermissionDenied):

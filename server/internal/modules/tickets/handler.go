@@ -71,11 +71,20 @@ func (h *Handler) HandleSendSingle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req SendSingleTicketRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
 	ip := r.RemoteAddr
 	ua := r.UserAgent()
 
-	resp, err := h.service.SendSingleTicket(r.Context(), targetUserID, claims.UserID, claims.Email, claims.Role, ip, ua)
+	resp, err := h.service.SendSingleTicket(r.Context(), targetUserID, req, claims.UserID, claims.Email, claims.Role, ip, ua)
 	if err != nil {
+		if errors.Is(err, ErrInvalidEmailSubject) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to dispatch ticket: "+err.Error())
 		return
 	}
@@ -102,6 +111,10 @@ func (h *Handler) HandleBulkSend(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.BulkSendTickets(r.Context(), req, claims.UserID, claims.Email, claims.Role, ip, ua)
 	if err != nil {
+		if errors.Is(err, ErrInvalidDomain) || errors.Is(err, ErrInvalidEmailSubject) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to process bulk tickets: "+err.Error())
 		return
 	}

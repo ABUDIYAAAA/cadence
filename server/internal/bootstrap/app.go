@@ -171,6 +171,15 @@ func NewApplication(ctx context.Context) (*Application, error) {
 
 	// Tickets & Attendance module initialization
 	ticketsRepo := tickets.NewRepository(dbPool)
+	if mailQueue != nil {
+		mailQueue.SetDeliveryCallback(func(cbCtx context.Context, ticketID string, delivered bool, errMsg string) {
+			if delivered {
+				_ = ticketsRepo.MarkTicketEmailDelivered(cbCtx, ticketID)
+			} else {
+				_ = ticketsRepo.MarkTicketEmailFailed(cbCtx, ticketID, errMsg)
+			}
+		})
+	}
 	ticketsService := tickets.NewService(ticketsRepo, cfg, mailQueue, auditQueue)
 	ticketsHandler := tickets.NewHandler(ticketsService)
 

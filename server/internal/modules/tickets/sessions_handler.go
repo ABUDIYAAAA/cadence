@@ -155,7 +155,7 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	settings, err := h.service.UpdateSettings(r.Context(), req, claims.UserID, claims.Email, claims.Role, r.RemoteAddr, r.UserAgent())
 	if err != nil {
-		if errors.Is(err, ErrInvalidDomain) {
+		if errors.Is(err, ErrInvalidDomain) || errors.Is(err, ErrInvalidEmailSubject) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 			return
 		}

@@ -538,44 +538,48 @@ func sortRecent(p []SessionPerson) {
 	}
 }
 
-// ReleaseTickets creates tickets for matching users and shows them on the dashboard, sending no email.
+// ReleaseTickets marks event tickets as released globally and creates dashboard tickets for all current event members, sending no email.
 func (s *Service) ReleaseTickets(ctx context.Context, req BulkSendTicketsRequest, actorID, actorEmail, actorRole, ip, ua string) (*ReleaseTicketsResponse, error) {
+	if err := s.setTicketsReleased(ctx, true, actorID); err != nil {
+		return nil, err
+	}
+
 	eligible, err := s.repo.FindEligibleUsers(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	resp := &ReleaseTicketsResponse{TotalProcessed: 0}
 	for _, u := range eligible {
-		if utils.IsEmailExcluded(u.Email, req.ExcludeDomains) {
-			continue
-		}
 		resp.TotalProcessed++
 
-		ticketID := u.TicketID
 		if u.TicketCode != "" {
-			resp.AlreadyHad++
-		} else {
-			code, err := s.generateTicketCode()
-			if err != nil {
-				resp.Skipped++
-				continue
+			if u.ReleasedAt != nil {
+				resp.AlreadyHad++
+			} else {
+				if err := s.repo.ReleaseTicket(ctx, u.TicketID); err != nil {
+					resp.Skipped++
+					continue
+				}
+				resp.Released++
 			}
-			t, err := s.repo.GetOrCreateTicket(ctx, u.UserID, code)
-			if err != nil {
-				resp.Skipped++
-				continue
-			}
-			ticketID = t.ID
-			resp.Released++
+			continue
 		}
-		if err := s.repo.ReleaseTicket(ctx, ticketID); err != nil {
+
+		code, err := s.generateTicketCode()
+		if err != nil {
 			resp.Skipped++
+			continue
 		}
+		if _, err := s.repo.GetOrCreateReleasedTicket(ctx, u.UserID, code); err != nil {
+			resp.Skipped++
+			continue
+		}
+		resp.Released++
 	}
 	s.recordAudit(ctx, audit.ActionTicketReleased, audit.TargetTicket, nil,
 		fmt.Sprintf("%s released %d passes to the dashboard without email", actorEmail, resp.Released),
 		&actorID, &actorEmail, &actorRole,
-		map[string]any{"released": resp.Released, "already_had": resp.AlreadyHad, "skipped": resp.Skipped},
+		map[string]any{"released": resp.Released, "already_had": resp.AlreadyHad, "skipped": resp.Skipped, "tickets_released": true},
 		&ip, &ua)
 	return resp, nil
 }

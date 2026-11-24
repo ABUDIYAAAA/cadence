@@ -11,21 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	EmailStatusPending       = "pending"
+	EmailStatusQueued        = "queued"
+	EmailStatusSent          = "sent"
+	EmailStatusFailed        = "failed"
+	EmailStatusSkippedDomain = "skipped_domain"
+)
+
 var (
 	ErrTicketNotFound = errors.New("ticket not found")
 )
 
 type Ticket struct {
-	ID          string     `json:"id"`
-	EventID     string     `json:"event_id"`
-	UserID      string     `json:"user_id"`
-	TicketCode  string     `json:"ticket_code"`
-	IsCheckedIn bool       `json:"is_checked_in"`
-	CheckedInAt *time.Time `json:"checked_in_at"`
-	CheckedInBy *string    `json:"checked_in_by"`
-	EmailSentAt *time.Time `json:"email_sent_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID            string     `json:"id"`
+	EventID       string     `json:"event_id"`
+	UserID        string     `json:"user_id"`
+	TicketCode    string     `json:"ticket_code"`
+	IsCheckedIn   bool       `json:"is_checked_in"`
+	CheckedInAt   *time.Time `json:"checked_in_at"`
+	CheckedInBy   *string    `json:"checked_in_by"`
+	EmailStatus   string     `json:"email_status"`
+	EmailQueuedAt *time.Time `json:"email_queued_at,omitempty"`
+	EmailSentAt   *time.Time `json:"email_sent_at"`
+	EmailError    *string    `json:"email_error,omitempty"`
+	EmailAttempts int        `json:"email_attempts"`
+	ReleasedAt    *time.Time `json:"released_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 type TicketAttendeeInfo struct {
@@ -37,7 +50,9 @@ type TicketAttendeeInfo struct {
 	CheckedInAt     *time.Time
 	CheckedInByID   *string
 	CheckedInByName *string
+	EmailStatus     string
 	EmailSentAt     *time.Time
+	ReleasedAt      *time.Time
 	UserName        string
 	UserEmail       string
 	UserRole        string
@@ -53,6 +68,9 @@ type EligibleUser struct {
 	TicketID    string
 	TicketCode  string
 	IsCheckedIn bool
+	EmailStatus string
+	EmailSentAt *time.Time
+	ReleasedAt  *time.Time
 }
 
 type Repository struct {
@@ -73,17 +91,11 @@ func resolveEventID(ctx context.Context) string {
 	return events.DefaultEventID
 }
 
-// GetOrCreateTicket inserts a ticket if not exists, or returns the existing ticket for the user in the active event.
-func (r *Repository) GetOrCreateTicket(ctx context.Context, userID, ticketCode string) (*Ticket, error) {
-	eventID := resolveEventID(ctx)
-	query := `
-		INSERT INTO tickets (event_id, user_id, ticket_code)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (event_id, user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-		RETURNING id, event_id, user_id, ticket_code, is_checked_in, checked_in_at, checked_in_by, email_sent_at, created_at, updated_at;
-	`
-	var t Ticket
-	err := r.db.QueryRow(ctx, query, eventID, userID, ticketCode).Scan(
+const ticketColumns = `id, event_id, user_id, ticket_code, is_checked_in, checked_in_at, checked_in_by,
+	email_status, email_queued_at, email_sent_at, email_error, email_attempts, released_at, created_at, updated_at`
+
+func scanTicket(row pgx.Row, t *Ticket) error {
+	return row.Scan(
 		&t.ID,
 		&t.EventID,
 		&t.UserID,
@@ -91,14 +103,70 @@ func (r *Repository) GetOrCreateTicket(ctx context.Context, userID, ticketCode s
 		&t.IsCheckedIn,
 		&t.CheckedInAt,
 		&t.CheckedInBy,
+		&t.EmailStatus,
+		&t.EmailQueuedAt,
 		&t.EmailSentAt,
+		&t.EmailError,
+		&t.EmailAttempts,
+		&t.ReleasedAt,
 		&t.CreatedAt,
 		&t.UpdatedAt,
 	)
-	if err != nil {
+}
+
+// GetOrCreateTicket inserts a ticket if not exists, or returns the existing ticket for the user in the active event.
+func (r *Repository) GetOrCreateTicket(ctx context.Context, userID, ticketCode string) (*Ticket, error) {
+	eventID := resolveEventID(ctx)
+	query := fmt.Sprintf(`
+		INSERT INTO tickets (event_id, user_id, ticket_code)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (event_id, user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+		RETURNING %s;
+	`, ticketColumns)
+	var t Ticket
+	if err := scanTicket(r.db.QueryRow(ctx, query, eventID, userID, ticketCode), &t); err != nil {
 		return nil, fmt.Errorf("get or create ticket: %w", err)
 	}
 	return &t, nil
+}
+
+// GetOrCreateReleasedTicket inserts a ticket (or updates an existing one) and guarantees released_at is set.
+func (r *Repository) GetOrCreateReleasedTicket(ctx context.Context, userID, ticketCode string) (*Ticket, error) {
+	eventID := resolveEventID(ctx)
+	query := fmt.Sprintf(`
+		INSERT INTO tickets (event_id, user_id, ticket_code, released_at)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+		ON CONFLICT (event_id, user_id) DO UPDATE
+		SET released_at = COALESCE(tickets.released_at, CURRENT_TIMESTAMP),
+		    updated_at = CURRENT_TIMESTAMP
+		RETURNING %s;
+	`, ticketColumns)
+	var t Ticket
+	if err := scanTicket(r.db.QueryRow(ctx, query, eventID, userID, ticketCode), &t); err != nil {
+		return nil, fmt.Errorf("get or create released ticket: %w", err)
+	}
+	return &t, nil
+}
+
+// IsEventMember checks whether userID is an active, non-banned member of the active event (or a global dev).
+func (r *Repository) IsEventMember(ctx context.Context, userID string) (bool, error) {
+	eventID := resolveEventID(ctx)
+	var allowed bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM users u
+			LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $1
+			WHERE u.id = $2
+			  AND u.deleted_at IS NULL
+			  AND u.is_active = TRUE
+			  AND (u.global_role = 'dev' OR (ue.user_id IS NOT NULL AND ue.is_banned = FALSE))
+		)
+	`, eventID, userID).Scan(&allowed)
+	if err != nil {
+		return false, fmt.Errorf("check event member: %w", err)
+	}
+	return allowed, nil
 }
 
 // GetTicketByCode looks up a ticket in the active event and joins attendee profile and checker details.
@@ -106,7 +174,8 @@ func (r *Repository) GetTicketByCode(ctx context.Context, ticketCode string) (*T
 	eventID := resolveEventID(ctx)
 	query := `
 		SELECT 
-			t.id, t.event_id, t.user_id, t.ticket_code, t.is_checked_in, t.checked_in_at, t.checked_in_by, t.email_sent_at,
+			t.id, t.event_id, t.user_id, t.ticket_code, t.is_checked_in, t.checked_in_at, t.checked_in_by,
+			t.email_status, t.email_sent_at, t.released_at,
 			u.name, u.email, COALESCE(ue.role::text, 'participant'), u.phone_number,
 			tm_sub.team_id, tm_sub.team_name,
 			v.name
@@ -134,7 +203,9 @@ func (r *Repository) GetTicketByCode(ctx context.Context, ticketCode string) (*T
 		&info.IsCheckedIn,
 		&info.CheckedInAt,
 		&info.CheckedInByID,
+		&info.EmailStatus,
 		&info.EmailSentAt,
+		&info.ReleasedAt,
 		&info.UserName,
 		&info.UserEmail,
 		&info.UserRole,
@@ -155,25 +226,13 @@ func (r *Repository) GetTicketByCode(ctx context.Context, ticketCode string) (*T
 // GetTicketByUserID finds ticket details for an authenticated user in the active event.
 func (r *Repository) GetTicketByUserID(ctx context.Context, userID string) (*Ticket, error) {
 	eventID := resolveEventID(ctx)
-	query := `
-		SELECT id, event_id, user_id, ticket_code, is_checked_in, checked_in_at, checked_in_by, email_sent_at, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM tickets
 		WHERE event_id = $1 AND user_id = $2;
-	`
+	`, ticketColumns)
 	var t Ticket
-	err := r.db.QueryRow(ctx, query, eventID, userID).Scan(
-		&t.ID,
-		&t.EventID,
-		&t.UserID,
-		&t.TicketCode,
-		&t.IsCheckedIn,
-		&t.CheckedInAt,
-		&t.CheckedInBy,
-		&t.EmailSentAt,
-		&t.CreatedAt,
-		&t.UpdatedAt,
-	)
-	if err != nil {
+	if err := scanTicket(r.db.QueryRow(ctx, query, eventID, userID), &t); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTicketNotFound
 		}
@@ -205,14 +264,83 @@ func (r *Repository) MarkCheckedIn(ctx context.Context, ticketID, volunteerID st
 	return &checkedInAt, true, nil
 }
 
-// MarkEmailSent updates the email_sent_at timestamp.
-func (r *Repository) MarkEmailSent(ctx context.Context, ticketID string) error {
-	query := `UPDATE tickets SET email_sent_at = CURRENT_TIMESTAMP, released_at = COALESCE(released_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = $1;`
-	_, err := r.db.Exec(ctx, query, ticketID)
+// ClaimTicketForEmail atomically transitions a ticket into 'queued' state prior to publishing to RabbitMQ.
+// If forceResend is false, it refuses to claim tickets that are already 'queued' or 'sent'.
+func (r *Repository) ClaimTicketForEmail(ctx context.Context, ticketID string, forceResend bool) (bool, error) {
+	query := `
+		UPDATE tickets
+		SET email_status = 'queued',
+		    email_queued_at = CURRENT_TIMESTAMP,
+		    email_attempts = email_attempts + 1,
+		    email_error = NULL,
+		    released_at = COALESCE(released_at, CURRENT_TIMESTAMP),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+		  AND ($2 = TRUE OR (email_status NOT IN ('queued', 'sent') AND email_sent_at IS NULL))
+		RETURNING id;
+	`
+	var claimedID string
+	err := r.db.QueryRow(ctx, query, ticketID, forceResend).Scan(&claimedID)
 	if err != nil {
-		return fmt.Errorf("mark email sent: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("claim ticket for email: %w", err)
+	}
+	return true, nil
+}
+
+// MarkTicketDomainExcluded records that a ticket holder's domain is excluded from QR email dispatch
+// while keeping their pass released on the dashboard.
+func (r *Repository) MarkTicketDomainExcluded(ctx context.Context, ticketID string) error {
+	query := `
+		UPDATE tickets
+		SET email_status = CASE WHEN email_status = 'sent' THEN 'sent' ELSE 'skipped_domain' END,
+		    released_at = COALESCE(released_at, CURRENT_TIMESTAMP),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1;
+	`
+	if _, err := r.db.Exec(ctx, query, ticketID); err != nil {
+		return fmt.Errorf("mark ticket domain excluded: %w", err)
 	}
 	return nil
+}
+
+// MarkTicketEmailDelivered marks a ticket email as delivered via SMTP.
+func (r *Repository) MarkTicketEmailDelivered(ctx context.Context, ticketID string) error {
+	query := `
+		UPDATE tickets
+		SET email_status = 'sent',
+		    email_sent_at = CURRENT_TIMESTAMP,
+		    email_error = NULL,
+		    released_at = COALESCE(released_at, CURRENT_TIMESTAMP),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1;
+	`
+	if _, err := r.db.Exec(ctx, query, ticketID); err != nil {
+		return fmt.Errorf("mark ticket email delivered: %w", err)
+	}
+	return nil
+}
+
+// MarkTicketEmailFailed records a permanent or enqueue failure on a ticket so future bulk sends can retry it.
+func (r *Repository) MarkTicketEmailFailed(ctx context.Context, ticketID, errMsg string) error {
+	query := `
+		UPDATE tickets
+		SET email_status = 'failed',
+		    email_error = $2,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1;
+	`
+	if _, err := r.db.Exec(ctx, query, ticketID, errMsg); err != nil {
+		return fmt.Errorf("mark ticket email failed: %w", err)
+	}
+	return nil
+}
+
+// MarkEmailSent updates the email_sent_at and email_status='sent' timestamp.
+func (r *Repository) MarkEmailSent(ctx context.Context, ticketID string) error {
+	return r.MarkTicketEmailDelivered(ctx, ticketID)
 }
 
 // GetUserByID loads basic user info for single ticket dispatch.
@@ -236,7 +364,10 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 			u.email, 
 			COALESCE(t.id::text, ''), 
 			COALESCE(t.ticket_code, ''), 
-			COALESCE(t.is_checked_in, false)
+			COALESCE(t.is_checked_in, false),
+			COALESCE(t.email_status, 'pending'),
+			t.email_sent_at,
+			t.released_at
 		FROM user_events ue
 		JOIN users u ON u.id = ue.user_id
 		LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = ue.event_id
@@ -278,7 +409,17 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 	var result []EligibleUser
 	for rows.Next() {
 		var u EligibleUser
-		if err := rows.Scan(&u.UserID, &u.Name, &u.Email, &u.TicketID, &u.TicketCode, &u.IsCheckedIn); err != nil {
+		if err := rows.Scan(
+			&u.UserID,
+			&u.Name,
+			&u.Email,
+			&u.TicketID,
+			&u.TicketCode,
+			&u.IsCheckedIn,
+			&u.EmailStatus,
+			&u.EmailSentAt,
+			&u.ReleasedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan eligible user: %w", err)
 		}
 		result = append(result, u)
@@ -290,20 +431,35 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 	return result, nil
 }
 
-// GetAttendanceAnalytics calculates aggregate attendance metrics, hourly trends, and team progress for the active event.
+// GetAttendanceAnalytics calculates aggregate attendance metrics, email status breakdown, hourly trends, and team progress for the active event.
 func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResponse, error) {
 	eventID := resolveEventID(ctx)
 	var totalIssued int
 	var checkedInCount int
+	var emailSentCount int
+	var emailQueuedCount int
+	var emailFailedCount int
+	var emailSkippedDomainCount int
 
 	countQuery := `
 		SELECT 
 			COUNT(*),
-			COUNT(CASE WHEN is_checked_in THEN 1 END)
+			COUNT(CASE WHEN is_checked_in THEN 1 END),
+			COUNT(CASE WHEN email_status = 'sent' OR email_sent_at IS NOT NULL THEN 1 END),
+			COUNT(CASE WHEN email_status = 'queued' THEN 1 END),
+			COUNT(CASE WHEN email_status = 'failed' THEN 1 END),
+			COUNT(CASE WHEN email_status = 'skipped_domain' THEN 1 END)
 		FROM tickets
 		WHERE event_id = $1;
 	`
-	err := r.db.QueryRow(ctx, countQuery, eventID).Scan(&totalIssued, &checkedInCount)
+	err := r.db.QueryRow(ctx, countQuery, eventID).Scan(
+		&totalIssued,
+		&checkedInCount,
+		&emailSentCount,
+		&emailQueuedCount,
+		&emailFailedCount,
+		&emailSkippedDomainCount,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("query ticket counts: %w", err)
 	}
@@ -386,10 +542,14 @@ func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResp
 	}
 
 	return &AnalyticsResponse{
-		TotalIssued:      totalIssued,
-		CheckedInCount:   checkedInCount,
-		AttendanceRate:   rate,
-		HourlyArrivals:   hourlyArrivals,
-		TeamCompleteness: teamSummaries,
+		TotalIssued:             totalIssued,
+		CheckedInCount:          checkedInCount,
+		AttendanceRate:          rate,
+		EmailSentCount:          emailSentCount,
+		EmailQueuedCount:        emailQueuedCount,
+		EmailFailedCount:        emailFailedCount,
+		EmailSkippedDomainCount: emailSkippedDomainCount,
+		HourlyArrivals:          hourlyArrivals,
+		TeamCompleteness:        teamSummaries,
 	}, nil
 }

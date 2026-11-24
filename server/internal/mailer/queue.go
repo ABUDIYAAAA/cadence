@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,19 +27,48 @@ var (
 
 // Job represents an email task serialized into RabbitMQ.
 type Job struct {
+	TicketID    string         `json:"ticket_id,omitempty"`
 	To          string         `json:"to"`
 	Subject     string         `json:"subject"`
-	Template    string         `json:"template"`
-	Data        map[string]any `json:"data"`
+	Template    string         `json:"template,omitempty"`
+	HTMLBody    string         `json:"html_body,omitempty"`
+	Data        map[string]any `json:"data,omitempty"`
 	Attachments []Attachment   `json:"attachments,omitempty"`
 }
 
+// DeliveryCallback is invoked when a ticket email job is either delivered via SMTP or permanently dropped.
+type DeliveryCallback func(ctx context.Context, ticketID string, delivered bool, errMsg string)
+
 // Queue manages RabbitMQ publishing and background consumer goroutines.
 type Queue struct {
-	conn      *amqp.Connection
-	pubCh     *amqp.Channel
-	mailer    *Mailer
-	queueName string
+	conn       *amqp.Connection
+	pubCh      *amqp.Channel
+	mailer     *Mailer
+	queueName  string
+	mu         sync.RWMutex
+	onDelivery DeliveryCallback
+}
+
+// SetDeliveryCallback registers a hook to record ticket email delivery success or permanent failure.
+func (q *Queue) SetDeliveryCallback(cb DeliveryCallback) {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.onDelivery = cb
+}
+
+func (q *Queue) notifyDelivery(ctx context.Context, ticketID string, delivered bool, errMsg string) {
+	if q == nil || ticketID == "" {
+		return
+	}
+	q.mu.RLock()
+	cb := q.onDelivery
+	q.mu.RUnlock()
+	if cb != nil {
+		cb(ctx, ticketID, delivered, errMsg)
+	}
 }
 
 // NewQueue creates and initializes RabbitMQ connection, channel, and declared queue.
@@ -124,14 +154,25 @@ func (q *Queue) SendResetPasswordEmail(ctx context.Context, to, name, resetURL s
 
 // SendTicketEmail enqueues an entry pass email whose body shows the QR code (the ticket code itself is never included).
 func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName string, qrPNG []byte) error {
-	return q.Enqueue(ctx, Job{
+	return q.SendCustomTicketEmail(ctx, "", to, name, eventName, "", "", qrPNG)
+}
+
+// SendCustomTicketEmail enqueues an entry pass email with an optional custom subject and pre-sanitized HTML body,
+// attaching the QR code PNG both inline (cid:ticket_qr.png) and as a standard downloadable attachment.
+func (q *Queue) SendCustomTicketEmail(
+	ctx context.Context,
+	ticketID, to, name, eventName, customSubject, renderedHTML string,
+	qrPNG []byte,
+) error {
+	subject := strings.TrimSpace(customSubject)
+	if subject == "" {
+		subject = fmt.Sprintf("Your entry pass for %s", eventName)
+	}
+
+	job := Job{
+		TicketID: ticketID,
 		To:       to,
-		Subject:  fmt.Sprintf("Your entry pass for %s", eventName),
-		Template: "ticket",
-		Data: map[string]any{
-			"Name":      name,
-			"EventName": eventName,
-		},
+		Subject:  subject,
 		Attachments: []Attachment{
 			{
 				Filename:    "ticket_qr.png",
@@ -139,8 +180,26 @@ func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName string,
 				Data:        qrPNG,
 				Inline:      true,
 			},
+			{
+				Filename:    "entry_pass_qr.png",
+				ContentType: "image/png",
+				Data:        qrPNG,
+				Inline:      false,
+			},
 		},
-	})
+	}
+
+	if strings.TrimSpace(renderedHTML) != "" {
+		job.HTMLBody = renderedHTML
+	} else {
+		job.Template = "ticket"
+		job.Data = map[string]any{
+			"Name":      name,
+			"EventName": eventName,
+		}
+	}
+
+	return q.Enqueue(ctx, job)
 }
 
 // StartConsumers spins up a pool of background goroutines to consume and dispatch email jobs.
@@ -207,14 +266,24 @@ func (q *Queue) StartConsumers(ctx context.Context, workers int) {
 					}
 
 					sendCtx, sendCancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err := q.mailer.SendWithAttachments(sendCtx, job.To, job.Subject, job.Template, job.Data, job.Attachments)
+					var err error
+					if strings.TrimSpace(job.HTMLBody) != "" {
+						err = q.mailer.SendHTMLWithAttachments(sendCtx, job.To, job.Subject, job.HTMLBody, job.Attachments)
+					} else {
+						err = q.mailer.SendWithAttachments(sendCtx, job.To, job.Subject, job.Template, job.Data, job.Attachments)
+					}
 					sendCancel()
 
 					if err != nil {
 						log.Printf("[MAILER WORKER %d] Failed to deliver email to %s: %v", workerID, job.To, err)
-						q.handleFailure(ch, delivery, err, workerID)
+						q.handleFailure(ch, delivery, job, err, workerID)
 					} else {
 						log.Printf("[MAILER WORKER %d] Email delivered successfully to %s (%s)", workerID, job.To, job.Subject)
+						if job.TicketID != "" {
+							cbCtx, cbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+							q.notifyDelivery(cbCtx, job.TicketID, true, "")
+							cbCancel()
+						}
 						_ = delivery.Ack(false)
 					}
 				}
@@ -254,7 +323,7 @@ func (q *Queue) Close() error {
 }
 
 // handleFailure retries a failed job a bounded number of times with backoff, then drops it.
-func (q *Queue) handleFailure(ch *amqp.Channel, delivery amqp.Delivery, sendErr error, workerID int) {
+func (q *Queue) handleFailure(ch *amqp.Channel, delivery amqp.Delivery, job Job, sendErr error, workerID int) {
 	attempts := 0
 	if v, ok := delivery.Headers[retryCountHeader]; ok {
 		switch n := v.(type) {
@@ -270,6 +339,11 @@ func (q *Queue) handleFailure(ch *amqp.Channel, delivery amqp.Delivery, sendErr 
 	permanent := errors.Is(sendErr, ErrTemplateNotFound) || errors.Is(sendErr, ErrHeaderInjection)
 	if permanent || attempts >= maxDeliveryRetries {
 		log.Printf("[MAILER WORKER %d] Dropping email job after %d retries (permanent=%t): %v", workerID, attempts, permanent, sendErr)
+		if job.TicketID != "" {
+			cbCtx, cbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			q.notifyDelivery(cbCtx, job.TicketID, false, sendErr.Error())
+			cbCancel()
+		}
 		_ = delivery.Nack(false, false)
 		return
 	}

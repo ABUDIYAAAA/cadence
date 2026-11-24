@@ -63,16 +63,20 @@ func NewMailer(cfg *config.Config, engine *TemplateEngine) (*Mailer, error) {
 
 // SendWithAttachments renders the template with injection protection and dispatches the email with attachments via SMTP.
 func (m *Mailer) SendWithAttachments(ctx context.Context, to, subject, templateName string, data any, attachments []Attachment) error {
+	htmlBody, err := m.templateEngine.Render(templateName, data)
+	if err != nil {
+		return fmt.Errorf("render email template: %w", err)
+	}
+	return m.SendHTMLWithAttachments(ctx, to, subject, htmlBody, attachments)
+}
+
+// SendHTMLWithAttachments dispatches a pre-rendered/sanitized HTML email body with attachments via SMTP.
+func (m *Mailer) SendHTMLWithAttachments(ctx context.Context, to, subject, htmlBody string, attachments []Attachment) error {
 	if err := ValidateHeaderField(to); err != nil {
 		return fmt.Errorf("invalid recipient header: %w", err)
 	}
 	if err := ValidateHeaderField(subject); err != nil {
 		return fmt.Errorf("invalid subject header: %w", err)
-	}
-
-	htmlBody, err := m.templateEngine.Render(templateName, data)
-	if err != nil {
-		return fmt.Errorf("render email template: %w", err)
 	}
 
 	msg := mail.NewMsg()

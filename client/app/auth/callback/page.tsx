@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AUTH_QUERY_KEY } from "@/hooks/use-auth";
 import { authService } from "@/services/auth.service";
 import { clearTenantScope } from "@/lib/api-client";
+import { getAuthenticatedHomeRoute } from "@/lib/auth-routes";
 import { parseOAuthCallbackParams } from "@/lib/oauth-callback";
 import { useToast } from "@/providers/toast-provider";
 import { Alert } from "@/components/ui/alert";
@@ -63,12 +64,16 @@ function OAuthCallbackContent() {
           });
         }
 
-        toast.success(`Welcome, ${user.name}`, "AUTHENTICATED");
-        router.replace(targetRedirect);
+        toast.success(`Welcome, ${user.name}`);
+        const destination =
+          targetRedirect === "/events"
+            ? getAuthenticatedHomeRoute(user, null)
+            : targetRedirect;
+        router.replace(destination);
       } catch {
         hasCompletedRef.current = false;
         setVerifyError(
-          "We could not verify your active session cookie. Please try signing in again."
+          "We could not verify your active session. Please try signing in again."
         );
       }
     }

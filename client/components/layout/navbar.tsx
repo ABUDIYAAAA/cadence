@@ -261,6 +261,16 @@ export function Navbar() {
     setEventSettingsOpen(true);
   };
 
+  const openEventSettingsRef = useRef(openEventSettings);
+  openEventSettingsRef.current = openEventSettings;
+
+  useEffect(() => {
+    const handler = () => openEventSettingsRef.current();
+    window.addEventListener("cadence:open-event-settings", handler);
+    return () =>
+      window.removeEventListener("cadence:open-event-settings", handler);
+  }, []);
+
   const handleSaveEventSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setEventError(null);
@@ -512,6 +522,7 @@ export function Navbar() {
               <>
                 {eventSlug && <NotificationBell />}
 
+                {!pathname.startsWith("/dashboard") && (
                 <div className="relative" ref={dropdownRef}>
                   <button
                     type="button"
@@ -533,12 +544,19 @@ export function Navbar() {
                     )}
                   </button>
 
-                  {dropdownOpen && (
+                  {dropdownOpen && (() => {
+                    const showDashboard = Boolean(eventSlug || isDev);
+                    const showSwitchEvent = pathname !== "/events";
+                    const showEventSettings = Boolean(eventSlug && isAdmin);
+                    const hasMenuActions = showDashboard || showSwitchEvent || showEventSettings;
+                    const showPushAlerts = Boolean(isSupported && eventSlug);
+                    return (
                     <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
+                      {hasMenuActions && (
                       <div className="space-y-0.5">
-                        {eventSlug && (
+                        {showDashboard && (
                           <Link
-                            href={getDashboardRoute(role)}
+                            href={getAuthenticatedHomeRoute(user, eventSlug)}
                             onClick={() => setDropdownOpen(false)}
                             className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
                           >
@@ -546,15 +564,17 @@ export function Navbar() {
                             <span>Dashboard</span>
                           </Link>
                         )}
-                        <Link
-                          href="/events"
-                          onClick={() => setDropdownOpen(false)}
-                          className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
-                        >
-                          <Calendar className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                          <span>Switch event</span>
-                        </Link>
-                        {eventSlug && isAdmin && (
+                        {showSwitchEvent && (
+                          <Link
+                            href="/events"
+                            onClick={() => setDropdownOpen(false)}
+                            className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
+                          >
+                            <Calendar className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                            <span>Switch event</span>
+                          </Link>
+                        )}
+                        {showEventSettings && (
                           <button
                             type="button"
                             onClick={() => {
@@ -568,9 +588,10 @@ export function Navbar() {
                           </button>
                         )}
                       </div>
+                      )}
 
-                      {isSupported && eventSlug && (
-                        <div className="mt-1 px-3 py-2 border-t border-[var(--card-line)] flex items-center justify-between text-xs">
+                      {showPushAlerts && (
+                        <div className={`${hasMenuActions ? "mt-1 border-t border-[var(--card-line)] " : ""}px-3 py-2 flex items-center justify-between text-xs`}>
                           <span className="flex items-center gap-1.5 text-[var(--ink-secondary)]">
                             <Bell className="h-3.5 w-3.5" />
                             <span>Push alerts</span>
@@ -587,7 +608,7 @@ export function Navbar() {
                         </div>
                       )}
 
-                      <div className="pt-1 border-t border-[var(--card-line)] mt-1">
+                      <div className={hasMenuActions || showPushAlerts ? "pt-1 border-t border-[var(--card-line)] mt-1" : ""}>
                         <button
                           type="button"
                           onClick={handleLogout}
@@ -606,8 +627,10 @@ export function Navbar() {
                         </button>
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
+                )}
               </>
             ) : (
               <Link href="/login">

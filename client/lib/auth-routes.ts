@@ -13,6 +13,7 @@ export interface EffectivePermissions {
 export function getDashboardRoute(role?: EventRole | string | null): string {
   switch (role) {
     case "dev":
+      return "/dashboard/dev";
     case "owner":
     case "admin":
       return "/dashboard/admin";
@@ -32,7 +33,9 @@ export function getAuthenticatedHomeRoute(
   activeEventSlug?: string | null
 ): string {
   if (!user) return "/login";
-  if (!activeEventSlug) return "/events";
+  if (!activeEventSlug) {
+    return user.role === "dev" ? "/dashboard/dev" : "/events";
+  }
 
   const { effectiveRole } = resolveEffectivePermissions(user, activeEventSlug);
   if (!effectiveRole) return "/events";

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -15,8 +15,15 @@ import {
 	Bell,
 	Activity,
 	ArrowUpRight,
+	Calendar,
+	ChevronUp,
+	LogOut,
+	Settings,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
+import { useTenant } from '@/providers/tenant-provider';
+import { useToast } from '@/providers/toast-provider';
+import { useNotificationsContext } from '@/providers/notification-provider';
 import { getDashboardRoute } from '@/lib/auth-routes';
 import { UserRole } from '@/types/auth';
 import { cn } from '@/lib/utils';
@@ -138,17 +145,69 @@ function UserChip({
 	role,
 	avatarUrl,
 	pinned,
+	onOpenChange,
+	onNavigate,
 }: {
 	name: string;
 	role: string;
 	avatarUrl?: string | null;
 	pinned?: boolean;
+	onOpenChange?: (open: boolean) => void;
+	onNavigate?: () => void;
 }) {
+	const { isAdmin, logout } = useAuth();
+	const { eventSlug } = useTenant();
+	const { isSupported, isSubscribed, enablePush, disablePush } =
+		useNotificationsContext();
+	const toast = useToast();
+
 	const [avatarFailed, setAvatarFailed] = useState(false);
+	const [menuOpen, setMenuOpen] = useState(false);
+	const [isLoggingOut, setIsLoggingOut] = useState(false);
+	const containerRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		setAvatarFailed(false);
 	}, [avatarUrl]);
+
+	useEffect(() => {
+		onOpenChange?.(menuOpen);
+	}, [menuOpen, onOpenChange]);
+
+	useEffect(() => {
+		if (!menuOpen) return;
+		const handleClickOutside = (event: MouseEvent) => {
+			if (
+				containerRef.current &&
+				!containerRef.current.contains(event.target as Node)
+			) {
+				setMenuOpen(false);
+			}
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setMenuOpen(false);
+			}
+		};
+		document.addEventListener('mousedown', handleClickOutside);
+		document.addEventListener('keydown', handleKeyDown);
+		return () => {
+			document.removeEventListener('mousedown', handleClickOutside);
+			document.removeEventListener('keydown', handleKeyDown);
+		};
+	}, [menuOpen]);
+
+	const handleLogout = async () => {
+		setIsLoggingOut(true);
+		try {
+			await logout();
+			setMenuOpen(false);
+			onNavigate?.();
+			toast.info('You have been signed out.', 'Session Ended');
+		} finally {
+			setIsLoggingOut(false);
+		}
+	};
 
 	const initials = name
 		.split(' ')
@@ -159,50 +218,130 @@ function UserChip({
 		.toUpperCase();
 
 	const showAvatarImage = Boolean(avatarUrl && !avatarFailed);
+	const showEventSettings = Boolean(eventSlug && isAdmin);
+	const showPushAlerts = Boolean(isSupported && eventSlug);
 
 	return (
-		<div
-			className='flex items-center rounded-[14px]'
-			style={{ height: ITEM_H }}>
-			<span
-				className='grid place-items-center shrink-0'
-				style={{ width: ITEM_H, height: ITEM_H }}>
-				<span className='grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-[var(--color-blue-dim)] text-[11px] font-semibold text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]'>
-					{showAvatarImage ? (
-						<img
-							src={avatarUrl!}
-							alt={name || 'User avatar'}
-							referrerPolicy='no-referrer'
-							onError={() => setAvatarFailed(true)}
-							className='h-full w-full object-cover'
-						/>
-					) : (
-						initials || '?'
+		<div ref={containerRef} className='relative'>
+			{menuOpen && (
+				<div className='absolute bottom-full left-0 right-0 mb-2 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 p-1.5 text-[var(--ink-primary)] font-sans'>
+					<div className='space-y-0.5'>
+						<Link
+							href='/events'
+							onClick={() => {
+								setMenuOpen(false);
+								onNavigate?.();
+							}}
+							className='flex items-center gap-2 px-2.5 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]'>
+							<Calendar className='h-3.5 w-3.5 text-[var(--ink-secondary)] shrink-0' />
+							<span className='truncate'>Switch event</span>
+						</Link>
+						{showEventSettings && (
+							<button
+								type='button'
+								onClick={() => {
+									setMenuOpen(false);
+									onNavigate?.();
+									window.dispatchEvent(
+										new CustomEvent('cadence:open-event-settings'),
+									);
+								}}
+								className='w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)] cursor-pointer'>
+								<Settings className='h-3.5 w-3.5 text-[var(--ink-secondary)] shrink-0' />
+								<span className='truncate'>Event settings</span>
+							</button>
+						)}
+					</div>
+
+					{showPushAlerts && (
+						<div className='mt-1 pt-1.5 pb-1 px-2.5 border-t border-[var(--card-line)] flex items-center justify-between gap-2 text-xs'>
+							<span className='flex items-center gap-1.5 text-[var(--ink-secondary)] min-w-0'>
+								<Bell className='h-3.5 w-3.5 shrink-0' />
+								<span className='truncate'>Push alerts</span>
+							</span>
+							<button
+								type='button'
+								onClick={() =>
+									isSubscribed ? disablePush() : enablePush()
+								}
+								className='text-[11px] font-medium rounded-[6px] px-2 py-0.5 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] hover:bg-[var(--card-solid)] transition-colors cursor-pointer shrink-0'>
+								{isSubscribed ? 'Active' : 'Enable'}
+							</button>
+						</div>
 					)}
+
+					<div className='pt-1 border-t border-[var(--card-line)] mt-1'>
+						<button
+							type='button'
+							onClick={handleLogout}
+							disabled={isLoggingOut}
+							className='w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-[6px] text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer font-medium disabled:opacity-50'>
+							<LogOut className='h-3.5 w-3.5 shrink-0' />
+							<span className='truncate'>
+								{isLoggingOut ? 'Signing out...' : 'Log out'}
+							</span>
+						</button>
+					</div>
+				</div>
+			)}
+
+			<button
+				type='button'
+				onClick={() => setMenuOpen((prev) => !prev)}
+				aria-expanded={menuOpen}
+				aria-label='Account menu'
+				className='w-full flex items-center rounded-[14px] hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer text-left'
+				style={{ height: ITEM_H }}>
+				<span
+					className='grid place-items-center shrink-0'
+					style={{ width: ITEM_H, height: ITEM_H }}>
+					<span className='grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-[var(--color-blue-dim)] text-[11px] font-semibold text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]'>
+						{showAvatarImage ? (
+							<img
+								src={avatarUrl!}
+								alt={name || 'User avatar'}
+								referrerPolicy='no-referrer'
+								onError={() => setAvatarFailed(true)}
+								className='h-full w-full object-cover'
+							/>
+						) : (
+							initials || '?'
+						)}
+					</span>
 				</span>
-			</span>
-			<span
-				className={cn(
-					'min-w-0 pr-3 leading-tight transition-opacity duration-200 motion-reduce:transition-none',
-					pinned
-						? 'opacity-100'
-						: 'opacity-0 group-hover/rail:opacity-100 group-has-[:focus-visible]/rail:opacity-100',
-				)}>
-				<span className='block truncate text-[13px] font-semibold text-[var(--ink-primary)]'>
-					{name}
+				<span
+					className={cn(
+						'flex-1 min-w-0 flex items-center justify-between gap-2 pr-2.5 leading-tight transition-opacity duration-200 motion-reduce:transition-none',
+						pinned || menuOpen
+							? 'opacity-100'
+							: 'opacity-0 group-hover/rail:opacity-100 group-has-[:focus-visible]/rail:opacity-100',
+					)}>
+					<span className='min-w-0'>
+						<span className='block truncate text-[13px] font-semibold text-[var(--ink-primary)]'>
+							{name}
+						</span>
+						<span className='block truncate text-[11px] capitalize text-[var(--ink-secondary)]'>
+							{role}
+						</span>
+					</span>
+					<ChevronUp
+						className={cn(
+							'h-3.5 w-3.5 text-[var(--ink-tertiary)] shrink-0 transition-transform duration-150',
+							menuOpen ? 'rotate-180' : '',
+						)}
+					/>
 				</span>
-				<span className='block truncate text-[11px] capitalize text-[var(--ink-secondary)]'>
-					{role}
-				</span>
-			</span>
+			</button>
 		</div>
 	);
 }
 
 export function Sidebar() {
 	const pathname = usePathname();
-	const { user, role, isAdmin, isDev } = useAuth();
+	const { user, role, effectiveRole: authEffectiveRole, isAdmin, isDev } = useAuth();
+	const { eventSlug } = useTenant();
 	const [isOpenMobile, setIsOpenMobile] = useState(false);
+	const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
 	// Listen for toggle events from the Navbar mobile button
 	useEffect(() => {
@@ -220,8 +359,28 @@ export function Sidebar() {
 		return () => window.removeEventListener('keydown', onKey);
 	}, [isOpenMobile]);
 
-	const effectiveRole = role ?? user?.role;
-	const dashboardHref = effectiveRole ? getDashboardRoute(effectiveRole) : '/dashboard';
+	const isPlatformDevMode = isDev && !eventSlug;
+	const effectiveRole = isPlatformDevMode
+		? 'dev'
+		: (authEffectiveRole ?? role ?? user?.role);
+	const dashboardHref = isPlatformDevMode
+		? '/dashboard/dev'
+		: effectiveRole
+		? getDashboardRoute(effectiveRole)
+		: '/dashboard';
+
+	const devNavItems: NavItem[] = [
+		{ label: 'Overview', href: '/dashboard/dev', icon: LayoutDashboard },
+		{ label: 'Global users', href: '/dashboard/users', icon: Users },
+		{ label: 'Events', href: '/events', icon: Calendar },
+		{ label: 'Audit log', href: '/dashboard/audit', icon: FileText },
+		{
+			label: 'Metrics',
+			href: 'https://grafana.cadence.devclubxnst.com/',
+			icon: Activity,
+			external: true,
+		},
+	];
 
 	const allNavItems: NavItem[] = [
 		{ label: 'Overview', href: dashboardHref, icon: LayoutDashboard },
@@ -261,22 +420,17 @@ export function Sidebar() {
 			icon: FileText,
 			roles: ['owner', 'admin'],
 		},
-		{
-			label: 'Metrics',
-			href: 'https://grafana.cadence.devclubxnst.com/',
-			icon: Activity,
-			roles: ['owner', 'admin'],
-			external: true,
-		},
 	];
 
-	const visibleNavItems = allNavItems.filter(
-		(item) =>
-			!item.roles ||
-			isDev ||
-			(effectiveRole && item.roles.includes(effectiveRole)) ||
-			(isAdmin && item.roles.includes('admin')),
-	);
+	const visibleNavItems = isPlatformDevMode
+		? devNavItems
+		: allNavItems.filter(
+				(item) =>
+					!item.roles ||
+					isDev ||
+					(effectiveRole && item.roles.includes(effectiveRole)) ||
+					(isAdmin && item.roles.includes('admin')),
+			);
 
 	const isActive = (item: NavItem) => {
 		if (item.external) return false;
@@ -339,6 +493,7 @@ export function Sidebar() {
 								role={user.role}
 								avatarUrl={user.avatar_url}
 								pinned
+								onNavigate={() => setIsOpenMobile(false)}
 							/>
 						</div>
 					)}
@@ -355,10 +510,12 @@ export function Sidebar() {
 						'transition-[width,box-shadow] duration-300 motion-reduce:transition-none',
 						EASE_DRAWER,
 						'hover:shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)] has-[:focus-visible]:shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)]',
+						isUserMenuOpen && 'w-[232px] shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)]',
 					)}>
 					<NavList
 						items={visibleNavItems}
 						activeIndex={activeIndex}
+						pinned={isUserMenuOpen}
 					/>
 					{user && (
 						<div className='pt-3 border-t border-[var(--card-line)]'>
@@ -366,6 +523,8 @@ export function Sidebar() {
 								name={user.name}
 								role={user.role}
 								avatarUrl={user.avatar_url}
+								pinned={isUserMenuOpen}
+								onOpenChange={setIsUserMenuOpen}
 							/>
 						</div>
 					)}

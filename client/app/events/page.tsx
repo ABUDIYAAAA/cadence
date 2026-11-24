@@ -6,7 +6,6 @@ import {
   Calendar,
   ChevronRight,
   Plus,
-  Shield,
   Trash2,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
@@ -224,15 +223,6 @@ export default function EventsSelectionPage() {
 
         {isDev && (
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 px-3 text-xs gap-1.5"
-              onClick={() => router.push("/dashboard/users")}
-            >
-              <Shield className="h-3.5 w-3.5 text-[var(--color-amber)]" />
-              Platform users
-            </Button>
             <Button
               variant="primary"
               size="sm"

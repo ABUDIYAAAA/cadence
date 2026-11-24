@@ -225,6 +225,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	router.Route("/api/v2", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
 		users.RegisterRoutes(r, usersHandler, authMiddleware)
+		audit.RegisterGlobalRoutes(r, auditHandler, authMiddleware)
 
 		events.RegisterRoutes(r, eventsHandler, eventsRepo, redisClient, authMiddleware, func(eventScoped chi.Router) {
 			competitions.RegisterEventScopedRoutes(eventScoped, competitionsHandler, competitionsRepo, redisClient, func(compScoped chi.Router) {

@@ -22,7 +22,11 @@ export default function DashboardLayout({
     isLoadingCompetitions,
   } = useTenant();
 
-  const canAccessWithoutEvent = isDev && pathname === "/dashboard/users";
+  const canAccessWithoutEvent =
+    isDev &&
+    (pathname === "/dashboard/dev" ||
+      pathname === "/dashboard/users" ||
+      pathname === "/dashboard/audit");
 
   useEffect(() => {
     if (isLoading) return;
@@ -37,25 +41,29 @@ export default function DashboardLayout({
     Boolean(eventSlug) &&
     (isLoadingCompetitions || (competitions.length > 0 && !competitionSlug));
 
-  if (
+  const isBlocked =
     isLoading ||
     (isAuthenticated &&
-      ((!eventSlug && !canAccessWithoutEvent) || waitingForCompetitionSelection))
-  ) {
-    return (
-      <div className="flex min-h-[calc(100vh-3.5rem)] w-full items-center justify-center p-6 font-sans bg-[var(--background)]">
-        <div className="w-full max-w-xl">
-          <SkeletonCard />
-        </div>
-      </div>
-    );
-  }
+      ((!eventSlug && !canAccessWithoutEvent) || waitingForCompetitionSelection));
 
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] w-full font-sans bg-[var(--background)]">
-      <Sidebar />
+      {!isBlocked && <Sidebar />}
       <div className="flex-1 min-w-0">
-        <div className="w-full px-5 sm:px-8 lg:px-10 py-6 sm:py-8">
+        {isBlocked && (
+          <div className="flex min-h-[calc(100vh-3.5rem)] w-full items-center justify-center p-6">
+            <div className="w-full max-w-xl">
+              <SkeletonCard />
+            </div>
+          </div>
+        )}
+        <div
+          className={
+            isBlocked
+              ? "hidden"
+              : "w-full px-5 sm:px-8 lg:px-10 py-6 sm:py-8"
+          }
+        >
           {children}
         </div>
       </div>

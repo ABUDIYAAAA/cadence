@@ -68,6 +68,9 @@ func (a *Actor) rewriteToV2TenantPath(path string) string {
 	if !strings.HasPrefix(path, "/api/") {
 		return path
 	}
+	if strings.HasPrefix(path, "/api/v2/users") {
+		return path
+	}
 	rel := path
 	if strings.HasPrefix(rel, "/api/v1/") {
 		rel = "/" + strings.TrimPrefix(rel, "/api/v1/")

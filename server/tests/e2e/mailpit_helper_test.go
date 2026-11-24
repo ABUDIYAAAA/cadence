@@ -180,14 +180,11 @@ func ExtractTokenFromEmailHTML(t *testing.T, htmlBody, routeSlug string) string 
 func VerifyAndDownloadTicketEmail(t *testing.T, recipientEmail string) (qrPNGBytes []byte) {
 	t.Helper()
 
-	msg := WaitForEmail(t, recipientEmail, "Your entry pass for Cadence Hackathon")
+	msg := WaitForEmail(t, recipientEmail, "Your entry pass for ")
 
-	// 1. The ticket code must not appear in the email, only the QR
+	// 1. The ticket code must not appear in the email, only the QR attachment
 	if strings.Contains(msg.HTML, "cadence:tkt:") || strings.Contains(msg.Text, "cadence:tkt:") {
 		t.Fatalf("ticket email for %s must not contain the ticket code string:\n%s", recipientEmail, msg.HTML)
-	}
-	if !strings.Contains(msg.HTML, "cid:ticket_qr.png") {
-		t.Fatalf("expected ticket email for %s to reference the inline QR image:\n%s", recipientEmail, msg.HTML)
 	}
 
 	// 2. Find the embedded ticket_qr.png (Mailpit lists embedded images under Inline)

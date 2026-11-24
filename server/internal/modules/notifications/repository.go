@@ -185,6 +185,7 @@ func (r *Repository) GetEligibleRecipientIDs(ctx context.Context, targetType str
 			JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $2
 			LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = $2
 			WHERE u.deleted_at IS NULL
+			  AND ue.role = 'participant'
 			  AND ue.is_banned = FALSE
 			  AND EXISTS (SELECT 1 FROM scan_sessions ss WHERE ss.id::text = $1 AND ss.event_id = $2)
 			  AND ` + cond + ` (SELECT 1 FROM scan_events e WHERE e.ticket_id = t.id AND e.session_id::text = $1);`

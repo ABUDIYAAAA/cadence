@@ -629,6 +629,7 @@ func (r *Repository) sessionPeople(ctx context.Context, sess *ScanSession) ([]Se
 		LEFT JOIN scan_events e ON e.ticket_id = t.id AND e.session_id = $1
 		LEFT JOIN users scanner ON scanner.id = e.scanned_by
 		WHERE ue.event_id = $3
+		  AND ue.role = 'participant'
 		  AND ue.is_banned = FALSE
 		  AND ($2 <> 'exit' OR COALESCE(t.is_checked_in, FALSE) = TRUE)
 		  AND ($4 = '' OR tm_sub.team_id IS NOT NULL OR e.scanned_at IS NOT NULL)

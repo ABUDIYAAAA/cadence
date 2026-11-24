@@ -123,6 +123,16 @@ func (r *Repository) CreateEvent(ctx context.Context, slug, name string, descrip
 		return nil, fmt.Errorf("insert event owner: %w", err)
 	}
 
+	// Provision a default competition so competition-scoped features (teams, judging) work immediately.
+	insertComp := `
+		INSERT INTO competitions (event_id, slug, name)
+		VALUES ($1, 'main', $2)
+		ON CONFLICT (event_id, slug) DO NOTHING
+	`
+	if _, err := tx.Exec(ctx, insertComp, ev.ID, ev.Name); err != nil {
+		return nil, fmt.Errorf("insert default competition: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}

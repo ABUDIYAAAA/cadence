@@ -192,7 +192,11 @@ func (h *Handler) respondOrRedirectOAuth(
 		q.Set("success", "true")
 		evs := make([]UserEventRole, 0)
 		if user != nil && user.Events != nil {
-			evs = user.Events
+			evs = make([]UserEventRole, len(user.Events))
+			for i, ev := range user.Events {
+				ev.LogoURL = nil // Avoid bloating OAuth redirect URL with base64 data URIs
+				evs[i] = ev
+			}
 		}
 		if eventsJSON, err := json.Marshal(evs); err == nil {
 			q.Set("events", string(eventsJSON))

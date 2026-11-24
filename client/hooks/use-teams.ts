@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTenant } from "@/providers/tenant-provider";
 import { teamsService } from "@/services/teams.service";
 import {
   AddMemberRequest,
@@ -28,36 +29,43 @@ function useInvalidateTeams() {
 
 /** Resolves to `null` data (not an error) when the caller has no team. */
 export function useMyTeam(options?: { enabled?: boolean }) {
+  const { eventSlug, competitionSlug } = useTenant();
   return useQuery({
-    queryKey: [...TEAMS_QUERY_KEY, "my-team"],
+    queryKey: [...TEAMS_QUERY_KEY, eventSlug, competitionSlug, "my-team"],
     queryFn: () => teamsService.getMyTeam(),
     retry: false,
     // Keep teammates' joins/kicks and freezes visible without a manual refresh.
     refetchInterval: 15_000,
-    enabled: options?.enabled ?? true,
+    enabled:
+      Boolean(eventSlug && competitionSlug) && (options?.enabled ?? true),
   });
 }
 
 export function useTeams(filters?: TeamFilter) {
+  const { eventSlug, competitionSlug } = useTenant();
   return useQuery({
-    queryKey: [...TEAMS_QUERY_KEY, "list", filters],
+    queryKey: [...TEAMS_QUERY_KEY, eventSlug, competitionSlug, "list", filters],
     queryFn: () => teamsService.list(filters),
+    enabled: Boolean(eventSlug && competitionSlug),
   });
 }
 
 export function useTeam(id: string) {
+  const { eventSlug, competitionSlug } = useTenant();
   return useQuery({
-    queryKey: [...TEAMS_QUERY_KEY, "detail", id],
+    queryKey: [...TEAMS_QUERY_KEY, eventSlug, competitionSlug, "detail", id],
     queryFn: () => teamsService.getById(id),
-    enabled: Boolean(id),
+    enabled: Boolean(eventSlug && competitionSlug && id),
   });
 }
 
 export function useTeamSettings(options?: { enabled?: boolean }) {
+  const { eventSlug, competitionSlug } = useTenant();
   return useQuery({
-    queryKey: [...TEAMS_QUERY_KEY, "settings"],
+    queryKey: [...TEAMS_QUERY_KEY, eventSlug, competitionSlug, "settings"],
     queryFn: () => teamsService.getSettings(),
-    enabled: options?.enabled ?? true,
+    enabled:
+      Boolean(eventSlug && competitionSlug) && (options?.enabled ?? true),
   });
 }
 

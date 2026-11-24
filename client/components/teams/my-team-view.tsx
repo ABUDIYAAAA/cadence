@@ -13,6 +13,7 @@ import {
   useTransferTeamLeadership,
 } from "@/hooks/use-teams";
 import { useAuth } from "@/providers/auth-provider";
+import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ function errorMessage(err: unknown, fallback: string): string {
 
 export function MyTeamView() {
   const { user } = useAuth();
+  const { competitionSlug, isLoadingCompetitions } = useTenant();
   const toast = useToast();
   const { data: team, isLoading, isError, refetch } = useMyTeam();
 
@@ -46,8 +48,17 @@ export function MyTeamView() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
 
-  if (isLoading) {
+  if (isLoading || isLoadingCompetitions) {
     return <Skeleton className="h-40 w-full rounded-[20px]" />;
+  }
+
+  if (!competitionSlug) {
+    return (
+      <EmptyState
+        title="No competition active"
+        description="This event does not have a competition yet. Teams will appear once a competition is created."
+      />
+    );
   }
 
   // `null` means "no team yet"; an error is a real failure.

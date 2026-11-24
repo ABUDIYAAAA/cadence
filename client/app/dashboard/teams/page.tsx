@@ -10,6 +10,7 @@ import {
   Hash,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
+import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
 import {
   useAddTeamMember,
@@ -42,6 +43,7 @@ export default function TeamsPage() {
   const router = useRouter();
   const toast = useToast();
   const { user, isAdmin, isVolunteer, isJudge, isParticipant, isLoading: authLoading } = useAuth();
+  const { competitionSlug, isLoadingCompetitions } = useTenant();
 
   // Filters state
   const [filters, setFilters] = useState<TeamFilter>({
@@ -76,10 +78,20 @@ export default function TeamsPage() {
     }
   }, [authLoading, user, router]);
 
-  if (authLoading || !user) {
+  if (authLoading || isLoadingCompetitions || !user) {
     return (
       <div className="font-mono">
         <SkeletonCard />
+      </div>
+    );
+  }
+
+  if (!competitionSlug) {
+    return (
+      <div className="font-sans space-y-4">
+        <Alert variant="info" title="No competition active">
+          This event does not have a competition yet. Teams are scoped to a competition.
+        </Alert>
       </div>
     );
   }

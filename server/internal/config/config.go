@@ -48,9 +48,10 @@ type Config struct {
 	SeedAdminName     string `env:"SEED_ADMIN_NAME,required"`
 
 	// Google OAuth Settings
-	GoogleClientID     string `env:"GOOGLE_CLIENT_ID"`
-	GoogleClientSecret string `env:"GOOGLE_CLIENT_SECRET"`
-	GoogleRedirectURL  string `env:"GOOGLE_REDIRECT_URL"`
+	GoogleClientID           string `env:"GOOGLE_CLIENT_ID"`
+	GoogleClientSecret       string `env:"GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURL        string `env:"GOOGLE_REDIRECT_URL"`
+	FrontendOAuthRedirectURL string `env:"FRONTEND_OAUTH_REDIRECT_URL"`
 
 	// Web Push VAPID Settings
 	VAPIDPublicKey  string `env:"VAPID_PUBLIC_KEY,required"`
@@ -113,7 +114,15 @@ func (c *Config) GetGoogleRedirectURL() string {
 	if c.GoogleRedirectURL != "" {
 		return c.GoogleRedirectURL
 	}
-	return fmt.Sprintf("http://localhost:%s/api/v1/auth/google/callback", c.Port)
+	return fmt.Sprintf("http://localhost:%s/api/v2/auth/google/callback", c.Port)
+}
+
+// GetFrontendOAuthRedirectURL returns the frontend URL where the user is sent after OAuth completes.
+func (c *Config) GetFrontendOAuthRedirectURL() string {
+	if c.FrontendOAuthRedirectURL != "" {
+		return c.FrontendOAuthRedirectURL
+	}
+	return c.FrontendURL
 }
 
 func NewConfig() (*Config, error) {

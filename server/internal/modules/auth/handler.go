@@ -4,10 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -44,10 +44,14 @@ type oauthStatePayload struct {
 	Redirect string `json:"redirect"`
 }
 
+func isSafeRelativePath(p string) bool {
+	return p != "" && strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//")
+}
+
 // HandleGoogleLogin initiates Google OAuth flow by generating a secure state and redirecting.
 func (h *Handler) HandleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	returnPath := r.URL.Query().Get("redirect")
-	if returnPath == "" || !strings.HasPrefix(returnPath, "/") {
+	if !isSafeRelativePath(returnPath) {
 		returnPath = "/"
 	}
 
@@ -77,20 +81,33 @@ func (h *Handler) HandleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
-// HandleGoogleCallback processes the OAuth redirect from Google, authenticates the user, and sets cookies.
+// HandleGoogleCallback processes the OAuth redirect from Google, authenticates the user, sets cookies,
+// and redirects back to the frontend with query parameters indicating success/failure and the user's events.
 func (h *Handler) HandleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+	stateParam := r.URL.Query().Get("state")
+	redirectPath := "/"
+	if stateParam != "" {
+		var statePayload oauthStatePayload
+		if stateBytes, err := base64.RawURLEncoding.DecodeString(stateParam); err == nil {
+			_ = json.Unmarshal(stateBytes, &statePayload)
+		}
+		if isSafeRelativePath(statePayload.Redirect) {
+			redirectPath = statePayload.Redirect
+		}
+	}
+
 	// Check for Google error response (e.g. user denied consent)
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
 		logger.FromContext(r.Context()).Warn("google oauth denied or returned error", slog.String("error", errParam))
 		h.clearOAuthCookie(w)
-		utils.ErrorJSON(w, http.StatusBadRequest, fmt.Sprintf("google authentication failed: %s", errParam))
+		h.respondOrRedirectOAuth(w, r, redirectPath, false, errParam, http.StatusBadRequest, "google authentication failed: "+errParam, nil)
 		return
 	}
 
-	stateParam := r.URL.Query().Get("state")
 	codeParam := r.URL.Query().Get("code")
 	if stateParam == "" || codeParam == "" {
-		utils.ErrorJSON(w, http.StatusBadRequest, "missing state or code parameter")
+		h.clearOAuthCookie(w)
+		h.respondOrRedirectOAuth(w, r, redirectPath, false, "missing_state_or_code", http.StatusBadRequest, "missing state or code parameter", nil)
 		return
 	}
 
@@ -98,19 +115,10 @@ func (h *Handler) HandleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	cookieState, err := h.cookieManager.GetSignedCookie(r, "oauth_state")
 	if err != nil || cookieState != stateParam {
 		h.clearOAuthCookie(w)
-		utils.ErrorJSON(w, http.StatusBadRequest, "invalid or expired oauth state parameter; please try logging in again")
+		h.respondOrRedirectOAuth(w, r, redirectPath, false, "invalid_oauth_state", http.StatusBadRequest, "invalid or expired oauth state parameter; please try logging in again", nil)
 		return
 	}
 	h.clearOAuthCookie(w)
-
-	var statePayload oauthStatePayload
-	if stateBytes, err := base64.RawURLEncoding.DecodeString(stateParam); err == nil {
-		_ = json.Unmarshal(stateBytes, &statePayload)
-	}
-	redirectPath := statePayload.Redirect
-	if redirectPath == "" || !strings.HasPrefix(redirectPath, "/") {
-		redirectPath = "/"
-	}
 
 	deviceID := ratelimit.GetDeviceID(r.Context())
 	userAgent := r.UserAgent()
@@ -120,32 +128,85 @@ func (h *Handler) HandleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrInactiveUser):
-			utils.ErrorJSON(w, http.StatusForbidden, "user account is deactivated")
+			h.respondOrRedirectOAuth(w, r, redirectPath, false, "account_deactivated", http.StatusForbidden, "user account is deactivated", nil)
 		case errors.Is(err, ErrOAuthExchangeFailed):
-			utils.ErrorJSON(w, http.StatusBadGateway, "failed to exchange authorization token with Google")
+			h.respondOrRedirectOAuth(w, r, redirectPath, false, "oauth_exchange_failed", http.StatusBadGateway, "failed to exchange authorization token with Google", nil)
 		case errors.Is(err, ErrOAuthProfileFailed):
-			utils.ErrorJSON(w, http.StatusBadGateway, "failed to retrieve profile from Google")
+			h.respondOrRedirectOAuth(w, r, redirectPath, false, "oauth_profile_failed", http.StatusBadGateway, "failed to retrieve profile from Google", nil)
 		default:
 			logger.FromContext(r.Context()).Error("google callback internal error", slog.Any("error", err))
-			utils.ErrorJSON(w, http.StatusInternalServerError, "authentication failed")
+			h.respondOrRedirectOAuth(w, r, redirectPath, false, "authentication_failed", http.StatusInternalServerError, "authentication failed", nil)
 		}
 		return
 	}
 
 	h.setAuthCookies(w, accessToken, refreshToken)
+	h.respondOrRedirectOAuth(w, r, redirectPath, true, "", http.StatusOK, "authenticated successfully with Google", user)
+}
 
-	// If client expects JSON, return user payload directly
-	if r.URL.Query().Get("format") == "json" || (strings.Contains(r.Header.Get("Accept"), "application/json") && !strings.Contains(r.Header.Get("Accept"), "text/html")) {
+func (h *Handler) respondOrRedirectOAuth(
+	w http.ResponseWriter,
+	r *http.Request,
+	redirectPath string,
+	success bool,
+	errCode string,
+	httpStatus int,
+	msg string,
+	user *UserResponse,
+) {
+	wantsJSON := r.URL.Query().Get("format") == "json" ||
+		(strings.Contains(r.Header.Get("Accept"), "application/json") && !strings.Contains(r.Header.Get("Accept"), "text/html"))
+
+	if wantsJSON {
+		if !success {
+			utils.ErrorJSON(w, httpStatus, msg)
+			return
+		}
 		utils.JSON(w, http.StatusOK, AuthResponse{
 			User:    *user,
-			Message: "authenticated successfully with Google",
+			Message: msg,
 		})
 		return
 	}
 
-	// Otherwise redirect back to the frontend application
-	frontendTarget := strings.TrimRight(h.cfg.FrontendURL, "/") + redirectPath
-	http.Redirect(w, r, frontendTarget, http.StatusTemporaryRedirect)
+	var targetURL *url.URL
+	var err error
+	if h.cfg.FrontendOAuthRedirectURL != "" {
+		targetURL, err = url.Parse(h.cfg.FrontendOAuthRedirectURL)
+	} else {
+		if !isSafeRelativePath(redirectPath) {
+			redirectPath = "/"
+		}
+		base := strings.TrimRight(h.cfg.FrontendURL, "/") + redirectPath
+		targetURL, err = url.Parse(base)
+	}
+	if err != nil || targetURL == nil {
+		targetURL, _ = url.Parse(strings.TrimRight(h.cfg.FrontendURL, "/") + "/")
+	}
+
+	q := targetURL.Query()
+	if h.cfg.FrontendOAuthRedirectURL != "" && isSafeRelativePath(redirectPath) && redirectPath != "/" {
+		q.Set("redirect", redirectPath)
+	}
+	if success {
+		q.Set("success", "true")
+		evs := make([]UserEventRole, 0)
+		if user != nil && user.Events != nil {
+			evs = user.Events
+		}
+		if eventsJSON, err := json.Marshal(evs); err == nil {
+			q.Set("events", string(eventsJSON))
+		}
+	} else {
+		q.Set("success", "false")
+		if errCode != "" {
+			q.Set("error", errCode)
+		}
+		q.Set("events", "[]")
+	}
+	targetURL.RawQuery = q.Encode()
+
+	http.Redirect(w, r, targetURL.String(), http.StatusTemporaryRedirect)
 }
 
 // HandleRefreshToken rotates the access and refresh token cookies bound to this verified device.

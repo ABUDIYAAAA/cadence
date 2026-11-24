@@ -115,27 +115,28 @@ func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name
 		return nil, fmt.Errorf("upsert google user: %w", err)
 	}
 
-	// Link user to default event
-	evRole := "participant"
+	// Link dev user to default event
 	if u.GlobalRole == GlobalRoleDev {
-		evRole = "owner"
+		_, _ = r.db.Exec(ctx, `
+			INSERT INTO user_events (user_id, event_id, role)
+			VALUES ($1, '00000000-0000-0000-0000-000000000001', 'owner'::event_role)
+			ON CONFLICT (event_id, user_id) DO NOTHING
+		`, u.ID)
 	}
-	_, _ = r.db.Exec(ctx, `
-		INSERT INTO user_events (user_id, event_id, role)
-		VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::event_role)
-		ON CONFLICT (event_id, user_id) DO NOTHING
-	`, u.ID, evRole)
 
 	return &u, nil
 }
 
 // GetUserEvents retrieves all non-banned events and associated roles for a user.
+// Global devs automatically see all events with 'owner' role unless explicitly assigned another non-banned role.
 func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEventRole, error) {
 	query := `
-		SELECT e.id, e.slug, e.name, ue.role::text
-		FROM user_events ue
-		JOIN events e ON ue.event_id = e.id
-		WHERE ue.user_id = $1 AND ue.is_banned = FALSE
+		SELECT e.id, e.slug, e.name, COALESCE(ue.role::text, 'owner') AS role
+		FROM events e
+		JOIN users u ON u.id = $1
+		LEFT JOIN user_events ue ON ue.event_id = e.id AND ue.user_id = u.id
+		WHERE (u.global_role = 'dev' OR ue.user_id IS NOT NULL)
+		  AND COALESCE(ue.is_banned, FALSE) = FALSE
 		ORDER BY e.created_at DESC
 	`
 	rows, err := r.db.Query(ctx, query, userID)

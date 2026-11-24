@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -160,6 +163,110 @@ func TestAuthMiddlewareAndRequireRoles(t *testing.T) {
 		handlerWithRedis.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("expected 401 Unauthorized for deactivated user in blocklist, got %d", rec.Code)
+		}
+	})
+}
+
+func TestGoogleOAuthCallbackFrontendRedirectAndParams(t *testing.T) {
+	cfg := &config.Config{
+		FrontendURL:              "http://localhost:3000",
+		FrontendOAuthRedirectURL: "http://localhost:3000/auth/callback",
+		CookieSecret:             "unit-test-cookie-secret-1234567890",
+		CookieSameSite:           "lax",
+		AccessCookieExpiry:       15 * time.Minute,
+	}
+	cm := utils.NewCookieManager(cfg.CookieSecret, "", false, cfg.CookieSameSite)
+	h := NewHandler(&Service{cfg: cfg}, cm, cfg, nil, nil)
+
+	statePayload := oauthStatePayload{
+		Nonce:    "test-nonce-123",
+		Redirect: "/dashboard",
+	}
+	stateJSON, _ := json.Marshal(statePayload)
+	encodedState := base64.RawURLEncoding.EncodeToString(stateJSON)
+
+	t.Run("Google error redirects to FRONTEND_OAUTH_REDIRECT_URL with success=false, error, and events=[]", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/auth/google/callback?error=access_denied&state="+encodedState, nil)
+		rec := httptest.NewRecorder()
+
+		h.HandleGoogleCallback(rec, req)
+
+		if rec.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("expected 307 TemporaryRedirect, got %d", rec.Code)
+		}
+		loc, err := url.Parse(rec.Header().Get("Location"))
+		if err != nil {
+			t.Fatalf("failed to parse redirect Location: %v", err)
+		}
+		if loc.Path != "/auth/callback" {
+			t.Errorf("expected path /auth/callback, got %s", loc.Path)
+		}
+		if loc.Query().Get("redirect") != "/dashboard" {
+			t.Errorf("expected redirect=/dashboard, got %s", loc.Query().Get("redirect"))
+		}
+		if loc.Query().Get("success") != "false" {
+			t.Errorf("expected success=false, got %s", loc.Query().Get("success"))
+		}
+		if loc.Query().Get("error") != "access_denied" {
+			t.Errorf("expected error=access_denied, got %s", loc.Query().Get("error"))
+		}
+		if loc.Query().Get("events") != "[]" {
+			t.Errorf("expected events=[], got %s", loc.Query().Get("events"))
+		}
+	})
+
+	t.Run("Missing state or code redirects to frontend with success=false", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/auth/google/callback", nil)
+		rec := httptest.NewRecorder()
+
+		h.HandleGoogleCallback(rec, req)
+
+		if rec.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("expected 307 TemporaryRedirect, got %d", rec.Code)
+		}
+		loc, _ := url.Parse(rec.Header().Get("Location"))
+		if loc.Query().Get("success") != "false" || loc.Query().Get("error") != "missing_state_or_code" {
+			t.Fatalf("unexpected query params: %s", loc.RawQuery)
+		}
+	})
+
+	t.Run("Success redirect includes success=true and serialized user events in query params", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/auth/google/callback", nil)
+		rec := httptest.NewRecorder()
+
+		user := &UserResponse{
+			ID:         "u-1",
+			Email:      "alice@example.com",
+			GlobalRole: "user",
+			Events: []UserEventRole{
+				{
+					EventID:   "00000000-0000-0000-0000-000000000001",
+					EventSlug: "devclub-event",
+					EventName: "DevClub Event",
+					Role:      "admin",
+				},
+			},
+		}
+
+		h.respondOrRedirectOAuth(rec, req, "/dashboard", true, "", http.StatusOK, "ok", user)
+
+		if rec.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("expected 307 TemporaryRedirect, got %d", rec.Code)
+		}
+		loc, err := url.Parse(rec.Header().Get("Location"))
+		if err != nil {
+			t.Fatalf("parse redirect url: %v", err)
+		}
+		if loc.Query().Get("success") != "true" {
+			t.Fatalf("expected success=true, got %s", loc.Query().Get("success"))
+		}
+
+		var parsedEvents []UserEventRole
+		if err := json.Unmarshal([]byte(loc.Query().Get("events")), &parsedEvents); err != nil {
+			t.Fatalf("failed to unmarshal events param: %v", err)
+		}
+		if len(parsedEvents) != 1 || parsedEvents[0].EventSlug != "devclub-event" || parsedEvents[0].Role != "admin" {
+			t.Fatalf("unexpected parsed events: %+v", parsedEvents)
 		}
 	})
 }

@@ -776,7 +776,7 @@ func (s *Service) GenerateSessionCheckInCode(
 		}
 	}
 
-	s.recordAudit(ctx, audit.ActionScanSessionToggle, audit.TargetScanSession, &sess.ID,
+	s.recordAudit(ctx, audit.ActionScanSessionCodeGen, audit.TargetScanSession, &sess.ID,
 		fmt.Sprintf("%s generated new check-in code for session %q", actorEmail, sess.Name),
 		&actorID, &actorEmail, &actorRole,
 		map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": sess.CheckInCode}, &ip, &ua)
@@ -803,7 +803,7 @@ func (s *Service) ClearSessionCheckInCode(
 		return nil, err
 	}
 
-	s.recordAudit(ctx, audit.ActionScanSessionToggle, audit.TargetScanSession, &sess.ID,
+	s.recordAudit(ctx, audit.ActionScanSessionCodeClear, audit.TargetScanSession, &sess.ID,
 		fmt.Sprintf("%s cleared check-in code for session %q", actorEmail, sess.Name),
 		&actorID, &actorEmail, &actorRole,
 		map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": nil}, &ip, &ua)
@@ -848,7 +848,15 @@ func (s *Service) CheckInByCode(
 	}
 
 	// Delegate to ScanInSession using the participant's own ticket code and userID as the self-check-in actor
-	return s.ScanInSession(ctx, sess.ID, ticket.TicketCode, userID, userEmail, userRole, ip, ua)
+	resp, rejection, err := s.ScanInSession(ctx, sess.ID, ticket.TicketCode, userID, userEmail, userRole, ip, ua)
+	if err == nil && resp != nil {
+		s.recordAudit(ctx, audit.ActionTicketCodeCheckIn, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("Participant %s self-checked in to %q via code", userEmail, sess.Name),
+			&userID, &userEmail, &userRole,
+			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind, "ticket_id": ticket.ID},
+			&ip, &ua)
+	}
+	return resp, rejection, err
 }
 
 func (s *Service) ListSessions(ctx context.Context) ([]ScanSession, error) {

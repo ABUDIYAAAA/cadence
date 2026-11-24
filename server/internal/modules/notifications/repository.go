@@ -83,30 +83,75 @@ func (r *Repository) DeleteSubscription(ctx context.Context, endpoint string) er
 	return nil
 }
 
-// GetEligibleRecipientIDs resolves target user IDs in the active event based on broadcast target type.
+// GetEligibleRecipientIDs resolves target user IDs in the active event based on broadcast target type:
+// - "event" or "broadcast": all non-banned active users in the event
+// - "competition": all non-banned active team members in the specified competition of this event (by competition ID or slug)
+// - "team": all non-banned active members of the specified team in this event
+// - "user": a single non-banned active user in this event
+// - "role": all non-banned active users with the specified event role
+// - "attendance_present" / "attendance_absent": attendees present/absent in the specified scan session
 func (r *Repository) GetEligibleRecipientIDs(ctx context.Context, targetType string, targetID *string) ([]string, error) {
 	eventID := resolveEventID(ctx)
 	var query string
 	var args []any
 
 	switch targetType {
-	case "broadcast":
+	case "event", "broadcast":
 		query = `
 			SELECT u.id::text
 			FROM user_events ue
 			JOIN users u ON u.id = ue.user_id
 			WHERE ue.event_id = $1 AND ue.is_banned = FALSE AND u.deleted_at IS NULL;`
 		args = append(args, eventID)
+	case "competition":
+		if targetID == nil || *targetID == "" {
+			return nil, fmt.Errorf("competition target_id is required")
+		}
+		var compID string
+		err := r.db.QueryRow(ctx, `
+			SELECT id::text
+			FROM competitions
+			WHERE event_id = $1 AND (id::text = $2 OR LOWER(slug) = LOWER($2))
+			LIMIT 1
+		`, eventID, *targetID).Scan(&compID)
+		if err != nil {
+			return nil, fmt.Errorf("competition not found in this event")
+		}
+		query = `
+			SELECT DISTINCT u.id::text
+			FROM team_members tm
+			JOIN users u ON u.id = tm.user_id
+			LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $2
+			WHERE tm.competition_id = $1::uuid
+			  AND COALESCE(ue.is_banned, FALSE) = FALSE
+			  AND u.deleted_at IS NULL;`
+		args = append(args, compID, eventID)
 	case "team":
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("team target_id is required")
 		}
+		var exists bool
+		if err := r.db.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM teams t
+				JOIN competitions c ON c.id = t.competition_id
+				WHERE t.id::text = $1 AND c.event_id = $2
+			)
+		`, *targetID, eventID).Scan(&exists); err != nil || !exists {
+			return nil, fmt.Errorf("team not found in this event")
+		}
 		query = `
-			SELECT u.id::text
+			SELECT DISTINCT u.id::text
 			FROM team_members tm
+			JOIN teams t ON t.id = tm.team_id
+			JOIN competitions c ON c.id = t.competition_id
 			JOIN users u ON u.id = tm.user_id
-			WHERE tm.team_id = $1 AND u.deleted_at IS NULL;`
-		args = append(args, *targetID)
+			LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = c.event_id
+			WHERE tm.team_id = $1::uuid
+			  AND c.event_id = $2
+			  AND COALESCE(ue.is_banned, FALSE) = FALSE
+			  AND u.deleted_at IS NULL;`
+		args = append(args, *targetID, eventID)
 	case "role":
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("role target_id is required")
@@ -121,8 +166,12 @@ func (r *Repository) GetEligibleRecipientIDs(ctx context.Context, targetType str
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("user target_id is required")
 		}
-		query = `SELECT id::text FROM users WHERE id = $1 AND deleted_at IS NULL;`
-		args = append(args, *targetID)
+		query = `
+			SELECT u.id::text
+			FROM users u
+			JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $2
+			WHERE u.id::text = $1 AND ue.is_banned = FALSE AND u.deleted_at IS NULL;`
+		args = append(args, *targetID, eventID)
 	case "attendance_present", "attendance_absent":
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("attendance session target_id is required")
@@ -133,10 +182,12 @@ func (r *Repository) GetEligibleRecipientIDs(ctx context.Context, targetType str
 		}
 		query = `
 			SELECT u.id::text FROM users u
-			JOIN tickets t ON t.user_id = u.id AND t.event_id = $2
+			JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $2
+			LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = $2
 			WHERE u.deleted_at IS NULL
-			  AND EXISTS (SELECT 1 FROM scan_sessions ss WHERE ss.id = $1 AND ss.event_id = $2 AND ss.kind = 'attendance')
-			  AND ` + cond + ` (SELECT 1 FROM scan_events e WHERE e.ticket_id = t.id AND e.session_id = $1);`
+			  AND ue.is_banned = FALSE
+			  AND EXISTS (SELECT 1 FROM scan_sessions ss WHERE ss.id::text = $1 AND ss.event_id = $2)
+			  AND ` + cond + ` (SELECT 1 FROM scan_events e WHERE e.ticket_id = t.id AND e.session_id::text = $1);`
 		args = append(args, *targetID, eventID)
 	default:
 		return nil, fmt.Errorf("unknown target type: %s", targetType)

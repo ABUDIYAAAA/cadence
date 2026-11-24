@@ -13,8 +13,10 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/logger"
 	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
+	"log/slog"
 )
 
 var (
@@ -94,6 +96,8 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		metrics.InstrumentAuthEvent("google_login", false)
+		logger.FromContext(ctx).Error("google oauth token exchange failed", slog.Any("error", err))
+		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, "Failed Google OAuth login: token exchange HTTP error", nil, nil, map[string]any{"error": err.Error()}, &deviceID, &sanitizedUA, &ip)
 		return nil, "", "", fmt.Errorf("%w: %v", ErrOAuthExchangeFailed, err)
 	}
 	defer resp.Body.Close()
@@ -101,6 +105,8 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 	if resp.StatusCode != http.StatusOK {
 		metrics.InstrumentAuthEvent("google_login", false)
 		body, _ := io.ReadAll(resp.Body)
+		logger.FromContext(ctx).Warn("google oauth token exchange non-200 status", slog.Int("status", resp.StatusCode))
+		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, fmt.Sprintf("Failed Google OAuth login: token endpoint returned status %d", resp.StatusCode), nil, nil, map[string]any{"status": resp.StatusCode}, &deviceID, &sanitizedUA, &ip)
 		return nil, "", "", fmt.Errorf("%w: google returned status %d (%s)", ErrOAuthExchangeFailed, resp.StatusCode, string(body))
 	}
 
@@ -332,6 +338,7 @@ func (s *Service) recordAudit(
 		DeviceID:    deviceID,
 		UserAgent:   userAgent,
 		IPAddress:   ip,
+		Timestamp:   time.Now(),
 	})
 }
 

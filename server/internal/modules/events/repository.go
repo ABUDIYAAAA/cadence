@@ -80,7 +80,7 @@ func (r *Repository) GetOrCreateUserByEmail(ctx context.Context, email, name str
 
 // CreateEvent inserts a new event and binds the designated user as 'owner' within a single transaction.
 // A user is strictly prevented from owning more than one event simultaneously.
-func (r *Repository) CreateEvent(ctx context.Context, slug, name string, description *string, ownerUserID string) (*Event, error) {
+func (r *Repository) CreateEvent(ctx context.Context, slug, name string, description, logoURL *string, ownerUserID string) (*Event, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -98,13 +98,13 @@ func (r *Repository) CreateEvent(ctx context.Context, slug, name string, descrip
 	}
 
 	insertEv := `
-		INSERT INTO events (slug, name, description)
-		VALUES (LOWER($1), $2, $3)
-		RETURNING id, slug, name, description, created_at, updated_at
+		INSERT INTO events (slug, name, description, logo_url)
+		VALUES (LOWER($1), $2, $3, $4)
+		RETURNING id, slug, name, description, logo_url, created_at, updated_at
 	`
 	var ev Event
-	if err := tx.QueryRow(ctx, insertEv, slug, name, description).Scan(
-		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.CreatedAt, &ev.UpdatedAt,
+	if err := tx.QueryRow(ctx, insertEv, slug, name, description, logoURL).Scan(
+		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.LogoURL, &ev.CreatedAt, &ev.UpdatedAt,
 	); err != nil {
 		if strings.Contains(err.Error(), "idx_events_slug") || strings.Contains(err.Error(), "events_slug_key") {
 			return nil, ErrSlugAlreadyExists
@@ -148,7 +148,7 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID string) (*Event, e
 // ListEvents returns all events ordered by creation time.
 func (r *Repository) ListEvents(ctx context.Context) ([]Event, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, slug, name, description, created_at, updated_at
+		SELECT id, slug, name, description, logo_url, created_at, updated_at
 		FROM events
 		ORDER BY created_at DESC
 	`)
@@ -160,7 +160,7 @@ func (r *Repository) ListEvents(ctx context.Context) ([]Event, error) {
 	list := make([]Event, 0)
 	for rows.Next() {
 		var ev Event
-		if err := rows.Scan(&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.CreatedAt, &ev.UpdatedAt); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.LogoURL, &ev.CreatedAt, &ev.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		list = append(list, ev)
@@ -171,13 +171,13 @@ func (r *Repository) ListEvents(ctx context.Context) ([]Event, error) {
 // GetEventBySlug retrieves an event by its vanity slug.
 func (r *Repository) GetEventBySlug(ctx context.Context, slug string) (*Event, error) {
 	query := `
-		SELECT id, slug, name, description, created_at, updated_at
+		SELECT id, slug, name, description, logo_url, created_at, updated_at
 		FROM events
 		WHERE LOWER(slug) = LOWER($1)
 	`
 	var ev Event
 	err := r.db.QueryRow(ctx, query, slug).Scan(
-		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.CreatedAt, &ev.UpdatedAt,
+		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.LogoURL, &ev.CreatedAt, &ev.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -191,13 +191,13 @@ func (r *Repository) GetEventBySlug(ctx context.Context, slug string) (*Event, e
 // GetEventByID retrieves an event by its UUID.
 func (r *Repository) GetEventByID(ctx context.Context, id string) (*Event, error) {
 	query := `
-		SELECT id, slug, name, description, created_at, updated_at
+		SELECT id, slug, name, description, logo_url, created_at, updated_at
 		FROM events
 		WHERE id = $1
 	`
 	var ev Event
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.CreatedAt, &ev.UpdatedAt,
+		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.LogoURL, &ev.CreatedAt, &ev.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -208,8 +208,8 @@ func (r *Repository) GetEventByID(ctx context.Context, id string) (*Event, error
 	return &ev, nil
 }
 
-// UpdateEvent updates metadata for an event.
-func (r *Repository) UpdateEvent(ctx context.Context, id string, name, description *string) (*Event, error) {
+// UpdateEvent updates metadata and logo/photo for an event.
+func (r *Repository) UpdateEvent(ctx context.Context, id string, name, description, logoURL *string) (*Event, error) {
 	var sets []string
 	var args []any
 	argIndex := 1
@@ -224,17 +224,27 @@ func (r *Repository) UpdateEvent(ctx context.Context, id string, name, descripti
 		args = append(args, *description)
 		argIndex++
 	}
+	if logoURL != nil {
+		trimmed := strings.TrimSpace(*logoURL)
+		if trimmed == "" {
+			sets = append(sets, "logo_url = NULL")
+		} else {
+			sets = append(sets, fmt.Sprintf("logo_url = $%d", argIndex))
+			args = append(args, trimmed)
+			argIndex++
+		}
+	}
 	if len(sets) == 0 {
 		return r.GetEventByID(ctx, id)
 	}
 
 	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
-	query := fmt.Sprintf("UPDATE events SET %s WHERE id = $%d RETURNING id, slug, name, description, created_at, updated_at", strings.Join(sets, ", "), argIndex)
+	query := fmt.Sprintf("UPDATE events SET %s WHERE id = $%d RETURNING id, slug, name, description, logo_url, created_at, updated_at", strings.Join(sets, ", "), argIndex)
 	args = append(args, id)
 
 	var ev Event
 	err := r.db.QueryRow(ctx, query, args...).Scan(
-		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.CreatedAt, &ev.UpdatedAt,
+		&ev.ID, &ev.Slug, &ev.Name, &ev.Description, &ev.LogoURL, &ev.CreatedAt, &ev.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

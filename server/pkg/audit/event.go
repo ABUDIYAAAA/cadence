@@ -60,11 +60,14 @@ const (
 	// Ticket actions
 	ActionTicketIssued         = "ticket.issued"
 	ActionTicketCheckIn        = "ticket.check_in"
+	ActionTicketCodeCheckIn    = "ticket.code_check_in"
 	ActionTicketDuplicateScan  = "ticket.duplicate_scan"
 	ActionTicketReleased       = "ticket.released"
 	ActionTicketSettingsUpdate = "ticket.settings_update"
 	ActionScanSessionCreate    = "ticket.session_create"
 	ActionScanSessionToggle    = "ticket.session_toggle"
+	ActionScanSessionCodeGen   = "ticket.session_code_generate"
+	ActionScanSessionCodeClear = "ticket.session_code_clear"
 	ActionTicketSessionScan    = "ticket.session_scan"
 	ActionTicketScanRejected   = "ticket.scan_rejected"
 

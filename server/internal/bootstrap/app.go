@@ -174,8 +174,10 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	if mailQueue != nil {
 		mailQueue.SetDeliveryCallback(func(cbCtx context.Context, ticketID string, delivered bool, errMsg string) {
 			if delivered {
+				appLogger.Info("ticket email delivered via smtp", slog.String("ticket_id", ticketID))
 				_ = ticketsRepo.MarkTicketEmailDelivered(cbCtx, ticketID)
 			} else {
+				appLogger.Error("ticket email delivery failed permanently", slog.String("ticket_id", ticketID), slog.String("error", errMsg))
 				_ = ticketsRepo.MarkTicketEmailFailed(cbCtx, ticketID, errMsg)
 			}
 		})

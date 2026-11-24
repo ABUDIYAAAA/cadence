@@ -10,6 +10,7 @@ type Event struct {
 	Slug        string    `json:"slug"`
 	Name        string    `json:"name"`
 	Description *string   `json:"description,omitempty"`
+	LogoURL     *string   `json:"logo_url,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

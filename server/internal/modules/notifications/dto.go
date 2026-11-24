@@ -19,13 +19,19 @@ type UnsubscribeRequest struct {
 	Endpoint string `json:"endpoint" validate:"required,url"`
 }
 
-// BroadcastNotificationRequest allows administrators to dispatch messages to targets.
+// BroadcastNotificationRequest allows administrators to dispatch messages to targets:
+// - "event" or "broadcast": the whole event
+// - "competition": a specific competition in the event (TargetID = competition ID or slug)
+// - "team": a specific team in the event (TargetID = team ID)
+// - "user": a single user in the event (TargetID = user ID)
+// - "role": all members with a specific role in the event (TargetID = owner|admin|volunteer|judge|participant)
+// - "attendance_present" / "attendance_absent": attendees present or absent in a scan session (TargetID = session ID)
 type BroadcastNotificationRequest struct {
 	Title      string  `json:"title" validate:"required,max=255"`
 	Body       string  `json:"body" validate:"required"`
 	ActionURL  *string `json:"action_url,omitempty"`
 	IconURL    *string `json:"icon_url,omitempty"`
-	TargetType string  `json:"target_type" validate:"required,oneof=broadcast team role user attendance_present attendance_absent"`
+	TargetType string  `json:"target_type" validate:"required,oneof=event broadcast competition team role user attendance_present attendance_absent"`
 	TargetID   *string `json:"target_id,omitempty"`
 }
 

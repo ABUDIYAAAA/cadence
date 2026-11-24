@@ -365,10 +365,12 @@ func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 		ownerName := "Explicit Event Organizer"
 		slug := fmt.Sprintf("bg-event-%d", nano)
 		evName := "Background Created Event"
+		initialLogo := "https://cdn.example.com/events/initial-logo.png"
 
 		req := CreateEventRequest{
 			Slug:       slug,
 			Name:       evName,
+			LogoURL:    &initialLogo,
 			OwnerEmail: &ownerEmail,
 			OwnerName:  &ownerName,
 		}
@@ -379,6 +381,18 @@ func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 		}
 		if ev == nil || ev.ID == "" {
 			t.Fatalf("expected valid event, got nil or empty id")
+		}
+		if ev.LogoURL == nil || *ev.LogoURL != initialLogo {
+			t.Fatalf("expected event LogoURL %q, got %v", initialLogo, ev.LogoURL)
+		}
+
+		// Update event logo via PhotoURL alias
+		updatedLogo := "https://cdn.example.com/events/updated-photo.png"
+		evUpdated, err := svc.UpdateEvent(ctx, ev.ID, UpdateEventRequest{
+			PhotoURL: &updatedLogo,
+		}, creatorDevID)
+		if err != nil || evUpdated.LogoURL == nil || *evUpdated.LogoURL != updatedLogo {
+			t.Fatalf("expected updated event LogoURL %q, got %v (err: %v)", updatedLogo, evUpdated, err)
 		}
 
 		var createdUserID, createdName string

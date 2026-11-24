@@ -21,8 +21,8 @@ func NewHandler(service *Service) *Handler {
 }
 
 const (
-	maxEventBodyBytes = 16 << 10 // 16 KiB
-	maxBulkBodyBytes  = 4 << 20  // 4 MiB
+	maxEventBodyBytes = 2 << 20 // 2 MiB (allows data URI or URL for event logo/photo)
+	maxBulkBodyBytes  = 4 << 20 // 4 MiB
 )
 
 // HandleCreateEvent creates a new event and assigns the designated user or caller as owner.

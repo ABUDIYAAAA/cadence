@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/internal/config"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/logger"
 	"devclubxnst.com/cadence/pkg/metrics"
+	"log/slog"
 )
 
 var (
@@ -224,8 +227,20 @@ func (s *Service) Broadcast(
 	actorID, actorEmail, actorRole string,
 	ip, userAgent string,
 ) (*BroadcastNotificationResponse, error) {
+	iconURL := req.IconURL
+	if (iconURL == nil || *iconURL == "") {
+		if ev, ok := events.GetEvent(ctx); ok && ev != nil && ev.LogoURL != nil && *ev.LogoURL != "" {
+			iconURL = ev.LogoURL
+		}
+	}
+
 	recipientIDs, err := s.repo.GetEligibleRecipientIDs(ctx, req.TargetType, req.TargetID)
 	if err != nil {
+		logger.FromContext(ctx).Warn("failed to resolve notification recipients",
+			slog.String("target_type", req.TargetType),
+			slog.Any("target_id", req.TargetID),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("resolve recipients: %w", err)
 	}
 
@@ -234,7 +249,7 @@ func (s *Service) Broadcast(
 		req.Title,
 		req.Body,
 		req.ActionURL,
-		req.IconURL,
+		iconURL,
 		req.TargetType,
 		req.TargetID,
 		&actorID,
@@ -242,6 +257,10 @@ func (s *Service) Broadcast(
 	)
 	if err != nil {
 		metrics.InstrumentNotification(req.TargetType, "in_app", "failure")
+		logger.FromContext(ctx).Error("failed to create notification record",
+			slog.String("target_type", req.TargetType),
+			slog.Any("error", err),
+		)
 		return nil, fmt.Errorf("create notification record: %w", err)
 	}
 
@@ -255,7 +274,7 @@ func (s *Service) Broadcast(
 				Title:          req.Title,
 				Body:           req.Body,
 				URL:            req.ActionURL,
-				Icon:           req.IconURL,
+				Icon:           iconURL,
 				NotificationID: notifID,
 			})
 

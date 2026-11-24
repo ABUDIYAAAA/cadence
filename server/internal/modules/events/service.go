@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"regexp"
 	"strings"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/logger"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -69,8 +72,14 @@ func (s *Service) CreateEvent(ctx context.Context, req CreateEventRequest, creat
 		ownerUserID = resolvedID
 	}
 
-	ev, err := s.repo.CreateEvent(ctx, req.Slug, req.Name, req.Description, ownerUserID)
+	logoURL := req.LogoURL
+	if logoURL == nil {
+		logoURL = req.PhotoURL
+	}
+
+	ev, err := s.repo.CreateEvent(ctx, req.Slug, req.Name, req.Description, logoURL, ownerUserID)
 	if err != nil {
+		logger.FromContext(ctx).Warn("failed to create event", slog.String("slug", req.Slug), slog.Any("error", err))
 		return nil, err
 	}
 
@@ -79,9 +88,16 @@ func (s *Service) CreateEvent(ctx context.Context, req CreateEventRequest, creat
 		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", ownerUserID), ev.ID).Err()
 	}
 
+	logger.FromContext(ctx).Info("event created",
+		slog.String("event_id", ev.ID),
+		slog.String("slug", ev.Slug),
+		slog.String("owner_user_id", ownerUserID),
+	)
+
 	s.recordAudit(ctx, audit.ActionEventCreate, ev.ID, fmt.Sprintf("Created event %s (%s)", ev.Name, ev.Slug), &creatorUserID, map[string]any{
 		"slug":          ev.Slug,
 		"name":          ev.Name,
+		"logo_url":      ev.LogoURL,
 		"owner_user_id": ownerUserID,
 	})
 
@@ -92,12 +108,15 @@ func (s *Service) CreateEvent(ctx context.Context, req CreateEventRequest, creat
 func (s *Service) DeleteEvent(ctx context.Context, eventID, actorID string) error {
 	ev, err := s.repo.DeleteEvent(ctx, eventID)
 	if err != nil {
+		logger.FromContext(ctx).Warn("failed to delete event", slog.String("event_id", eventID), slog.Any("error", err))
 		return err
 	}
 
 	if s.rdb != nil {
 		_ = s.rdb.Del(ctx, "event:slug:"+ev.Slug).Err()
 	}
+
+	logger.FromContext(ctx).Info("event deleted", slog.String("event_id", ev.ID), slog.String("slug", ev.Slug))
 
 	s.recordAudit(ctx, audit.ActionEventDelete, ev.ID, fmt.Sprintf("Deleted event %s (%s)", ev.Name, ev.Slug), &actorID, map[string]any{
 		"slug": ev.Slug,
@@ -116,10 +135,16 @@ func (s *Service) GetEventBySlug(ctx context.Context, slug string) (*Event, erro
 	return s.repo.GetEventBySlug(ctx, slug)
 }
 
-// UpdateEvent updates event name and description and purges Redis cache.
+// UpdateEvent updates event name, description, and logo/photo and purges Redis cache.
 func (s *Service) UpdateEvent(ctx context.Context, eventID string, req UpdateEventRequest, actorID string) (*Event, error) {
-	ev, err := s.repo.UpdateEvent(ctx, eventID, req.Name, req.Description)
+	logoURL := req.LogoURL
+	if logoURL == nil {
+		logoURL = req.PhotoURL
+	}
+
+	ev, err := s.repo.UpdateEvent(ctx, eventID, req.Name, req.Description, logoURL)
 	if err != nil {
+		logger.FromContext(ctx).Warn("failed to update event", slog.String("event_id", eventID), slog.Any("error", err))
 		return nil, err
 	}
 
@@ -127,8 +152,11 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID string, req UpdateEve
 		_ = s.rdb.Del(ctx, "event:slug:"+ev.Slug).Err()
 	}
 
+	logger.FromContext(ctx).Info("event updated", slog.String("event_id", ev.ID), slog.String("slug", ev.Slug))
+
 	s.recordAudit(ctx, audit.ActionEventUpdate, ev.ID, fmt.Sprintf("Updated event %s", ev.Slug), &actorID, map[string]any{
-		"name": req.Name,
+		"name":     req.Name,
+		"logo_url": ev.LogoURL,
 	})
 
 	return ev, nil
@@ -442,13 +470,39 @@ func (s *Service) recordAudit(ctx context.Context, action, eventID, description 
 	if s.auditor == nil {
 		return
 	}
+	var actorEmail, actorRole *string
+	if claims, ok := auth.GetUserClaims(ctx); ok && claims != nil {
+		if actorID == nil && claims.UserID != "" {
+			uid := claims.UserID
+			actorID = &uid
+		}
+		if claims.Email != "" {
+			email := claims.Email
+			actorEmail = &email
+		}
+		if claims.Role != "" {
+			role := claims.Role
+			actorRole = &role
+		} else if claims.GlobalRole != "" {
+			gRole := claims.GlobalRole
+			actorRole = &gRole
+		}
+	}
+	if evCtx, ok := FromContext(ctx); ok && evCtx != nil && evCtx.Role != "" {
+		role := evCtx.Role
+		actorRole = &role
+	}
+
 	s.auditor.Record(ctx, audit.Event{
 		EventID:     &eventID,
 		ActorID:     actorID,
+		ActorEmail:  actorEmail,
+		ActorRole:   actorRole,
 		Action:      action,
 		TargetType:  audit.TargetEvent,
 		TargetID:    &eventID,
 		Description: description,
 		Metadata:    meta,
+		Timestamp:   time.Now(),
 	})
 }

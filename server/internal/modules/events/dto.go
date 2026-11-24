@@ -7,6 +7,8 @@ type CreateEventRequest struct {
 	Slug        string  `json:"slug" validate:"required,min=2,max=64"`
 	Name        string  `json:"name" validate:"required,min=2,max=255"`
 	Description *string `json:"description,omitempty" validate:"omitempty,max=2000"`
+	LogoURL     *string `json:"logo_url,omitempty"`
+	PhotoURL    *string `json:"photo_url,omitempty"`
 	OwnerEmail  *string `json:"owner_email,omitempty" validate:"omitempty,email,max=254"`
 	OwnerID     *string `json:"owner_id,omitempty" validate:"omitempty,uuid"`
 	OwnerName   *string `json:"owner_name,omitempty" validate:"omitempty,max=255"`
@@ -16,6 +18,8 @@ type CreateEventRequest struct {
 type UpdateEventRequest struct {
 	Name        *string `json:"name,omitempty" validate:"omitempty,min=2,max=255"`
 	Description *string `json:"description,omitempty" validate:"omitempty,max=2000"`
+	LogoURL     *string `json:"logo_url,omitempty"`
+	PhotoURL    *string `json:"photo_url,omitempty"`
 }
 
 // TransferOwnershipRequest defines payload to transfer event ownership.

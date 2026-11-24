@@ -19,6 +19,7 @@ import {
 	ChevronUp,
 	LogOut,
 	Settings,
+	Trophy,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { useTenant } from '@/providers/tenant-provider';
@@ -161,14 +162,10 @@ function UserChip({
 		useNotificationsContext();
 	const toast = useToast();
 
-	const [avatarFailed, setAvatarFailed] = useState(false);
+	const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [isLoggingOut, setIsLoggingOut] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
-
-	useEffect(() => {
-		setAvatarFailed(false);
-	}, [avatarUrl]);
 
 	useEffect(() => {
 		onOpenChange?.(menuOpen);
@@ -217,7 +214,9 @@ function UserChip({
 		.join('')
 		.toUpperCase();
 
-	const showAvatarImage = Boolean(avatarUrl && !avatarFailed);
+	const showAvatarImage = Boolean(
+		avatarUrl && failedAvatarUrl !== avatarUrl,
+	);
 	const showEventSettings = Boolean(eventSlug && isAdmin);
 	const showPushAlerts = Boolean(isSupported && eventSlug);
 
@@ -297,11 +296,12 @@ function UserChip({
 					style={{ width: ITEM_H, height: ITEM_H }}>
 					<span className='grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-[var(--color-blue-dim)] text-[11px] font-semibold text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]'>
 						{showAvatarImage ? (
+							// eslint-disable-next-line @next/next/no-img-element
 							<img
 								src={avatarUrl!}
 								alt={name || 'User avatar'}
 								referrerPolicy='no-referrer'
-								onError={() => setAvatarFailed(true)}
+								onError={() => setFailedAvatarUrl(avatarUrl ?? null)}
 								className='h-full w-full object-cover'
 							/>
 						) : (
@@ -384,6 +384,12 @@ export function Sidebar() {
 
 	const allNavItems: NavItem[] = [
 		{ label: 'Overview', href: dashboardHref, icon: LayoutDashboard },
+		{
+			label: 'Competitions',
+			href: '/dashboard/competitions',
+			icon: Trophy,
+			roles: ['owner', 'admin', 'volunteer', 'judge', 'participant'],
+		},
 		{
 			label: 'Users',
 			href: '/dashboard/users',

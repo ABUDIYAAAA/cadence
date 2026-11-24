@@ -11,13 +11,7 @@ import {
   Moon,
   Menu,
   Calendar,
-  ChevronDown,
-  Layers,
-  Plus,
   Settings,
-  Trash2,
-  ArrowLeftRight,
-  Check,
   Crown,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -26,17 +20,11 @@ import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
 import { useNotificationsContext } from "@/providers/notification-provider";
 import {
-  useCreateCompetition,
-  useDeleteCompetition,
-  useUpdateCompetition,
-} from "@/hooks/use-competitions";
-import {
   useEventDetail,
   useTransferEventOwnership,
   useUpdateEvent,
 } from "@/hooks/use-events";
-import { getAuthenticatedHomeRoute, getDashboardRoute } from "@/lib/auth-routes";
-import { slugify } from "@/lib/csv";
+import { getAuthenticatedHomeRoute } from "@/lib/auth-routes";
 import { apiErrorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -50,7 +38,6 @@ export function Navbar() {
   const {
     user,
     isAuthenticated,
-    role,
     isDev,
     isOwner,
     isAdmin,
@@ -59,10 +46,6 @@ export function Navbar() {
   const {
     eventSlug,
     activeEvent,
-    competitionSlug,
-    activeCompetition,
-    competitions,
-    selectCompetition,
     clearEvent,
   } = useTenant();
   const { isSupported, isSubscribed, enablePush, disablePush } =
@@ -73,26 +56,12 @@ export function Navbar() {
     enabled: isAuthenticated && Boolean(eventSlug),
   });
 
-  const createCompetition = useCreateCompetition(eventSlug);
-  const updateCompetition = useUpdateCompetition(eventSlug);
-  const deleteCompetition = useDeleteCompetition(eventSlug);
   const updateEvent = useUpdateEvent(eventSlug || "");
   const transferOwnership = useTransferEventOwnership(eventSlug || "");
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [compDropdownOpen, setCompDropdownOpen] = useState(false);
   const [isDark, setIsDark] = useState(false);
-
-  // Competition Create / Edit Dialog state
-  const [compDialogMode, setCompDialogMode] = useState<"create" | "edit" | null>(
-    null
-  );
-  const [compName, setCompName] = useState("");
-  const [compSlug, setCompSlug] = useState("");
-  const [compSlugTouched, setCompSlugTouched] = useState(false);
-  const [compDesc, setCompDesc] = useState("");
-  const [compError, setCompError] = useState<string | null>(null);
 
   // Event Settings / Ownership Transfer Dialog state
   const [eventSettingsOpen, setEventSettingsOpen] = useState(false);
@@ -104,7 +73,6 @@ export function Navbar() {
   const [eventError, setEventError] = useState<string | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const compDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const isDarkMode = document.documentElement.classList.contains("dark");
@@ -140,22 +108,15 @@ export function Navbar() {
       ) {
         setDropdownOpen(false);
       }
-      if (
-        compDropdownRef.current &&
-        !compDropdownRef.current.contains(event.target as Node)
-      ) {
-        setCompDropdownOpen(false);
-      }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setDropdownOpen(false);
-        setCompDropdownOpen(false);
       }
     };
 
-    if (dropdownOpen || compDropdownOpen) {
+    if (dropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("keydown", handleKeyDown);
     }
@@ -164,7 +125,7 @@ export function Navbar() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [dropdownOpen, compDropdownOpen]);
+  }, [dropdownOpen]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -174,81 +135,6 @@ export function Navbar() {
       toast.info("You have been signed out.", "Session Ended");
     } finally {
       setIsLoggingOut(false);
-    }
-  };
-
-  const openCreateCompetition = () => {
-    setCompDropdownOpen(false);
-    setCompName("");
-    setCompSlug("");
-    setCompSlugTouched(false);
-    setCompDesc("");
-    setCompError(null);
-    setCompDialogMode("create");
-  };
-
-  const openEditCompetition = () => {
-    if (!activeCompetition) return;
-    setCompDropdownOpen(false);
-    setCompName(activeCompetition.name);
-    setCompSlug(activeCompetition.slug);
-    setCompSlugTouched(true);
-    setCompDesc(activeCompetition.description || "");
-    setCompError(null);
-    setCompDialogMode("edit");
-  };
-
-  const handleSaveCompetition = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCompError(null);
-
-    const trimmedName = compName.trim();
-    const trimmedSlug = (compSlug.trim() || slugify(trimmedName)).toLowerCase();
-
-    if (trimmedName.length < 2) {
-      setCompError("Competition name must be at least 2 characters.");
-      return;
-    }
-    if (trimmedSlug.length < 2) {
-      setCompError("Competition slug must be at least 2 characters.");
-      return;
-    }
-
-    try {
-      if (compDialogMode === "create") {
-        const created = await createCompetition.mutateAsync({
-          name: trimmedName,
-          slug: trimmedSlug,
-          description: compDesc.trim() || undefined,
-        });
-        selectCompetition(created.slug);
-        toast.success(`Competition "${created.name}" created.`, "Competition created");
-      } else if (compDialogMode === "edit" && activeCompetition) {
-        const updated = await updateCompetition.mutateAsync({
-          competitionSlug: activeCompetition.slug,
-          payload: {
-            name: trimmedName,
-            slug: trimmedSlug,
-            description: compDesc.trim(),
-          },
-        });
-        selectCompetition(updated.slug);
-        toast.success(`Competition "${updated.name}" updated.`, "Competition updated");
-      }
-      setCompDialogMode(null);
-    } catch (err: unknown) {
-      setCompError(apiErrorMessage(err, "Failed to save competition"));
-    }
-  };
-
-  const handleDeleteCompetition = async () => {
-    if (!activeCompetition) return;
-    try {
-      await deleteCompetition.mutateAsync(activeCompetition.slug);
-      toast.info(`Competition "${activeCompetition.name}" deleted.`, "Competition deleted");
-      setCompDialogMode(null);
-    } catch (err: unknown) {
-      setCompError(apiErrorMessage(err, "Failed to delete competition"));
     }
   };
 
@@ -263,7 +149,10 @@ export function Navbar() {
   };
 
   const openEventSettingsRef = useRef(openEventSettings);
-  openEventSettingsRef.current = openEventSettings;
+
+  useEffect(() => {
+    openEventSettingsRef.current = openEventSettings;
+  });
 
   useEffect(() => {
     const handler = () => openEventSettingsRef.current();
@@ -318,11 +207,7 @@ export function Navbar() {
       ? getAuthenticatedHomeRoute(user, eventSlug)
       : "/login";
 
-  const [avatarFailed, setAvatarFailed] = useState(false);
-
-  useEffect(() => {
-    setAvatarFailed(false);
-  }, [user?.avatar_url]);
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
 
   const initials = user?.name
     ? user.name
@@ -333,7 +218,9 @@ export function Navbar() {
       .toUpperCase()
     : "CD";
 
-  const showAvatarImage = Boolean(user?.avatar_url && !avatarFailed);
+  const showAvatarImage = Boolean(
+    user?.avatar_url && failedAvatarUrl !== user.avatar_url
+  );
 
   const isDashboard = pathname.startsWith("/dashboard");
   const displayEventName =
@@ -400,11 +287,12 @@ export function Navbar() {
                     className="flex items-center justify-center h-8 w-8 rounded-[8px] overflow-hidden bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] font-semibold text-xs shadow-xs hover:border-[var(--color-blue)] transition-[border-color,transform] active:scale-95 cursor-pointer select-none"
                   >
                     {showAvatarImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={user.avatar_url!}
                         alt={user.name || "User avatar"}
                         referrerPolicy="no-referrer"
-                        onError={() => setAvatarFailed(true)}
+                        onError={() => setFailedAvatarUrl(user.avatar_url ?? null)}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -519,103 +407,6 @@ export function Navbar() {
           </div>
         </div>
       </header>
-
-      {/* Competition Create / Edit Dialog */}
-      <Dialog
-        open={compDialogMode !== null}
-        onClose={() => setCompDialogMode(null)}
-        title={
-          compDialogMode === "create"
-            ? "Create Competition"
-            : "Manage Competition"
-        }
-        description={
-          compDialogMode === "create"
-            ? `Add a competition inside ${displayEventName}.`
-            : `Update or delete "${activeCompetition?.name}".`
-        }
-        footer={
-          <div className="flex items-center justify-between w-full gap-2">
-            <div>
-              {compDialogMode === "edit" && activeCompetition && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  type="button"
-                  onClick={handleDeleteCompetition}
-                  isLoading={deleteCompetition.isPending}
-                  className="gap-1"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
-                </Button>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => setCompDialogMode(null)}
-                disabled={
-                  createCompetition.isPending || updateCompetition.isPending
-                }
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                type="button"
-                onClick={handleSaveCompetition}
-                isLoading={
-                  createCompetition.isPending || updateCompetition.isPending
-                }
-              >
-                {compDialogMode === "create" ? "Create" : "Save changes"}
-              </Button>
-            </div>
-          </div>
-        }
-      >
-        <form onSubmit={handleSaveCompetition} className="space-y-3 font-sans text-xs">
-          {compError && (
-            <Alert variant="error" title="Could not save competition">
-              {compError}
-            </Alert>
-          )}
-          <Input
-            label="Competition Name *"
-            placeholder="e.g. AI & Robotics"
-            value={compName}
-            onChange={(e) => {
-              const val = e.target.value;
-              setCompName(val);
-              if (!compSlugTouched) {
-                setCompSlug(slugify(val));
-              }
-            }}
-            required
-          />
-          <Input
-            label="Competition Slug *"
-            placeholder="e.g. ai-robotics"
-            value={compSlug}
-            onChange={(e) => {
-              setCompSlugTouched(true);
-              setCompSlug(e.target.value.toLowerCase());
-            }}
-            required
-          />
-          <Textarea
-            label="Description"
-            placeholder="Optional description of this competition..."
-            rows={2}
-            value={compDesc}
-            onChange={(e) => setCompDesc(e.target.value)}
-          />
-        </form>
-      </Dialog>
 
       {/* Event Settings & Ownership Transfer Dialog */}
       <Dialog

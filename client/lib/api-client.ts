@@ -1,6 +1,6 @@
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from "axios";
-import { ApiError } from "@/types/api";
-import { getQueryClient } from "@/lib/query-client";
+import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from "axios";
+import type { ApiError } from "../types/api.ts";
+import { getQueryClient } from "./query-client.ts";
 import {
   clearTenantScope,
   getSavedCompetitionForEvent,
@@ -8,8 +8,8 @@ import {
   resolveScopedPath,
   setTenantScope,
   subscribeTenantScope,
-  TenantScope,
-} from "./tenant-scope";
+  type TenantScope,
+} from "./tenant-scope.ts";
 
 export {
   clearTenantScope,

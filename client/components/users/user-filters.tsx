@@ -5,11 +5,18 @@ import { Search, X, RotateCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import {
+  encodeTeamAssignmentFilter,
+  parseTeamAssignmentFilter,
+} from "@/lib/competition-utils";
+import type { Competition } from "@/types/competitions";
 import { UserFilter } from "@/types/users";
 
 interface UserFiltersProps {
   filters: UserFilter;
   mode?: "event" | "platform";
+  /** Competitions in the active event, used to filter members without a team in a competition. */
+  competitions?: ReadonlyArray<Competition>;
   /** Platform devs can also browse soft-deleted users. */
   canViewRemoved?: boolean;
   onChange: (filters: UserFilter) => void;
@@ -19,6 +26,7 @@ interface UserFiltersProps {
 export function UserFilters({
   filters,
   mode = "event",
+  competitions = [],
   canViewRemoved = false,
   onChange,
   onReset,
@@ -26,6 +34,8 @@ export function UserFilters({
   const hasActiveFilters = Boolean(
     filters.search ||
       filters.role ||
+      filters.no_team ||
+      filters.competition_id ||
       filters.is_active !== undefined ||
       filters.is_banned !== undefined ||
       filters.deleted
@@ -46,9 +56,15 @@ export function UserFilters({
       ? "active"
       : "inactive";
 
+  const teamAssignmentValue = encodeTeamAssignmentFilter(filters);
+
   return (
     <div className="space-y-3 font-sans">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div
+        className={`grid grid-cols-1 sm:grid-cols-2 ${
+          mode === "event" ? "lg:grid-cols-5" : "lg:grid-cols-4"
+        } gap-3`}
+      >
         {/* Search */}
         <div className="relative">
           <Input
@@ -65,6 +81,7 @@ export function UserFilters({
               onClick={() => onChange({ ...filters, search: "", page: 1 })}
               className="absolute right-2.5 top-2.5 text-[var(--ink-tertiary)] hover:text-[var(--ink-primary)] cursor-pointer"
               type="button"
+              aria-label="Clear search"
             >
               <X className="h-4 w-4" />
             </button>
@@ -74,6 +91,7 @@ export function UserFilters({
         {/* Role Filter */}
         <div>
           <Select
+            aria-label="Filter by role"
             value={filters.role || ""}
             onChange={(e) =>
               onChange({
@@ -102,9 +120,40 @@ export function UserFilters({
           </Select>
         </div>
 
+        {/* Competition Team Assignment Filter (Event mode only) */}
+        {mode === "event" && (
+          <div>
+            <Select
+              aria-label="Filter by team assignment"
+              value={teamAssignmentValue}
+              onChange={(e) => {
+                const parsed = parseTeamAssignmentFilter(e.target.value);
+                onChange({
+                  ...filters,
+                  no_team: parsed.no_team,
+                  competition_id: parsed.competition_id,
+                  page: 1,
+                });
+              }}
+              className="text-xs"
+            >
+              <option value="">All team states</option>
+              <option value="unassigned:any">
+                No team (any competition)
+              </option>
+              {competitions.map((comp) => (
+                <option key={comp.id} value={`unassigned:${comp.id}`}>
+                  No team in {comp.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+
         {/* Status Filter */}
         <div>
           <Select
+            aria-label="Filter by status"
             value={statusValue}
             onChange={(e) => {
               const val = e.target.value;

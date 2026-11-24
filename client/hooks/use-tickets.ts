@@ -6,6 +6,8 @@ import {
   BulkSendTicketsRequest,
   CheckInRequest,
   CreateScanSessionRequest,
+  SendSingleTicketRequest,
+  UpdateTicketSettingsRequest,
 } from "@/types/tickets";
 
 export const TICKETS_QUERY_KEY = ["tickets"] as const;
@@ -34,6 +36,28 @@ export function useCheckIn() {
       queryClient.invalidateQueries({
         queryKey: [...TICKETS_QUERY_KEY, "analytics"],
       });
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      });
+    },
+  });
+}
+
+export function useCheckInByCode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (code: string) => ticketsService.checkInByCode(code),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "me"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "analytics"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      });
     },
   });
 }
@@ -56,7 +80,12 @@ export function useSendSingleTicket() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (userId: string) => ticketsService.sendSingle(userId),
+    mutationFn: (
+      arg: string | { userId: string; payload?: SendSingleTicketRequest }
+    ) =>
+      typeof arg === "string"
+        ? ticketsService.sendSingle(arg)
+        : ticketsService.sendSingle(arg.userId, arg.payload),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: [...TICKETS_QUERY_KEY, "analytics"],
@@ -68,9 +97,12 @@ export function useSendSingleTicket() {
 export function useReleaseTickets() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: BulkSendTicketsRequest) => ticketsService.release(payload),
+    mutationFn: (payload: BulkSendTicketsRequest) =>
+      ticketsService.release(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...TICKETS_QUERY_KEY, "analytics"] });
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "analytics"],
+      });
     },
   });
 }
@@ -86,8 +118,12 @@ export function useScanSessions() {
 export function useCreateScanSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateScanSessionRequest) => ticketsService.createSession(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...TICKETS_QUERY_KEY, "sessions"] }),
+    mutationFn: (payload: CreateScanSessionRequest) =>
+      ticketsService.createSession(payload),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      }),
   });
 }
 
@@ -96,16 +132,56 @@ export function useSetScanSessionOpen() {
   return useMutation({
     mutationFn: ({ id, isOpen }: { id: string; isOpen: boolean }) =>
       ticketsService.setSessionOpen(id, isOpen),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...TICKETS_QUERY_KEY, "sessions"] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      }),
+  });
+}
+
+export function useGenerateSessionCode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      code,
+    }: {
+      sessionId: string;
+      code?: string;
+    }) => ticketsService.generateSessionCode(sessionId, code),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      }),
+  });
+}
+
+export function useClearSessionCode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      ticketsService.clearSessionCode(sessionId),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      }),
   });
 }
 
 export function useSessionScan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ sessionId, ticketCode }: { sessionId: string; ticketCode: string }) =>
-      ticketsService.scanInSession(sessionId, ticketCode),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...TICKETS_QUERY_KEY, "sessions"] }),
+    mutationFn: ({
+      sessionId,
+      ticketCode,
+    }: {
+      sessionId: string;
+      ticketCode: string;
+    }) => ticketsService.scanInSession(sessionId, ticketCode),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      }),
   });
 }
 
@@ -128,10 +204,15 @@ export function useTicketSettings() {
 export function useUpdateTicketSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (domains: string[]) => ticketsService.updateSettings(domains),
+    mutationFn: (payload: UpdateTicketSettingsRequest) =>
+      ticketsService.updateSettings(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...TICKETS_QUERY_KEY, "settings"] });
-      queryClient.invalidateQueries({ queryKey: [...TICKETS_QUERY_KEY, "sessions"] });
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "settings"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...TICKETS_QUERY_KEY, "sessions"],
+      });
     },
   });
 }

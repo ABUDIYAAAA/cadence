@@ -3,11 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Ticket,
   QrCode,
-  Scan,
   RefreshCw,
-  Users,
   CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
@@ -208,7 +205,7 @@ export default function TicketsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               Tickets & check-in
             </h1>
@@ -219,6 +216,22 @@ export default function TicketsPage() {
                 {analyticsData.total_issued - analyticsData.checked_in_count} not yet
               </Badge>
             )}
+            {analyticsData &&
+              (analyticsData.email_sent_count !== undefined ||
+                analyticsData.email_queued_count !== undefined) && (
+                <Badge variant="outline" size="sm">
+                  {analyticsData.email_sent_count ?? 0} emailed
+                  {analyticsData.email_queued_count
+                    ? ` · ${analyticsData.email_queued_count} queued`
+                    : ""}
+                  {analyticsData.email_failed_count
+                    ? ` · ${analyticsData.email_failed_count} failed`
+                    : ""}
+                  {analyticsData.email_skipped_domain_count
+                    ? ` · ${analyticsData.email_skipped_domain_count} domain-skipped`
+                    : ""}
+                </Badge>
+              )}
           </div>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
             Issue passes, scan badges at the entrance, and track attendance.

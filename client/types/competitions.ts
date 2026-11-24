@@ -1,3 +1,5 @@
+import type { EventRole } from "./auth";
+
 export interface Competition {
   id: string;
   event_id: string;
@@ -6,6 +8,10 @@ export interface Competition {
   description?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CompetitionResponse extends Competition {
+  my_role?: EventRole | null;
 }
 
 export interface CompetitionListResponse {

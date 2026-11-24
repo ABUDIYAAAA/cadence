@@ -31,6 +31,7 @@ interface TicketScannerProps {
 
 const COPY = {
   entry: { title: "Gate Entry QR Scanner", approved: "Check-In Approved: Entry Granted", submit: "Verify & Check-In" },
+  check_in: { title: "Gate Entry QR Scanner", approved: "Check-In Approved: Entry Granted", submit: "Verify & Check-In" },
   attendance: { title: "Attendance Scanner", approved: "Attendance Recorded", submit: "Verify & Mark Present" },
   exit: { title: "Exit Scanner", approved: "Exit Approved", submit: "Verify & Check-Out" },
 } as const;

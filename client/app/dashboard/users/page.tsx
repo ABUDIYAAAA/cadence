@@ -64,7 +64,7 @@ export default function UsersPage() {
     isVolunteer,
     isLoading: authLoading,
   } = useAuth();
-  const { eventSlug, activeEvent } = useTenant();
+  const { eventSlug, competitions } = useTenant();
 
   const [selectedMode, setMode] = useState<"event" | "platform">(() =>
     !eventSlug ? "platform" : "event"
@@ -180,6 +180,7 @@ export default function UsersPage() {
       limit: 25,
       search: "",
       role: undefined,
+      no_team: undefined,
       competition_id: undefined,
       is_active: undefined,
       is_banned: undefined,
@@ -477,6 +478,7 @@ export default function UsersPage() {
         <UserFilters
           filters={filters}
           mode={mode}
+          competitions={competitions}
           canViewRemoved={mode === "platform" && isDev}
           onChange={(newFilters) => setFilters(newFilters)}
           onReset={() =>
@@ -485,6 +487,8 @@ export default function UsersPage() {
               limit: filters.limit,
               search: "",
               role: undefined,
+              no_team: undefined,
+              competition_id: undefined,
               is_active: undefined,
               is_banned: undefined,
               deleted: undefined,

@@ -1,11 +1,11 @@
 import type {
   EventUserDetailResponse,
   EventUserListResponse,
-} from "@/types/events";
+} from "../types/events.ts";
 import type {
   PaginatedUsersResponse,
   UserDetailResponse,
-} from "@/types/users";
+} from "../types/users.ts";
 
 export interface TenantScope {
   eventSlug: string | null;

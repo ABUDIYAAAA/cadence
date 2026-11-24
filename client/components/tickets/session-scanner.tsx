@@ -12,7 +12,9 @@ export function SessionScanner() {
   const { data: sessions = [] } = useScanSessions();
   const [picked, setPicked] = useState(ENTRY);
 
-  const open = sessions.filter((s) => s.is_open);
+  const open = sessions.filter(
+    (s) => s.is_open && !s.is_default && s.kind !== "check_in"
+  );
   // A session that was closed (or removed) while selected falls back to entry rather than failing every scan.
   const session = open.find((s) => s.id === picked) ?? null;
 

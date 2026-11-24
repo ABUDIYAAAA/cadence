@@ -21,19 +21,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func newTestRedis(t *testing.T) *redis.Client {
+func newTestRedisWithDB(t *testing.T, db int) *redis.Client {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://127.0.0.1:6379/15"
+		redisURL = "redis://127.0.0.1:6379"
 	}
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
 		t.Skipf("skipping rate limit Redis test: invalid REDIS_URL: %v", err)
 	}
-	// Always use isolated DB 15 for unit tests
-	opts.DB = 15
+	// Use specified isolated DB for unit tests
+	opts.DB = db
 
 	client := redis.NewClient(opts)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -49,6 +49,10 @@ func newTestRedis(t *testing.T) *redis.Client {
 		_ = client.Close()
 	})
 	return client
+}
+
+func newTestRedis(t *testing.T) *redis.Client {
+	return newTestRedisWithDB(t, 15)
 }
 
 func TestAtomicSlidingWindowLimiter(t *testing.T) {

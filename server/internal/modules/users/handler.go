@@ -72,9 +72,10 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleList returns paginated users with optional role, team, active, and search filters.
+// Global user listing is restricted to devs.
 func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
-	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role != "admin" && claims.Role != "volunteer" {
-		utils.ErrorJSON(w, http.StatusForbidden, "insufficient permissions to list users")
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.GlobalRole != "dev" {
+		utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
 		return
 	}
 
@@ -101,8 +102,8 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if query.Get("deleted") == "true" || query.Get("deleted") == "1" {
-		if claims, ok := auth.GetUserClaims(r.Context()); !ok || claims.Role != "admin" {
-			utils.ErrorJSON(w, http.StatusForbidden, "only admins can view removed users")
+		if claims, ok := auth.GetUserClaims(r.Context()); !ok || claims.GlobalRole != "dev" {
+			utils.ErrorJSON(w, http.StatusForbidden, "only developers can view globally removed users")
 			return
 		}
 		filter.Deleted = true
@@ -123,9 +124,10 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleGet returns a single user's details.
+// Global user detail lookup is restricted to devs.
 func (h *Handler) HandleGet(w http.ResponseWriter, r *http.Request) {
-	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.Role != "admin" && claims.Role != "volunteer" {
-		utils.ErrorJSON(w, http.StatusForbidden, "insufficient permissions to view user details")
+	if claims, ok := auth.GetUserClaims(r.Context()); ok && claims.GlobalRole != "dev" {
+		utils.ErrorJSON(w, http.StatusForbidden, "developer access required")
 		return
 	}
 
@@ -201,5 +203,39 @@ func (h *Handler) HandleRestore(w http.ResponseWriter, r *http.Request) {
 
 	utils.JSON(w, http.StatusOK, map[string]string{
 		"message": "user reactivated",
+	})
+}
+
+// HandleBlacklist globally blacklists a user (developer access only).
+func (h *Handler) HandleBlacklist(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.service.BlacklistUser(r.Context(), id); err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "user not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to blacklist user")
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{
+		"message": "user blacklisted globally and sessions invalidated",
+	})
+}
+
+// HandleUnblacklist removes a global blacklist from a user (developer access only).
+func (h *Handler) HandleUnblacklist(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.service.UnblacklistUser(r.Context(), id); err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "user not found")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to unblacklist user")
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{
+		"message": "user global blacklist lifted",
 	})
 }

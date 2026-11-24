@@ -39,6 +39,12 @@ func RegisterRoutes(
 			r.Get("/me", h.HandleGetMyMembership)
 			r.Get("/members", h.HandleListMembers)
 
+			// Member operations (owner, admin, volunteer read access to competition users)
+			r.Group(func(r chi.Router) {
+				r.Use(RequireCompetitionRoles("owner", "admin", "volunteer"))
+				r.Get("/users", h.HandleListCompetitionUsers)
+			})
+
 			// Admin & Owner management
 			r.Group(func(r chi.Router) {
 				r.Use(RequireCompetitionRoles("owner", "admin"))
@@ -47,6 +53,8 @@ func RegisterRoutes(
 				r.Post("/members", h.HandleAssignMember)
 				r.Patch("/members/{userId}", h.HandleUpdateMemberRole)
 				r.Delete("/members/{userId}", h.HandleRemoveMember)
+				r.Post("/members/{userId}/ban", h.HandleBanMember)
+				r.Post("/members/{userId}/unban", h.HandleUnbanMember)
 			})
 
 			// Owner-only operations

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/redis/go-redis/v9"
@@ -42,7 +43,11 @@ func (s *Service) CreateCompetition(ctx context.Context, req CreateCompetitionRe
 	if req.OwnerID != nil && *req.OwnerID != "" {
 		ownerUserID = *req.OwnerID
 	} else if req.OwnerEmail != nil && *req.OwnerEmail != "" {
-		resolvedID, err := s.repo.GetUserIDByEmail(ctx, *req.OwnerEmail)
+		var ownerName string
+		if req.OwnerName != nil {
+			ownerName = *req.OwnerName
+		}
+		resolvedID, err := s.repo.GetOrCreateUserByEmail(ctx, *req.OwnerEmail, ownerName)
 		if err != nil {
 			return nil, err
 		}
@@ -52,6 +57,11 @@ func (s *Service) CreateCompetition(ctx context.Context, req CreateCompetitionRe
 	comp, err := s.repo.CreateCompetition(ctx, req.Slug, req.Name, req.Description, ownerUserID)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.rdb != nil {
+		_ = s.rdb.Set(ctx, fmt.Sprintf("comp:%s:member:%s", comp.ID, ownerUserID), "owner", 15*time.Minute).Err()
+		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:competitions", ownerUserID), comp.ID).Err()
 	}
 
 	s.recordAudit(ctx, audit.ActionCompetitionCreate, comp.ID, fmt.Sprintf("Created competition %s (%s)", comp.Name, comp.Slug), &creatorUserID, map[string]any{
@@ -89,7 +99,23 @@ func (s *Service) UpdateCompetition(ctx context.Context, compID string, req Upda
 
 // TransferOwnership transfers the owner role to another member.
 // Only the current owner can perform this. The current owner becomes admin.
-func (s *Service) TransferOwnership(ctx context.Context, compID, currentOwnerID, newOwnerID string) error {
+func (s *Service) TransferOwnership(ctx context.Context, compID, currentOwnerID string, req TransferOwnershipRequest) error {
+	newOwnerID := req.NewOwnerUserID
+	if newOwnerID == "" && req.NewOwnerEmail != nil && *req.NewOwnerEmail != "" {
+		var name string
+		if req.NewOwnerName != nil {
+			name = *req.NewOwnerName
+		}
+		resolvedID, err := s.repo.GetOrCreateUserByEmail(ctx, *req.NewOwnerEmail, name)
+		if err != nil {
+			return err
+		}
+		newOwnerID = resolvedID
+	}
+	if newOwnerID == "" {
+		return errors.New("either new_owner_user_id or new_owner_email must be provided")
+	}
+
 	if currentOwnerID == newOwnerID {
 		return nil
 	}
@@ -98,12 +124,13 @@ func (s *Service) TransferOwnership(ctx context.Context, compID, currentOwnerID,
 		return err
 	}
 
-	// Invalidate cached member roles in Redis immediately
+	// Invalidate cached member roles in Redis immediately and register active competition
 	if s.rdb != nil {
 		_ = s.rdb.Del(ctx,
 			fmt.Sprintf("comp:%s:member:%s", compID, currentOwnerID),
 			fmt.Sprintf("comp:%s:member:%s", compID, newOwnerID),
 		).Err()
+		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:competitions", newOwnerID), compID).Err()
 	}
 
 	s.recordAudit(ctx, audit.ActionCompetitionTransferOwnership, compID, fmt.Sprintf("Transferred competition ownership from %s to %s", currentOwnerID, newOwnerID), &currentOwnerID, map[string]any{
@@ -134,7 +161,7 @@ func (s *Service) AssignOrUpdateMemberRole(ctx context.Context, compID, actorID,
 	}
 
 	// Check target user's current role if they are already in the competition
-	existingRole, err := s.repo.GetMemberRole(ctx, compID, targetUserID)
+	existingRole, _, err := s.repo.GetMemberRole(ctx, compID, targetUserID)
 	if err == nil {
 		if existingRole == "owner" {
 			return ErrCannotModifyOwner
@@ -168,7 +195,7 @@ func (s *Service) AssignOrUpdateMemberRole(ctx context.Context, compID, actorID,
 // - Cannot remove the owner.
 // - Admins cannot remove other admins.
 func (s *Service) RemoveMember(ctx context.Context, compID, actorID, actorRole, targetUserID string) error {
-	targetRole, err := s.repo.GetMemberRole(ctx, compID, targetUserID)
+	targetRole, _, err := s.repo.GetMemberRole(ctx, compID, targetUserID)
 	if err != nil {
 		return err
 	}
@@ -185,9 +212,10 @@ func (s *Service) RemoveMember(ctx context.Context, compID, actorID, actorRole, 
 		return err
 	}
 
-	// Invalidate member role in Redis
+	// Invalidate member role in Redis & remove from accessible competitions set
 	if s.rdb != nil {
 		_ = s.rdb.Del(ctx, fmt.Sprintf("comp:%s:member:%s", compID, targetUserID)).Err()
+		_ = s.rdb.SRem(ctx, fmt.Sprintf("user:%s:competitions", targetUserID), compID).Err()
 	}
 
 	s.recordAudit(ctx, audit.ActionCompetitionMemberRemove, compID, fmt.Sprintf("Removed user %s from competition", targetUserID), &actorID, map[string]any{
@@ -197,6 +225,102 @@ func (s *Service) RemoveMember(ctx context.Context, compID, actorID, actorRole, 
 	return nil
 }
 
+// BanMember bans a member from the competition.
+// - Cannot ban the owner.
+// - Admins cannot ban other admins (only owner can ban admins).
+func (s *Service) BanMember(ctx context.Context, compID, actorID, actorRole, targetUserID string, reason *string) error {
+	targetRole, isBanned, err := s.repo.GetMemberRole(ctx, compID, targetUserID)
+	if err != nil {
+		return err
+	}
+	if isBanned {
+		return nil
+	}
+	if targetRole == "owner" {
+		return errors.New("cannot ban the competition owner")
+	}
+	if actorRole == "admin" && targetRole == "admin" && actorID != targetUserID {
+		return ErrPermissionDenied
+	}
+
+	if err := s.repo.BanMember(ctx, compID, targetUserID); err != nil {
+		return err
+	}
+
+	// Update Redis immediately:
+	// 1. Mark comp:id:member:id as "banned" with 15m TTL
+	// 2. Remove compID from user:id:competitions set
+	if s.rdb != nil {
+		memberKey := fmt.Sprintf("comp:%s:member:%s", compID, targetUserID)
+		_ = s.rdb.Set(ctx, memberKey, "banned", 15*time.Minute).Err()
+		_ = s.rdb.SRem(ctx, fmt.Sprintf("user:%s:competitions", targetUserID), compID).Err()
+	}
+
+	desc := fmt.Sprintf("Banned user %s from competition", targetUserID)
+	if reason != nil && *reason != "" {
+		desc += fmt.Sprintf(" (reason: %s)", *reason)
+	}
+	s.recordAudit(ctx, "competition.member.ban", compID, desc, &actorID, map[string]any{
+		"target_user_id": targetUserID,
+		"reason":         reason,
+	})
+
+	return nil
+}
+
+// UnbanMember restores a banned member's access in the competition.
+func (s *Service) UnbanMember(ctx context.Context, compID, actorID, targetUserID string) error {
+	restoredRole, err := s.repo.UnbanMember(ctx, compID, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	// Update Redis immediately:
+	// 1. Set comp:id:member:id to restoredRole with 15m TTL
+	// 2. Add compID back to user:id:competitions set
+	if s.rdb != nil {
+		memberKey := fmt.Sprintf("comp:%s:member:%s", compID, targetUserID)
+		_ = s.rdb.Set(ctx, memberKey, restoredRole, 15*time.Minute).Err()
+		userCompsKey := fmt.Sprintf("user:%s:competitions", targetUserID)
+		_ = s.rdb.SAdd(ctx, userCompsKey, compID).Err()
+		_ = s.rdb.Expire(ctx, userCompsKey, time.Hour).Err()
+	}
+
+	s.recordAudit(ctx, "competition.member.unban", compID, fmt.Sprintf("Unbanned user %s in competition", targetUserID), &actorID, map[string]any{
+		"target_user_id": targetUserID,
+		"restored_role":  restoredRole,
+	})
+
+	return nil
+}
+
+// ListCompetitionUsers returns paginated user profiles scoped to this competition.
+func (s *Service) ListCompetitionUsers(ctx context.Context, compID string, filter CompetitionUserFilter) (*CompetitionUserListResponse, error) {
+	users, total, err := s.repo.ListCompetitionUsers(ctx, compID, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	} else if limit > 100 {
+		limit = 100
+	}
+
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+
+	return &CompetitionUserListResponse{
+		Users: users,
+		Total: total,
+		Page:  page,
+		Limit: limit,
+	}, nil
+}
+
 // ListMembers lists competition members.
 func (s *Service) ListMembers(ctx context.Context, compID, roleFilter string) ([]MemberWithUser, error) {
 	return s.repo.ListMembers(ctx, compID, roleFilter)
@@ -204,7 +328,7 @@ func (s *Service) ListMembers(ctx context.Context, compID, roleFilter string) ([
 
 // GetMyMembership retrieves the active user's membership and role in this competition.
 func (s *Service) GetMyMembership(ctx context.Context, compID, userID string) (*CompetitionMember, error) {
-	role, err := s.repo.GetMemberRole(ctx, compID, userID)
+	role, isBanned, err := s.repo.GetMemberRole(ctx, compID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +336,7 @@ func (s *Service) GetMyMembership(ctx context.Context, compID, userID string) (*
 		CompetitionID: compID,
 		UserID:        userID,
 		Role:          role,
+		IsBanned:      isBanned,
 	}, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"devclubxnst.com/cadence/internal/modules/auth"
@@ -134,7 +135,12 @@ func (h *Handler) HandleTransferOwnership(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err := h.service.TransferOwnership(r.Context(), compCtx.CompetitionID, compCtx.UserID, req.NewOwnerUserID)
+	if req.NewOwnerUserID == "" && (req.NewOwnerEmail == nil || *req.NewOwnerEmail == "") {
+		utils.ErrorJSON(w, http.StatusBadRequest, "either new_owner_user_id or new_owner_email must be provided")
+		return
+	}
+
+	err := h.service.TransferOwnership(r.Context(), compCtx.CompetitionID, compCtx.UserID, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrTargetAlreadyOwnsCompetition):
@@ -300,4 +306,103 @@ func (h *Handler) HandleGetMyMembership(w http.ResponseWriter, r *http.Request) 
 	}
 
 	utils.JSON(w, http.StatusOK, compCtx)
+}
+
+// HandleBanMember bans a user from the competition.
+func (h *Handler) HandleBanMember(w http.ResponseWriter, r *http.Request) {
+	compCtx, ok := FromContext(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "competition context missing")
+		return
+	}
+
+	targetUserID := chi.URLParam(r, "userId")
+	if targetUserID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "target user id is required")
+		return
+	}
+
+	var req BanMemberRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	err := h.service.BanMember(r.Context(), compCtx.CompetitionID, compCtx.UserID, compCtx.Role, targetUserID, req.Reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrMemberNotFound):
+			utils.ErrorJSON(w, http.StatusNotFound, "member not found in this competition")
+		case errors.Is(err, ErrPermissionDenied):
+			utils.ErrorJSON(w, http.StatusForbidden, "admins cannot ban other admins")
+		case strings.Contains(err.Error(), "cannot ban the competition owner"):
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+		default:
+			utils.ErrorJSON(w, http.StatusInternalServerError, "failed to ban member")
+		}
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "member successfully banned from competition"})
+}
+
+// HandleUnbanMember restores a banned user's access in the competition.
+func (h *Handler) HandleUnbanMember(w http.ResponseWriter, r *http.Request) {
+	compCtx, ok := FromContext(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "competition context missing")
+		return
+	}
+
+	targetUserID := chi.URLParam(r, "userId")
+	if targetUserID == "" {
+		utils.ErrorJSON(w, http.StatusBadRequest, "target user id is required")
+		return
+	}
+
+	err := h.service.UnbanMember(r.Context(), compCtx.CompetitionID, compCtx.UserID, targetUserID)
+	if err != nil {
+		if errors.Is(err, ErrMemberNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, "member not found in this competition")
+			return
+		}
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to unban member")
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "member successfully unbanned in competition"})
+}
+
+// HandleListCompetitionUsers lists users scoped to this competition.
+func (h *Handler) HandleListCompetitionUsers(w http.ResponseWriter, r *http.Request) {
+	compCtx, ok := FromContext(r.Context())
+	if !ok {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "competition context missing")
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	filter := CompetitionUserFilter{
+		Page:          page,
+		Limit:         limit,
+		Role:          r.URL.Query().Get("role"),
+		TeamID:        r.URL.Query().Get("team_id"),
+		NoTeam:        r.URL.Query().Get("no_team") == "true",
+		Search:        r.URL.Query().Get("search"),
+		CheckinStatus: r.URL.Query().Get("checkin_status"),
+	}
+
+	if bannedStr := r.URL.Query().Get("is_banned"); bannedStr != "" {
+		isBanned := bannedStr == "true"
+		filter.IsBanned = &isBanned
+	}
+
+	resp, err := h.service.ListCompetitionUsers(r.Context(), compCtx.CompetitionID, filter)
+	if err != nil {
+		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to list competition users")
+		return
+	}
+
+	utils.JSON(w, http.StatusOK, resp)
 }

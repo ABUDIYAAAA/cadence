@@ -40,6 +40,12 @@ func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) 
 				return
 			}
 
+			// If competition is already present in context matching the slug, pass through
+			if existing, ok := GetCompetition(r.Context()); ok && existing != nil && existing.Slug == slug {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			cacheKey := "comp:slug:" + slug
 			var comp Competition
 
@@ -55,6 +61,10 @@ func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) 
 			}
 
 			// 2. Query Postgres
+			if repo == nil {
+				utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
+				return
+			}
 			dbComp, err := repo.GetCompetitionBySlug(r.Context(), slug)
 			if err != nil {
 				if errors.Is(err, ErrCompetitionNotFound) {
@@ -79,7 +89,8 @@ func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) 
 }
 
 // RequireMembership middleware verifies that the authenticated user is an active member
-// of the current competition, caches their role in Redis, and attaches CompetitionContext.
+// of the current competition, caches their role and accessible competitions in Redis, and attaches CompetitionContext.
+// Banned members are immediately rejected with 403 Forbidden.
 func RequireMembership(repo *Repository, rdb *redis.Client) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -95,38 +106,67 @@ func RequireMembership(repo *Repository, rdb *redis.Client) func(http.Handler) h
 				return
 			}
 
+			// Dev bypass: global dev automatically gets full owner powers across all competitions
+			if claims.GlobalRole == "dev" {
+				compCtx := &Context{
+					CompetitionID: comp.ID,
+					Slug:          comp.Slug,
+					Name:          comp.Name,
+					UserID:        claims.UserID,
+					Role:          "owner",
+				}
+				ctx := WithCompetitionContext(r.Context(), compCtx)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			memberKey := fmt.Sprintf("comp:%s:member:%s", comp.ID, claims.UserID)
 			var role string
 
 			// 1. Check Redis cache (<1ms)
 			if rdb != nil {
 				if cachedRole, err := rdb.Get(r.Context(), memberKey).Result(); err == nil && cachedRole != "" {
+					if cachedRole == "banned" {
+						utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this competition")
+						return
+					}
 					role = cachedRole
 				}
 			}
 
 			// 2. Query Postgres on cache miss
 			if role == "" {
-				dbRole, err := repo.GetMemberRole(r.Context(), comp.ID, claims.UserID)
+				if repo == nil {
+					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
+					return
+				}
+				dbRole, isBanned, err := repo.GetMemberRole(r.Context(), comp.ID, claims.UserID)
 				if err != nil {
 					if errors.Is(err, ErrMemberNotFound) {
-						if claims.GlobalRole == "dev" {
-							role = "owner"
-						} else {
-							utils.ErrorJSON(w, http.StatusForbidden, "you are not a member of this competition")
-							return
-						}
-					} else {
-						utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
+						utils.ErrorJSON(w, http.StatusForbidden, "you are not a member of this competition")
 						return
 					}
-				} else {
-					role = dbRole
+					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
+					return
 				}
 
-				// Cache in Redis (15m TTL)
+				if isBanned {
+					if rdb != nil {
+						_ = rdb.Set(r.Context(), memberKey, "banned", 15*time.Minute).Err()
+						_ = rdb.SRem(r.Context(), fmt.Sprintf("user:%s:competitions", claims.UserID), comp.ID).Err()
+					}
+					utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this competition")
+					return
+				}
+
+				role = dbRole
+
+				// Cache in Redis (15m TTL) and update accessible competitions set (1h TTL)
 				if rdb != nil {
-					_ = rdb.Set(r.Context(), memberKey, role, 15*time.Minute)
+					_ = rdb.Set(r.Context(), memberKey, role, 15*time.Minute).Err()
+					userCompsKey := fmt.Sprintf("user:%s:competitions", claims.UserID)
+					_ = rdb.SAdd(r.Context(), userCompsKey, comp.ID).Err()
+					_ = rdb.Expire(r.Context(), userCompsKey, time.Hour).Err()
 				}
 			}
 

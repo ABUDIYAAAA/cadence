@@ -347,6 +347,71 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	return nil
 }
 
+// BlacklistUser sets is_active=FALSE, writes instant Redis revocation, and purges accessible competitions.
+func (s *Service) BlacklistUser(ctx context.Context, id string) error {
+	active := false
+	if _, err := s.repo.UpdateUser(ctx, id, UpdateUserRequest{IsActive: &active}); err != nil {
+		return err
+	}
+
+	if s.redis != nil {
+		_ = s.redis.Set(ctx, fmt.Sprintf("blocked:user:%s", id), "blacklisted", 24*time.Hour).Err()
+		_ = s.redis.Del(ctx, fmt.Sprintf("user:%s:competitions", id)).Err()
+	}
+
+	if s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserUpdate,
+			TargetType:  audit.TargetUser,
+			TargetID:    &id,
+			Description: fmt.Sprintf("Developer blacklisted user %s", id),
+		})
+	}
+	return nil
+}
+
+// UnblacklistUser restores is_active=TRUE and removes the global Redis blocklist entry.
+func (s *Service) UnblacklistUser(ctx context.Context, id string) error {
+	active := true
+	if _, err := s.repo.UpdateUser(ctx, id, UpdateUserRequest{IsActive: &active}); err != nil {
+		return err
+	}
+
+	if s.redis != nil {
+		_ = s.redis.Del(ctx, fmt.Sprintf("blocked:user:%s", id)).Err()
+	}
+
+	if s.auditor != nil {
+		actorClaims, _ := auth.GetUserClaims(ctx)
+		var actorID, actorEmail, actorRole *string
+		if actorClaims != nil {
+			actorID = &actorClaims.UserID
+			actorEmail = &actorClaims.Email
+			actorRole = &actorClaims.Role
+		}
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     actorID,
+			ActorEmail:  actorEmail,
+			ActorRole:   actorRole,
+			Action:      audit.ActionUserUpdate,
+			TargetType:  audit.TargetUser,
+			TargetID:    &id,
+			Description: fmt.Sprintf("Developer unblacklisted user %s", id),
+		})
+	}
+	return nil
+}
+
 // volunteerCaller reports whether the caller in ctx is a volunteer, who may only add participants.
 func volunteerCaller(ctx context.Context) bool {
 	claims, ok := auth.GetUserClaims(ctx)

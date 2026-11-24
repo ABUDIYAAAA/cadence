@@ -354,8 +354,10 @@ func ResetState(t *testing.T) {
 	// 2. Truncate all Postgres tables
 	truncateSQL := `
 		TRUNCATE TABLE
-			user_competitions,
+			team_members,
+			user_events,
 			competitions,
+			events,
 			notification_recipients,
 			notifications,
 			push_subscriptions,
@@ -370,11 +372,9 @@ func ResetState(t *testing.T) {
 			scan_sessions,
 			tickets,
 			audit_logs,
-			user_competitions,
 			refresh_tokens,
 			users,
-			teams,
-			competitions
+			teams
 		RESTART IDENTITY CASCADE;
 	`
 	if _, err := testApp.DB.Exec(ctx, truncateSQL); err != nil {
@@ -400,7 +400,7 @@ func ResetState(t *testing.T) {
 		t.Fatalf("[ResetState] unexpected status clearing Mailpit messages: %d", resp.StatusCode)
 	}
 
-	// 5. Seed deterministic root administrator account and default competition
+	// 5. Seed deterministic root administrator account, default event, and default competition
 	insertAdminSQL := `
 		INSERT INTO users (email, name, global_role, is_active)
 		VALUES ($1, $2, 'dev', TRUE)
@@ -411,22 +411,31 @@ func ResetState(t *testing.T) {
 		t.Fatalf("[ResetState] failed to seed root admin user: %v", err)
 	}
 
-	seedCompSQL := `
-		INSERT INTO competitions (id, name, slug, description)
-		VALUES ('00000000-0000-0000-0000-000000000001', 'DevClub Hack', 'devclub-hack', 'Default seeded competition')
+	seedEventSQL := `
+		INSERT INTO events (id, name, slug, description)
+		VALUES ('00000000-0000-0000-0000-000000000001', 'DevClub Event', 'devclub-event', 'Default seeded event')
 		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+	`
+	if _, err := testApp.DB.Exec(ctx, seedEventSQL); err != nil {
+		t.Fatalf("[ResetState] failed to seed event: %v", err)
+	}
+
+	seedCompSQL := `
+		INSERT INTO competitions (id, event_id, name, slug, description)
+		VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'DevClub Hack', 'devclub-hack', 'Default seeded competition')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, event_id = EXCLUDED.event_id
 	`
 	if _, err := testApp.DB.Exec(ctx, seedCompSQL); err != nil {
 		t.Fatalf("[ResetState] failed to seed competition: %v", err)
 	}
 
-	seedUserCompSQL := `
-		INSERT INTO user_competitions (user_id, competition_id, role)
+	seedUserEventSQL := `
+		INSERT INTO user_events (user_id, event_id, role)
 		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'owner')
-		ON CONFLICT (competition_id, user_id) DO UPDATE SET role = 'owner'
+		ON CONFLICT (event_id, user_id) DO UPDATE SET role = 'owner'
 	`
-	if _, err := testApp.DB.Exec(ctx, seedUserCompSQL, adminID); err != nil {
-		t.Fatalf("[ResetState] failed to seed user competition role: %v", err)
+	if _, err := testApp.DB.Exec(ctx, seedUserEventSQL, adminID); err != nil {
+		t.Fatalf("[ResetState] failed to seed user event role: %v", err)
 	}
 }
 

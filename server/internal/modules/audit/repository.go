@@ -35,21 +35,22 @@ func (r *Repository) InsertAuditLog(ctx context.Context, e Event) error {
 
 	query := `
 		INSERT INTO audit_logs (
-			actor_id, actor_email, actor_role, action, target_type, target_id,
+			event_id, competition_id, actor_id, actor_email, actor_role, action, target_type, target_id,
 			description, metadata, ip_address, user_agent, device_id, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 
 	_, err = r.db.Exec(ctx, query,
-		e.ActorID, e.ActorEmail, e.ActorRole, e.Action, e.TargetType, e.TargetID,
+		e.EventID, e.CompetitionID, e.ActorID, e.ActorEmail, e.ActorRole, e.Action, e.TargetType, e.TargetID,
 		e.Description, metaJSON, e.IPAddress, e.UserAgent, e.DeviceID, createdAt,
 	)
-	if err != nil && e.ActorID != nil {
+	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "22P02") {
-			// If the referenced actor_id no longer exists or is malformed, preserve the audit event with actor_id = NULL.
+			// If a referenced foreign key (actor_id, event_id, competition_id) no longer exists or is malformed,
+			// preserve the audit event with NULL references.
 			_, err = r.db.Exec(ctx, query,
-				nil, e.ActorEmail, e.ActorRole, e.Action, e.TargetType, e.TargetID,
+				nil, nil, nil, e.ActorEmail, e.ActorRole, e.Action, e.TargetType, e.TargetID,
 				e.Description, metaJSON, e.IPAddress, e.UserAgent, e.DeviceID, createdAt,
 			)
 		}
@@ -75,6 +76,18 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (
 	var conditions []string
 	var args []any
 	argIndex := 1
+
+	if filter.EventID != "" {
+		conditions = append(conditions, fmt.Sprintf("(event_id = $%d OR event_id IS NULL)", argIndex))
+		args = append(args, filter.EventID)
+		argIndex++
+	}
+
+	if filter.CompetitionID != "" {
+		conditions = append(conditions, fmt.Sprintf("competition_id = $%d", argIndex))
+		args = append(args, filter.CompetitionID)
+		argIndex++
+	}
 
 	if filter.Action != "" {
 		conditions = append(conditions, fmt.Sprintf("action = $%d", argIndex))
@@ -144,7 +157,7 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (
 	offset := (page - 1) * limit
 
 	query := fmt.Sprintf(`
-		SELECT id, actor_id, actor_email, actor_role, action, target_type, target_id,
+		SELECT id, event_id, competition_id, actor_id, actor_email, actor_role, action, target_type, target_id,
 		       description, metadata, ip_address, user_agent, device_id, created_at
 		FROM audit_logs
 		%s
@@ -165,7 +178,7 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (
 		var item AuditLogResponse
 		var metaBytes []byte
 		if err := rows.Scan(
-			&item.ID, &item.ActorID, &item.ActorEmail, &item.ActorRole, &item.Action,
+			&item.ID, &item.EventID, &item.CompetitionID, &item.ActorID, &item.ActorEmail, &item.ActorRole, &item.Action,
 			&item.TargetType, &item.TargetID, &item.Description, &metaBytes,
 			&item.IPAddress, &item.UserAgent, &item.DeviceID, &item.CreatedAt,
 		); err != nil {

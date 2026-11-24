@@ -102,9 +102,21 @@ const (
 	ActionSystemBackupFailed    = "system.backup_failed"
 	ActionSystemBackupRecovered = "system.backup_recovered"
 
+	// Event actions
+	ActionEventCreate            = "event.create"
+	ActionEventUpdate            = "event.update"
+	ActionEventDelete            = "event.delete"
+	ActionEventTransferOwnership = "event.transfer_ownership"
+	ActionEventMemberAssign      = "event.member_assign"
+	ActionEventMemberRoleUpdate  = "event.member_role_update"
+	ActionEventMemberRemove      = "event.member_remove"
+	ActionEventMemberBan         = "event.member.ban"
+	ActionEventMemberUnban       = "event.member.unban"
+
 	// Competition actions
 	ActionCompetitionCreate            = "competition.create"
 	ActionCompetitionUpdate            = "competition.update"
+	ActionCompetitionDelete            = "competition.delete"
 	ActionCompetitionTransferOwnership = "competition.transfer_ownership"
 	ActionCompetitionMemberAssign      = "competition.member_assign"
 	ActionCompetitionMemberRoleUpdate  = "competition.member_role_update"
@@ -113,6 +125,7 @@ const (
 
 // Standardized target type constants
 const (
+	TargetEvent        = "event"
 	TargetCompetition  = "competition"
 	TargetUser         = "user"
 	TargetTeam         = "team"
@@ -129,18 +142,20 @@ const (
 
 // Event encapsulates a structured domain action to be recorded in the audit trail.
 type Event struct {
-	ActorID     *string        `json:"actor_id,omitempty"`
-	ActorEmail  *string        `json:"actor_email,omitempty"`
-	ActorRole   *string        `json:"actor_role,omitempty"`
-	Action      string         `json:"action"`
-	TargetType  string         `json:"target_type"`
-	TargetID    *string        `json:"target_id,omitempty"`
-	Description string         `json:"description"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	IPAddress   *string        `json:"ip_address,omitempty"`
-	UserAgent   *string        `json:"user_agent,omitempty"`
-	DeviceID    *string        `json:"device_id,omitempty"`
-	Timestamp   time.Time      `json:"timestamp"`
+	EventID       *string        `json:"event_id,omitempty"`
+	CompetitionID *string        `json:"competition_id,omitempty"`
+	ActorID       *string        `json:"actor_id,omitempty"`
+	ActorEmail    *string        `json:"actor_email,omitempty"`
+	ActorRole     *string        `json:"actor_role,omitempty"`
+	Action        string         `json:"action"`
+	TargetType    string         `json:"target_type"`
+	TargetID      *string        `json:"target_id,omitempty"`
+	Description   string         `json:"description"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	IPAddress     *string        `json:"ip_address,omitempty"`
+	UserAgent     *string        `json:"user_agent,omitempty"`
+	DeviceID      *string        `json:"device_id,omitempty"`
+	Timestamp     time.Time      `json:"timestamp"`
 }
 
 // Recorder defines an interface for capturing audit events asynchronously.

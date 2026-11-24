@@ -20,6 +20,7 @@ import (
 	"devclubxnst.com/cadence/internal/modules/audit"
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/internal/modules/competitions"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/internal/modules/judging"
 	"devclubxnst.com/cadence/internal/modules/notifications"
 	"devclubxnst.com/cadence/internal/modules/teams"
@@ -200,27 +201,32 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		appLogger.Info("database backup disabled: R2 credentials not configured")
 	}
 
-	// Mount API v1
-	router.Route("/api/v1", func(r chi.Router) {
-		auth.RegisterRoutes(r, authHandler, authMiddleware)
-		users.RegisterRoutes(r, usersHandler, authMiddleware)
-		tickets.RegisterRoutes(r, ticketsHandler, authMiddleware)
-		judging.RegisterRoutes(r, judgingHandler, authMiddleware)
-		notifications.RegisterRoutes(r, notifHandler, authMiddleware)
-		audit.RegisterRoutes(r, auditHandler, authMiddleware)
-	})
+	// Events & Competitions multi-tenant modules initialization
+	eventsRepo := events.NewRepository(dbPool)
+	eventsService := events.NewService(eventsRepo, redisClient, auditQueue)
+	eventsHandler := events.NewHandler(eventsService)
 
-	// Mount API v2 (self-serve teams with join codes and freezing, and multi-tenant competitions)
 	competitionsRepo := competitions.NewRepository(dbPool)
 	competitionsService := competitions.NewService(competitionsRepo, redisClient, auditQueue)
 	competitionsHandler := competitions.NewHandler(competitionsService)
 
+	// Mount unified API v2
 	router.Route("/api/v2", func(r chi.Router) {
+		auth.RegisterRoutes(r, authHandler, authMiddleware)
+		users.RegisterRoutes(r, usersHandler, authMiddleware)
 		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
-		competitions.RegisterRoutes(r, competitionsHandler, competitionsRepo, redisClient, authMiddleware, func(scoped chi.Router) {
-			scoped.Route("/teams", func(tr chi.Router) {
-				teams.RegisterScopedRoutes(tr, teamsHandler)
+
+		events.RegisterRoutes(r, eventsHandler, eventsRepo, redisClient, authMiddleware, func(eventScoped chi.Router) {
+			competitions.RegisterEventScopedRoutes(eventScoped, competitionsHandler, competitionsRepo, redisClient, func(compScoped chi.Router) {
+				compScoped.Route("/teams", func(tr chi.Router) {
+					teams.RegisterScopedRoutes(tr, teamsHandler)
+				})
+				judging.RegisterRoutes(compScoped, judgingHandler, authMiddleware)
 			})
+			tickets.RegisterRoutes(eventScoped, ticketsHandler, authMiddleware)
+			judging.RegisterRoutes(eventScoped, judgingHandler, authMiddleware)
+			notifications.RegisterRoutes(eventScoped, notifHandler, authMiddleware)
+			audit.RegisterRoutes(eventScoped, auditHandler, authMiddleware)
 		})
 	})
 

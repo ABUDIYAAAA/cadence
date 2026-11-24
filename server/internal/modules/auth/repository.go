@@ -115,47 +115,47 @@ func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name
 		return nil, fmt.Errorf("upsert google user: %w", err)
 	}
 
-	// Link user to default competition
-	compRole := "participant"
+	// Link user to default event
+	evRole := "participant"
 	if u.GlobalRole == GlobalRoleDev {
-		compRole = "owner"
+		evRole = "owner"
 	}
 	_, _ = r.db.Exec(ctx, `
-		INSERT INTO user_competitions (user_id, competition_id, role)
-		VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::competition_role)
-		ON CONFLICT (competition_id, user_id) DO NOTHING
-	`, u.ID, compRole)
+		INSERT INTO user_events (user_id, event_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::event_role)
+		ON CONFLICT (event_id, user_id) DO NOTHING
+	`, u.ID, evRole)
 
 	return &u, nil
 }
 
-// GetUserCompetitions retrieves all competitions and associated roles for a user.
-func (r *Repository) GetUserCompetitions(ctx context.Context, userID string) ([]UserCompetitionRole, error) {
+// GetUserEvents retrieves all non-banned events and associated roles for a user.
+func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEventRole, error) {
 	query := `
-		SELECT c.id, c.slug, c.name, uc.role::text
-		FROM user_competitions uc
-		JOIN competitions c ON uc.competition_id = c.id
-		WHERE uc.user_id = $1
-		ORDER BY c.created_at DESC
+		SELECT e.id, e.slug, e.name, ue.role::text
+		FROM user_events ue
+		JOIN events e ON ue.event_id = e.id
+		WHERE ue.user_id = $1 AND ue.is_banned = FALSE
+		ORDER BY e.created_at DESC
 	`
 	rows, err := r.db.Query(ctx, query, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user competitions: %w", err)
+		return nil, fmt.Errorf("get user events: %w", err)
 	}
 	defer rows.Close()
 
-	comps := make([]UserCompetitionRole, 0)
+	evs := make([]UserEventRole, 0)
 	for rows.Next() {
-		var item UserCompetitionRole
-		if err := rows.Scan(&item.CompetitionID, &item.CompetitionSlug, &item.CompetitionName, &item.Role); err != nil {
-			return nil, fmt.Errorf("scan user competition: %w", err)
+		var item UserEventRole
+		if err := rows.Scan(&item.EventID, &item.EventSlug, &item.EventName, &item.Role); err != nil {
+			return nil, fmt.Errorf("scan user event: %w", err)
 		}
-		comps = append(comps, item)
+		evs = append(evs, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate user competitions: %w", err)
+		return nil, fmt.Errorf("iterate user events: %w", err)
 	}
-	return comps, nil
+	return evs, nil
 }
 
 func (r *Repository) SetGlobalRole(ctx context.Context, userID, globalRole string) error {

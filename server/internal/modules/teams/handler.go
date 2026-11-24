@@ -51,7 +51,7 @@ func writeError(w http.ResponseWriter, err error, fallback string) {
 	case errors.Is(err, ErrNotLeader):
 		utils.ErrorJSON(w, http.StatusForbidden, "only the team leader can do this")
 	case errors.Is(err, ErrUserIsBanned):
-		utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this competition")
+		utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this event")
 	case errors.Is(err, ErrNotParticipant):
 		utils.ErrorJSON(w, http.StatusBadRequest, "only participants can be on a team")
 	case errors.Is(err, ErrLeaderNotMember), errors.Is(err, ErrCannotKickSelf):

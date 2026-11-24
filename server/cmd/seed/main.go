@@ -58,20 +58,30 @@ func main() {
 		}
 	}
 
-	// Map admin to default competition in user_competitions if the table exists
-	compRoleQuery := `
-		INSERT INTO user_competitions (user_id, competition_id, role)
+	// Ensure default event and competition exist and map admin to default event in user_events
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO events (id, slug, name)
+		VALUES ('00000000-0000-0000-0000-000000000001', 'devclub-event', 'DevClub Event')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO competitions (id, event_id, slug, name)
+		VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'devclub-hack', 'DevClub Hackathon')
+		ON CONFLICT (id) DO UPDATE SET event_id = '00000000-0000-0000-0000-000000000001'
+	`)
+	eventRoleQuery := `
+		INSERT INTO user_events (user_id, event_id, role)
 		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'owner')
-		ON CONFLICT (competition_id, user_id) 
+		ON CONFLICT (event_id, user_id) 
 		DO UPDATE SET role = 'owner', updated_at = CURRENT_TIMESTAMP
 	`
-	_, _ = pool.Exec(ctx, compRoleQuery, userID)
+	_, _ = pool.Exec(ctx, eventRoleQuery, userID)
 
 	fmt.Println("==================================================")
 	fmt.Println(" [SEED] Admin user seeded successfully")
 	fmt.Printf(" Email : %s\n", cfg.SeedAdminEmail)
 	fmt.Printf(" Name  : %s\n", cfg.SeedAdminName)
-	fmt.Println(" Role  : owner (in default competition)")
+	fmt.Println(" Role  : dev (global) / owner (in default event)")
 	fmt.Println(" Status: password configured & active")
 	fmt.Println("==================================================")
 }

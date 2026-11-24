@@ -12,6 +12,7 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/mailer"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
@@ -202,6 +203,9 @@ func (s *Service) SendSingleTicket(
 
 	if s.mailQueue != nil {
 		eventName := "Cadence Hackathon"
+		if evCtx, ok := events.FromContext(ctx); ok && evCtx.Name != "" {
+			eventName = evCtx.Name
+		}
 		if err := s.mailQueue.SendTicketEmail(ctx, email, name, eventName, qrPNG); err != nil {
 			return nil, fmt.Errorf("enqueue ticket email: %w", err)
 		}
@@ -257,6 +261,9 @@ func (s *Service) BulkSendTickets(
 	enqueued := 0
 	skipped := 0
 	eventName := "Cadence Hackathon"
+	if evCtx, ok := events.FromContext(ctx); ok && evCtx.Name != "" {
+		eventName = evCtx.Name
+	}
 
 	for _, u := range eligible {
 		ticketCode := u.TicketCode
@@ -360,7 +367,9 @@ func (s *Service) recordAudit(
 	if s.auditQueue == nil {
 		return
 	}
+	eventID := resolveEventID(ctx)
 	s.auditQueue.Record(ctx, audit.Event{
+		EventID:     &eventID,
 		ActorID:     actorID,
 		ActorEmail:  actorEmail,
 		ActorRole:   actorRole,

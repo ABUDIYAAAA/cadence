@@ -14,6 +14,7 @@ type CreateCriteriaRequest struct {
 
 // CreateRoundRequest creates a new judging round with criteria.
 type CreateRoundRequest struct {
+	CompetitionID    string                  `json:"competition_id,omitempty" validate:"omitempty,uuid"`
 	Name             string                  `json:"name" validate:"required,max=255"`
 	BufferSize       int                     `json:"buffer_size" validate:"min=1"`
 	SlotDurationMins int                     `json:"slot_duration_mins" validate:"min=1"`

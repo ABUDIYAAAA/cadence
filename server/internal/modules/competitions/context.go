@@ -6,9 +6,10 @@ type contextKey string
 
 const competitionContextKey contextKey = "competition_context"
 
-// Context stores the resolved competition and the calling user's role in it.
+// Context stores the resolved competition and the calling user's role in its parent event.
 type Context struct {
 	CompetitionID string `json:"competition_id"`
+	EventID       string `json:"event_id"`
 	Slug          string `json:"slug"`
 	Name          string `json:"name"`
 	UserID        string `json:"user_id"`

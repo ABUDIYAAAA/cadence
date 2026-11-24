@@ -1,0 +1,427 @@
+package events
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+
+	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/pkg/utils"
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
+)
+
+func TestRequireEventRoles(t *testing.T) {
+	adminOrOwnerOnly := RequireEventRoles("owner", "admin")
+
+	testHandler := adminOrOwnerOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		evCtx, ok := FromContext(r.Context())
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(evCtx.Role + ":" + evCtx.EventID))
+	}))
+
+	t.Run("missing event context returns 403", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		rec := httptest.NewRecorder()
+		testHandler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected status 403, got %d", rec.Code)
+		}
+	})
+
+	t.Run("owner role allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		ctx := WithEventContext(req.Context(), &Context{
+			EventID: "ev-1",
+			Slug:    "fest-2026",
+			Name:    "Fest 2026",
+			UserID:  "user-owner",
+			Role:    "owner",
+		})
+		rec := httptest.NewRecorder()
+		testHandler.ServeHTTP(rec, req.WithContext(ctx))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rec.Code)
+		}
+		if rec.Body.String() != "owner:ev-1" {
+			t.Fatalf("unexpected body: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("admin role allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		ctx := WithEventContext(req.Context(), &Context{
+			EventID: "ev-1",
+			Slug:    "fest-2026",
+			Name:    "Fest 2026",
+			UserID:  "user-admin",
+			Role:    "admin",
+		})
+		rec := httptest.NewRecorder()
+		testHandler.ServeHTTP(rec, req.WithContext(ctx))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rec.Code)
+		}
+	})
+
+	t.Run("judge role rejected with 403", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		ctx := WithEventContext(req.Context(), &Context{
+			EventID: "ev-1",
+			Slug:    "fest-2026",
+			Name:    "Fest 2026",
+			UserID:  "user-judge",
+			Role:    "judge",
+		})
+		rec := httptest.NewRecorder()
+		testHandler.ServeHTTP(rec, req.WithContext(ctx))
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected status 403, got %d", rec.Code)
+		}
+	})
+
+	t.Run("participant role rejected with 403", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		ctx := WithEventContext(req.Context(), &Context{
+			EventID: "ev-1",
+			Slug:    "fest-2026",
+			Name:    "Fest 2026",
+			UserID:  "user-part",
+			Role:    "participant",
+		})
+		rec := httptest.NewRecorder()
+		testHandler.ServeHTTP(rec, req.WithContext(ctx))
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected status 403, got %d", rec.Code)
+		}
+	})
+}
+
+func TestSlugRegexValidation(t *testing.T) {
+	validSlugs := []string{
+		"fest-2026",
+		"devclub-event",
+		"ai-summit-1",
+		"delhi-hacks",
+		"e1",
+	}
+
+	for _, s := range validSlugs {
+		if !slugRegex.MatchString(s) {
+			t.Errorf("expected slug %q to be valid", s)
+		}
+	}
+
+	invalidSlugs := []string{
+		"Fest-2026",  // uppercase
+		"fest_2026",  // underscore
+		"-fest",      // leading hyphen
+		"fest-",      // trailing hyphen
+		"fest--2026", // consecutive hyphens
+		"fest 2026",  // space
+		"fest.2026",  // period
+	}
+
+	for _, s := range invalidSlugs {
+		if slugRegex.MatchString(s) {
+			t.Errorf("expected slug %q to be invalid", s)
+		}
+	}
+}
+
+func TestRoleHierarchyRules(t *testing.T) {
+	svc := &Service{}
+
+	t.Run("admin cannot assign admin role", func(t *testing.T) {
+		err := svc.AssignOrUpdateMemberRole(context.Background(), "ev-1", "actor-admin", "admin", "target-user", "admin")
+		if err != ErrPermissionDenied {
+			t.Fatalf("expected ErrPermissionDenied, got %v", err)
+		}
+	})
+
+	t.Run("owner cannot assign owner role via update endpoint", func(t *testing.T) {
+		err := svc.AssignOrUpdateMemberRole(context.Background(), "ev-1", "actor-owner", "owner", "target-user", "owner")
+		if err == nil || err.Error() != "cannot assign owner role; use transfer ownership endpoint" {
+			t.Fatalf("expected cannot assign owner role error, got %v", err)
+		}
+	})
+
+	t.Run("owner cannot self-demote via role update", func(t *testing.T) {
+		err := svc.AssignOrUpdateMemberRole(context.Background(), "ev-1", "actor-owner", "owner", "actor-owner", "participant")
+		if err != ErrCannotSelfDemote {
+			t.Fatalf("expected ErrCannotSelfDemote, got %v", err)
+		}
+	})
+}
+
+func TestCreateAndDeleteEventDevOnlyRestriction(t *testing.T) {
+	r := chi.NewRouter()
+	handler := NewHandler(&Service{})
+
+	authMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	RegisterRoutes(r, handler, nil, nil, authMiddleware)
+
+	t.Run("unauthenticated user is rejected with 401 by RequireDev", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"slug":"fest-2026","name":"Fest 2026"}`)
+		req := httptest.NewRequest(http.MethodPost, "/events", body)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 Unauthorized, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("regular user with global_role=user is rejected with 403 on create event", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"slug":"fest-2026","name":"Fest 2026"}`)
+		req := httptest.NewRequest(http.MethodPost, "/events", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		claims := &utils.AccessTokenClaims{
+			UserID:     "user-regular-1",
+			Email:      "regular@cadence.local",
+			GlobalRole: "user",
+		}
+		ctx := auth.WithUserClaims(req.Context(), claims)
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req.WithContext(ctx))
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden for global_role=user, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("dev user with global_role=dev passes RequireDev gate", func(t *testing.T) {
+		body := bytes.NewBufferString(`{invalid-json`)
+		req := httptest.NewRequest(http.MethodPost, "/events", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		claims := &utils.AccessTokenClaims{
+			UserID:     "user-dev-1",
+			Email:      "dev@cadence.local",
+			GlobalRole: "dev",
+		}
+		ctx := auth.WithUserClaims(req.Context(), claims)
+		rec := httptest.NewRecorder()
+
+		r.ServeHTTP(rec, req.WithContext(ctx))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request (passed dev check), got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func newTestRedisClient(t *testing.T) *redis.Client {
+	t.Helper()
+	opts, err := redis.ParseURL("redis://:password@127.0.0.1:6379/15")
+	if err != nil {
+		t.Skip("skipping Redis test: invalid redis options")
+	}
+	rdb := redis.NewClient(opts)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		t.Skipf("skipping Redis test: redis not reachable: %v", err)
+	}
+	return rdb
+}
+
+func TestRequireMembershipBanEnforcement(t *testing.T) {
+	t.Run("RequireMembership rejects banned user with 403 via Redis cache", func(t *testing.T) {
+		rdb := newTestRedisClient(t)
+		defer rdb.Close()
+		ctx := context.Background()
+		_ = rdb.Set(ctx, "event:ev-1:member:user-banned-1", "banned", time.Minute).Err()
+
+		mw := RequireMembership(nil, rdb)
+		handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		claims := &utils.AccessTokenClaims{
+			UserID:     "user-banned-1",
+			Email:      "banned@cadence.local",
+			GlobalRole: "user",
+		}
+		ev := &Event{
+			ID:   "ev-1",
+			Slug: "fest-2026",
+			Name: "Fest 2026",
+		}
+
+		reqCtx := auth.WithUserClaims(ctx, claims)
+		reqCtx = WithEvent(reqCtx, ev)
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(reqCtx)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden for banned member, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+		var resp map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		if resp["error"] != "you are banned from this event" {
+			t.Fatalf("expected 'you are banned from this event', got %v", resp["error"])
+		}
+	})
+
+	t.Run("Dev bypass grants owner in RequireMembership", func(t *testing.T) {
+		mw := RequireMembership(nil, nil)
+		var capturedRole string
+		handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			evCtx, ok := FromContext(r.Context())
+			if ok {
+				capturedRole = evCtx.Role
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		claims := &utils.AccessTokenClaims{
+			UserID:     "user-dev-1",
+			Email:      "dev@cadence.local",
+			GlobalRole: "dev",
+		}
+		ev := &Event{
+			ID:   "ev-1",
+			Slug: "fest-2026",
+			Name: "Fest 2026",
+		}
+
+		ctx := auth.WithUserClaims(context.Background(), claims)
+		ctx = WithEvent(ctx, ev)
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for dev, got %d", rec.Code)
+		}
+		if capturedRole != "owner" {
+			t.Fatalf("expected role 'owner' for dev, got %s", capturedRole)
+		}
+	})
+}
+
+func newTestDBPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	_ = godotenv.Load("../../.env")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://user:password@127.0.0.1:5434/lms?sslmode=disable"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Skipf("skipping db test: %v", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		t.Skipf("skipping db test: ping failed: %v", err)
+	}
+	return pool
+}
+
+func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
+	db := newTestDBPool(t)
+	defer db.Close()
+	rdb := newTestRedisClient(t)
+	defer rdb.Close()
+
+	repo := NewRepository(db)
+	svc := NewService(repo, rdb, nil)
+	ctx := context.Background()
+
+	nano := time.Now().UnixNano()
+	creatorDevID := "00000000-0000-0000-0000-000000000001"
+
+	t.Run("owner account created in bg with explicit name and single ownership enforced", func(t *testing.T) {
+		ownerEmail := fmt.Sprintf("bg-event-owner-%d@example.com", nano)
+		ownerName := "Explicit Event Organizer"
+		slug := fmt.Sprintf("bg-event-%d", nano)
+		evName := "Background Created Event"
+
+		req := CreateEventRequest{
+			Slug:       slug,
+			Name:       evName,
+			OwnerEmail: &ownerEmail,
+			OwnerName:  &ownerName,
+		}
+
+		ev, err := svc.CreateEvent(ctx, req, creatorDevID)
+		if err != nil {
+			t.Fatalf("failed to create event: %v", err)
+		}
+		if ev == nil || ev.ID == "" {
+			t.Fatalf("expected valid event, got nil or empty id")
+		}
+
+		var createdUserID, createdName string
+		err = db.QueryRow(ctx, "SELECT id, name FROM users WHERE email = $1", ownerEmail).
+			Scan(&createdUserID, &createdName)
+		if err != nil {
+			t.Fatalf("expected background created user to exist in users table: %v", err)
+		}
+		if createdName != ownerName {
+			t.Errorf("expected user name %q, got %q", ownerName, createdName)
+		}
+
+		var memberRole string
+		err = db.QueryRow(ctx, "SELECT role::text FROM user_events WHERE event_id = $1 AND user_id = $2", ev.ID, createdUserID).
+			Scan(&memberRole)
+		if err != nil || memberRole != "owner" {
+			t.Fatalf("expected user_events row with role 'owner', got %q (err: %v)", memberRole, err)
+		}
+
+		// Attempting to create another event with the same owner fails single-ownership rule
+		secondReq := CreateEventRequest{
+			Slug:       fmt.Sprintf("second-event-%d", nano),
+			Name:       "Second Event",
+			OwnerEmail: &ownerEmail,
+		}
+		_, err = svc.CreateEvent(ctx, secondReq, creatorDevID)
+		if err != ErrUserAlreadyOwnsEvent {
+			t.Fatalf("expected ErrUserAlreadyOwnsEvent, got %v", err)
+		}
+
+		// Add single user & bulk users to event
+		newEmail := fmt.Sprintf("ev-participant-%d@example.com", nano)
+		detail, created, err := svc.AddEventUser(ctx, ev.ID, createdUserID, "owner", AddEventUserRequest{
+			Email: newEmail,
+			Role:  "participant",
+		})
+		if err != nil || !created || detail.Role != "participant" {
+			t.Fatalf("failed to add event user: created=%v detail=%+v err=%v", created, detail, err)
+		}
+
+		// Delete event (dev-only operation)
+		if err := svc.DeleteEvent(ctx, ev.ID, creatorDevID); err != nil {
+			t.Fatalf("failed to delete event: %v", err)
+		}
+	})
+}

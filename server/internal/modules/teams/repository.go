@@ -9,6 +9,8 @@ import (
 	"math/big"
 	"strings"
 
+	"devclubxnst.com/cadence/internal/modules/competitions"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,7 +30,7 @@ var (
 	ErrNotLeader         = errors.New("only the team leader can do this")
 	ErrLeaderNotMember   = errors.New("leader must be a member of the team")
 	ErrCannotKickSelf    = errors.New("use leave to remove yourself from the team")
-	ErrUserIsBanned      = errors.New("you are banned from this competition")
+	ErrUserIsBanned      = errors.New("you are banned from this event")
 )
 
 const (
@@ -84,13 +86,30 @@ func isConstraint(err error, name string) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == name
 }
 
+func resolveEventIDFromContext(ctx context.Context) string {
+	if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil && evCtx.EventID != "" {
+		return evCtx.EventID
+	}
+	if ev, ok := events.GetEvent(ctx); ok && ev != nil && ev.ID != "" {
+		return ev.ID
+	}
+	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.EventID != "" {
+		return compCtx.EventID
+	}
+	if comp, ok := competitions.GetCompetition(ctx); ok && comp != nil && comp.EventID != "" {
+		return comp.EventID
+	}
+	return events.DefaultEventID
+}
+
 // ---- settings ----
 
 func (r *Repository) loadSettings(ctx context.Context, q querier) (SettingsResponse, error) {
 	s := SettingsResponse{MaxTeamSize: r.defaultMaxSize, MaxTeamSizeSource: "environment"}
+	eventID := resolveEventIDFromContext(ctx)
 
-	rows, err := q.Query(ctx, `SELECT key, value FROM app_settings WHERE key = ANY($1)`,
-		[]string{settingFrozenAll, settingMaxTeamSize})
+	rows, err := q.Query(ctx, `SELECT key, value FROM app_settings WHERE event_id = $1 AND key = ANY($2)`,
+		eventID, []string{settingFrozenAll, settingMaxTeamSize})
 	if err != nil {
 		return s, fmt.Errorf("load team settings: %w", err)
 	}
@@ -125,10 +144,11 @@ func (r *Repository) setSetting(ctx context.Context, key string, value any, upda
 	if err != nil {
 		return fmt.Errorf("encode setting: %w", err)
 	}
+	eventID := resolveEventIDFromContext(ctx)
 	_, err = r.db.Exec(ctx, `
-		INSERT INTO app_settings (key, value, updated_by) VALUES ($1, $2, $3)
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
-		key, raw, updatedBy)
+		INSERT INTO app_settings (event_id, key, value, updated_by) VALUES ($1, $2, $3, NULLIF($4, '')::uuid)
+		ON CONFLICT (event_id, key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
+		eventID, key, raw, updatedBy)
 	if err != nil {
 		return fmt.Errorf("set setting: %w", err)
 	}
@@ -145,7 +165,8 @@ func (r *Repository) SetMaxTeamSize(ctx context.Context, size int, updatedBy str
 
 // ---- participant flows ----
 
-// lockParticipant locks the user row and returns their current team (nil when none).
+// lockParticipant locks the user row, verifies event membership & non-banned status via the competition's parent event,
+// and returns their current team in compID (nil when none).
 func lockParticipant(ctx context.Context, tx pgx.Tx, compID, userID string) (*string, error) {
 	if compID == "" {
 		compID = DefaultCompetitionID
@@ -154,9 +175,11 @@ func lockParticipant(ctx context.Context, tx pgx.Tx, compID, userID string) (*st
 	var isBanned bool
 	var teamID *string
 	err := tx.QueryRow(ctx,
-		`SELECT COALESCE(uc.role::text, 'participant'), COALESCE(uc.is_banned, FALSE), u.team_id 
+		`SELECT COALESCE(ue.role::text, 'participant'), COALESCE(ue.is_banned, FALSE), tm.team_id
 		 FROM users u
-		 LEFT JOIN user_competitions uc ON uc.user_id = u.id AND uc.competition_id = $1
+		 LEFT JOIN competitions c ON c.id = $1
+		 LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = COALESCE(c.event_id, '00000000-0000-0000-0000-000000000001'::uuid)
+		 LEFT JOIN team_members tm ON tm.user_id = u.id AND tm.competition_id = $1
 		 WHERE u.id = $2 AND u.deleted_at IS NULL FOR UPDATE OF u`, compID, userID,
 	).Scan(&role, &isBanned, &teamID)
 	if err != nil {
@@ -188,10 +211,11 @@ func lockUser(ctx context.Context, tx pgx.Tx, userID string) error {
 }
 
 type teamLock struct {
-	ID       string
-	LeaderID *string
-	Frozen   bool
-	MaxSize  *int
+	ID            string
+	CompetitionID string
+	LeaderID      *string
+	Frozen        bool
+	MaxSize       *int
 }
 
 func (t teamLock) effectiveMax(s SettingsResponse) int {
@@ -209,8 +233,8 @@ func (t teamLock) effectiveFrozen(s SettingsResponse) bool {
 func lockTeam(ctx context.Context, tx pgx.Tx, where string, args ...any) (*teamLock, error) {
 	var t teamLock
 	err := tx.QueryRow(ctx,
-		`SELECT id, leader_id, is_frozen, max_size FROM teams WHERE `+where+` FOR UPDATE`, args...,
-	).Scan(&t.ID, &t.LeaderID, &t.Frozen, &t.MaxSize)
+		`SELECT id, competition_id, leader_id, is_frozen, max_size FROM teams WHERE `+where+` FOR UPDATE`, args...,
+	).Scan(&t.ID, &t.CompetitionID, &t.LeaderID, &t.Frozen, &t.MaxSize)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTeamNotFound
@@ -223,13 +247,13 @@ func lockTeam(ctx context.Context, tx pgx.Tx, where string, args ...any) (*teamL
 func memberCount(ctx context.Context, tx pgx.Tx, teamID string) (int, error) {
 	var n int
 	if err := tx.QueryRow(ctx,
-		`SELECT COUNT(*) FROM users WHERE team_id = $1 AND deleted_at IS NULL`, teamID).Scan(&n); err != nil {
+		`SELECT COUNT(*) FROM team_members tm JOIN users u ON u.id = tm.user_id WHERE tm.team_id = $1 AND u.deleted_at IS NULL`, teamID).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count members: %w", err)
 	}
 	return n, nil
 }
 
-// CreateTeam creates a team led by userID and returns its id.
+// CreateTeam creates a team led by userID in compID and returns its id.
 func (r *Repository) CreateTeam(ctx context.Context, compID, userID, name string) (string, error) {
 	if compID == "" {
 		compID = DefaultCompetitionID
@@ -286,6 +310,10 @@ func (r *Repository) CreateTeam(ctx context.Context, compID, userID, name string
 	}
 
 	if _, err := tx.Exec(ctx,
+		`INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, teamID, userID, compID); err != nil {
+		return "", fmt.Errorf("insert team member: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
 		`UPDATE users SET team_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, teamID, userID); err != nil {
 		return "", fmt.Errorf("link creator to team: %w", err)
 	}
@@ -338,6 +366,10 @@ func (r *Repository) JoinByCode(ctx context.Context, compID, userID, code string
 	}
 
 	if _, err := tx.Exec(ctx,
+		`INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, team.ID, userID, compID); err != nil {
+		return "", fmt.Errorf("insert team member: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
 		`UPDATE users SET team_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, team.ID, userID); err != nil {
 		return "", fmt.Errorf("join team: %w", err)
 	}
@@ -352,14 +384,22 @@ func (r *Repository) JoinByCode(ctx context.Context, compID, userID, code string
 // It returns the team's remaining member count (0 means the team was deleted).
 func removeMemberTx(ctx context.Context, tx pgx.Tx, team *teamLock, userID string) (int, error) {
 	tag, err := tx.Exec(ctx,
-		`UPDATE users SET team_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND team_id = $2`,
-		userID, team.ID)
+		`DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`,
+		team.ID, userID)
 	if err != nil {
 		return 0, fmt.Errorf("remove member from team: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return 0, ErrMemberNotFound
 	}
+
+	// Update legacy users.team_id pointer to another team if user is in one, or NULL
+	_, _ = tx.Exec(ctx, `
+		UPDATE users SET team_id = (
+			SELECT tm.team_id FROM team_members tm WHERE tm.user_id = $1 ORDER BY tm.joined_at DESC LIMIT 1
+		), updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND team_id = $2
+	`, userID, team.ID)
 
 	remaining, err := memberCount(ctx, tx, team.ID)
 	if err != nil {
@@ -375,8 +415,10 @@ func removeMemberTx(ctx context.Context, tx pgx.Tx, team *teamLock, userID strin
 	if team.LeaderID != nil && *team.LeaderID == userID {
 		if _, err := tx.Exec(ctx, `
 			UPDATE teams SET updated_at = CURRENT_TIMESTAMP, leader_id = (
-				SELECT id FROM users WHERE team_id = $1 AND deleted_at IS NULL
-				ORDER BY created_at ASC, id ASC LIMIT 1
+				SELECT tm.user_id FROM team_members tm
+				JOIN users u ON u.id = tm.user_id
+				WHERE tm.team_id = $1 AND u.deleted_at IS NULL
+				ORDER BY tm.joined_at ASC, tm.user_id ASC LIMIT 1
 			) WHERE id = $1`, team.ID); err != nil {
 			return 0, fmt.Errorf("transfer team leadership: %w", err)
 		}
@@ -384,7 +426,7 @@ func removeMemberTx(ctx context.Context, tx pgx.Tx, team *teamLock, userID strin
 	return remaining, nil
 }
 
-// LeaveTeam removes userID from their team and returns the team id they left.
+// LeaveTeam removes userID from their team in compID and returns the team id they left.
 func (r *Repository) LeaveTeam(ctx context.Context, compID, userID string) (string, error) {
 	if compID == "" {
 		compID = DefaultCompetitionID
@@ -585,7 +627,7 @@ func (r *Repository) TransferLeadership(ctx context.Context, compID, currentLead
 
 	var isMember bool
 	err = tx.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND team_id = $2 AND deleted_at IS NULL)`,
+		`SELECT EXISTS(SELECT 1 FROM team_members tm JOIN users u ON u.id = tm.user_id WHERE tm.user_id = $1 AND tm.team_id = $2 AND u.deleted_at IS NULL)`,
 		newLeaderID, team.ID).Scan(&isMember)
 	if err != nil || !isMember {
 		return "", ErrLeaderNotMember
@@ -593,7 +635,10 @@ func (r *Repository) TransferLeadership(ctx context.Context, compID, currentLead
 
 	var isBanned bool
 	_ = tx.QueryRow(ctx,
-		`SELECT COALESCE(is_banned, FALSE) FROM user_competitions WHERE competition_id = $1 AND user_id = $2`,
+		`SELECT COALESCE(ue.is_banned, FALSE)
+		 FROM competitions c
+		 JOIN user_events ue ON ue.event_id = c.event_id AND ue.user_id = $2
+		 WHERE c.id = $1`,
 		compID, newLeaderID).Scan(&isBanned)
 	if isBanned {
 		return "", ErrUserIsBanned
@@ -621,12 +666,12 @@ func (r *Repository) EvictUserFromTeamTx(ctx context.Context, tx pgx.Tx, compID,
 
 	var t teamLock
 	err = tx.QueryRow(ctx, `
-		SELECT t.id, t.leader_id, t.is_frozen, t.max_size
+		SELECT t.id, t.competition_id, t.leader_id, t.is_frozen, t.max_size
 		FROM teams t
-		JOIN users u ON u.team_id = t.id
-		WHERE u.id = $1 AND t.competition_id = $2
+		JOIN team_members tm ON tm.team_id = t.id
+		WHERE tm.user_id = $1 AND t.competition_id = $2
 		FOR UPDATE OF t
-	`, userID, compID).Scan(&t.ID, &t.LeaderID, &t.Frozen, &t.MaxSize)
+	`, userID, compID).Scan(&t.ID, &t.CompetitionID, &t.LeaderID, &t.Frozen, &t.MaxSize)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", 0, nil, nil
@@ -693,11 +738,13 @@ func (r *Repository) GetTeamByID(ctx context.Context, id string) (*TeamDetailRes
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(uc.role::text, 'participant')
-		FROM users u
-		LEFT JOIN user_competitions uc ON uc.user_id = u.id AND uc.competition_id = $2
-		WHERE u.team_id = $1 AND u.deleted_at IS NULL
-		ORDER BY u.created_at ASC, u.id ASC`, id, resp.CompetitionID)
+		SELECT u.id, u.email, u.name, u.phone_number, COALESCE(ue.role::text, 'participant')
+		FROM team_members tm
+		JOIN users u ON u.id = tm.user_id
+		LEFT JOIN competitions c ON c.id = $2
+		LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = c.event_id
+		WHERE tm.team_id = $1 AND u.deleted_at IS NULL
+		ORDER BY tm.joined_at ASC, u.id ASC`, id, resp.CompetitionID)
 	if err != nil {
 		return nil, fmt.Errorf("fetch team members: %w", err)
 	}
@@ -725,10 +772,10 @@ func (r *Repository) GetTeamByUserID(ctx context.Context, compID, userID string)
 	}
 	var teamID *string
 	err := r.db.QueryRow(ctx, `
-		SELECT u.team_id 
-		FROM users u
-		JOIN teams t ON t.id = u.team_id
-		WHERE u.id = $1 AND t.competition_id = $2 AND u.deleted_at IS NULL
+		SELECT tm.team_id
+		FROM team_members tm
+		JOIN users u ON u.id = tm.user_id
+		WHERE tm.user_id = $1 AND tm.competition_id = $2 AND u.deleted_at IS NULL
 	`, userID, compID).Scan(&teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -817,7 +864,8 @@ func (r *Repository) ListTeams(ctx context.Context, filter TeamFilter) ([]TeamRe
 		       COUNT(m.id) AS member_count, t.is_frozen, t.max_size, t.created_at, t.updated_at
 		FROM teams t
 		LEFT JOIN users u ON t.leader_id = u.id AND u.deleted_at IS NULL
-		LEFT JOIN users m ON t.id = m.team_id AND m.deleted_at IS NULL
+		LEFT JOIN team_members tm ON tm.team_id = t.id
+		LEFT JOIN users m ON m.id = tm.user_id AND m.deleted_at IS NULL
 		%s
 		GROUP BY t.id, t.competition_id, t.name, t.join_code, t.leader_id, u.name, u.email, t.is_frozen, t.max_size, t.created_at, t.updated_at
 		ORDER BY t.created_at DESC
@@ -875,7 +923,7 @@ func (r *Repository) UpdateTeam(ctx context.Context, id string, req UpdateTeamRe
 	if req.LeaderID != nil {
 		var isMember bool
 		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND team_id = $2 AND deleted_at IS NULL)`,
+			`SELECT EXISTS(SELECT 1 FROM team_members tm JOIN users u ON u.id = tm.user_id WHERE tm.user_id = $1 AND tm.team_id = $2 AND u.deleted_at IS NULL)`,
 			*req.LeaderID, id).Scan(&isMember); err != nil {
 			return fmt.Errorf("check leader membership: %w", err)
 		}
@@ -901,7 +949,7 @@ func (r *Repository) UpdateTeam(ctx context.Context, id string, req UpdateTeamRe
 		args = append(args, id)
 		if _, err := tx.Exec(ctx,
 			fmt.Sprintf("UPDATE teams SET %s WHERE id = $%d", strings.Join(sets, ", "), argIndex), args...); err != nil {
-			if isConstraint(err, "teams_name_key") {
+			if isConstraint(err, "teams_name_key") || isConstraint(err, "teams_competition_id_name_key") {
 				return ErrTeamAlreadyExists
 			}
 			return fmt.Errorf("update team: %w", err)
@@ -957,7 +1005,7 @@ func (r *Repository) DeleteTeam(ctx context.Context, id string) error {
 	return tx.Commit(ctx)
 }
 
-// AddMember lets staff place a participant who has no team into teamID within compID.
+// AddMember lets staff place a participant who has no team in compID into teamID.
 func (r *Repository) AddMember(ctx context.Context, compID, teamID, userID string) error {
 	if compID == "" {
 		compID = DefaultCompetitionID
@@ -990,6 +1038,10 @@ func (r *Repository) AddMember(ctx context.Context, compID, teamID, userID strin
 	}
 	if count >= team.effectiveMax(settings) {
 		return ErrTeamFull
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, team.ID, userID, compID); err != nil {
+		return fmt.Errorf("insert team member: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE users SET team_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, team.ID, userID); err != nil {

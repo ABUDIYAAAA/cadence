@@ -966,7 +966,9 @@ func (s *Service) recordAudit(
 	if s.auditQueue == nil {
 		return
 	}
+	eventID := resolveEventID(ctx)
 	s.auditQueue.Record(ctx, audit.Event{
+		EventID:     &eventID,
 		ActorID:     actorID,
 		ActorEmail:  actorEmail,
 		ActorRole:   actorRole,

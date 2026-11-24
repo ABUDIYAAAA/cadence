@@ -119,10 +119,10 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 		t.Fatalf("seed judge: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO user_competitions (user_id, competition_id, role)
+		INSERT INTO user_events (user_id, event_id, role)
 		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
-		ON CONFLICT (competition_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
-		t.Fatalf("seed user competition: %v", err)
+		ON CONFLICT (event_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
+		t.Fatalf("seed user event: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO teams (name, join_code) VALUES ('Team Alpha', 'ALPHA001') RETURNING id`,

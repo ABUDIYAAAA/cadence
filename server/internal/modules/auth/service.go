@@ -169,12 +169,12 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 		return nil, "", "", err
 	}
 
-	comps, _ := s.repo.GetUserCompetitions(ctx, user.ID)
+	evs, _ := s.repo.GetUserEvents(ctx, user.ID)
 
 	metrics.InstrumentAuthEvent("google_login", true)
 	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s authenticated via Google OAuth", user.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
 
-	return toUserResponse(user, comps), accessToken, refreshToken, nil
+	return toUserResponse(user, evs), accessToken, refreshToken, nil
 }
 
 func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, userAgent, ip string) (string, string, error) {
@@ -252,21 +252,21 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*UserResponse, erro
 	if err != nil {
 		return nil, err
 	}
-	comps, _ := s.repo.GetUserCompetitions(ctx, userID)
-	return toUserResponse(user, comps), nil
+	evs, _ := s.repo.GetUserEvents(ctx, userID)
+	return toUserResponse(user, evs), nil
 }
 
 func (s *Service) createSession(ctx context.Context, user *User, deviceID string, familyID *string, parentID *string, userAgent, ip string) (string, string, error) {
 	var defaultRole string
-	if comps, err := s.repo.GetUserCompetitions(ctx, user.ID); err == nil && len(comps) > 0 {
-		for _, c := range comps {
-			if c.CompetitionID == "00000000-0000-0000-0000-000000000001" {
-				defaultRole = c.Role
+	if evs, err := s.repo.GetUserEvents(ctx, user.ID); err == nil && len(evs) > 0 {
+		for _, e := range evs {
+			if e.EventID == "00000000-0000-0000-0000-000000000001" {
+				defaultRole = e.Role
 				break
 			}
 		}
 		if defaultRole == "" {
-			defaultRole = comps[0].Role
+			defaultRole = evs[0].Role
 		}
 	}
 
@@ -335,33 +335,33 @@ func (s *Service) recordAudit(
 	})
 }
 
-func toUserResponse(u *User, comps []UserCompetitionRole) *UserResponse {
+func toUserResponse(u *User, evs []UserEventRole) *UserResponse {
 	var role string
-	for _, c := range comps {
-		if c.CompetitionID == "00000000-0000-0000-0000-000000000001" {
-			role = c.Role
+	for _, e := range evs {
+		if e.EventID == "00000000-0000-0000-0000-000000000001" {
+			role = e.Role
 			break
 		}
 	}
-	if role == "" && len(comps) > 0 {
-		role = comps[0].Role
+	if role == "" && len(evs) > 0 {
+		role = evs[0].Role
 	}
-	if comps == nil {
-		comps = make([]UserCompetitionRole, 0)
+	if evs == nil {
+		evs = make([]UserEventRole, 0)
 	}
 
 	return &UserResponse{
-		ID:           u.ID,
-		Email:        u.Email,
-		Name:         u.Name,
-		PhoneNumber:  u.PhoneNumber,
-		GlobalRole:   u.GlobalRole,
-		GoogleID:     u.GoogleID,
-		AvatarURL:    u.AvatarURL,
-		Role:         role,
-		TeamID:       u.TeamID,
-		Competitions: comps,
-		CreatedAt:    u.CreatedAt,
+		ID:          u.ID,
+		Email:       u.Email,
+		Name:        u.Name,
+		PhoneNumber: u.PhoneNumber,
+		GlobalRole:  u.GlobalRole,
+		GoogleID:    u.GoogleID,
+		AvatarURL:   u.AvatarURL,
+		Role:        role,
+		TeamID:      u.TeamID,
+		Events:      evs,
+		CreatedAt:   u.CreatedAt,
 	}
 }
 

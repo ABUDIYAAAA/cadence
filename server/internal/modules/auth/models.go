@@ -9,18 +9,18 @@ const (
 
 // User represents the core account identity in the users table.
 type User struct {
-	ID                   string
-	Email                string
-	Name                 string
-	GoogleID             *string
-	AvatarURL            *string
-	GlobalRole           string
-	PhoneNumber          *string
-	TeamID               *string
-	IsActive             bool
-	TokenVersion         int
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID           string
+	Email        string
+	Name         string
+	GoogleID     *string
+	AvatarURL    *string
+	GlobalRole   string
+	PhoneNumber  *string
+	TeamID       *string
+	IsActive     bool
+	TokenVersion int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // RefreshToken represents a long-lived user session bound to a device.
@@ -39,10 +39,10 @@ type RefreshToken struct {
 	RevokedAt *time.Time
 }
 
-// UserCompetitionRole represents a role the user holds in a specific competition.
-type UserCompetitionRole struct {
-	CompetitionID   string `json:"competition_id"`
-	CompetitionSlug string `json:"competition_slug"`
-	CompetitionName string `json:"competition_name"`
-	Role            string `json:"role"`
+// UserEventRole represents a role the user holds in a specific event.
+type UserEventRole struct {
+	EventID   string `json:"event_id"`
+	EventSlug string `json:"event_slug"`
+	EventName string `json:"event_name"`
+	Role      string `json:"role"`
 }

@@ -20,9 +20,9 @@ func TestUnlock_JudgeAndAdminFlows(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := pool.Exec(ctx, `
-			INSERT INTO user_competitions (user_id, competition_id, role)
-			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::competition_role)
-			ON CONFLICT (competition_id, user_id) DO UPDATE SET role = EXCLUDED.role`, id, role); err != nil {
+			INSERT INTO user_events (user_id, event_id, role)
+			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::event_role)
+			ON CONFLICT (event_id, user_id) DO UPDATE SET role = EXCLUDED.role`, id, role); err != nil {
 			t.Fatal(err)
 		}
 		return id

@@ -13,6 +13,7 @@ import (
 
 	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/internal/modules/competitions"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/internal/modules/users"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/go-chi/chi/v5"
@@ -56,41 +57,52 @@ func createTestUser(t *testing.T, pool *pgxpool.Pool, email, name, globalRole st
 	return userID
 }
 
-// createTestCompetition creates a competition and links an owner.
-func createTestCompetition(t *testing.T, pool *pgxpool.Pool, slug, name, ownerID string) string {
+// createTestEventAndCompetition creates an event, links an owner in user_events, and creates a competition inside the event.
+func createTestEventAndCompetition(t *testing.T, pool *pgxpool.Pool, eventSlug, compSlug, name, ownerID string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	var compID string
+	var eventID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO competitions (slug, name)
+		INSERT INTO events (slug, name)
 		VALUES ($1, $2)
 		RETURNING id
-	`, slug, name).Scan(&compID)
+	`, eventSlug, name+" Event").Scan(&eventID)
+	if err != nil {
+		t.Fatalf("failed to create test event: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO user_events (event_id, user_id, role)
+		VALUES ($1, $2, 'owner')
+	`, eventID, ownerID)
+	if err != nil {
+		t.Fatalf("failed to link owner to test event: %v", err)
+	}
+
+	var compID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO competitions (event_id, slug, name)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, eventID, compSlug, name).Scan(&compID)
 	if err != nil {
 		t.Fatalf("failed to create test competition: %v", err)
 	}
 
-	_, err = pool.Exec(ctx, `
-		INSERT INTO user_competitions (competition_id, user_id, role)
-		VALUES ($1, $2, 'owner')
-	`, compID, ownerID)
-	if err != nil {
-		t.Fatalf("failed to link owner to test competition: %v", err)
-	}
-	return compID
+	return eventID, compID
 }
 
-// linkMember adds a user to a competition with a given role.
-func linkMember(t *testing.T, pool *pgxpool.Pool, compID, userID, role string) {
+// linkEventMember adds a user to an event with a given role.
+func linkEventMember(t *testing.T, pool *pgxpool.Pool, eventID, userID, role string) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `
-		INSERT INTO user_competitions (competition_id, user_id, role)
-		VALUES ($1, $2, $3::competition_role)
-		ON CONFLICT (competition_id, user_id) DO UPDATE SET role = EXCLUDED.role, is_banned = FALSE
-	`, compID, userID, role)
+		INSERT INTO user_events (event_id, user_id, role)
+		VALUES ($1, $2, $3::event_role)
+		ON CONFLICT (event_id, user_id) DO UPDATE SET role = EXCLUDED.role, is_banned = FALSE
+	`, eventID, userID, role)
 	if err != nil {
-		t.Fatalf("failed to link member to competition: %v", err)
+		t.Fatalf("failed to link member to event: %v", err)
 	}
 }
 
@@ -101,24 +113,35 @@ func TestTeamingWorkflow(t *testing.T) {
 	ctx := context.Background()
 	ts := time.Now().UnixNano()
 
-	// 1. Setup users & competition
+	// 1. Setup users, event, & competition
 	ownerID := createTestUser(t, pool, fmt.Sprintf("owner_%d@example.com", ts), "Owner", "user")
+	eventSlug := fmt.Sprintf("event-teaming-%d", ts)
 	compSlug := fmt.Sprintf("comp-teaming-%d", ts)
-	compID := createTestCompetition(t, pool, compSlug, "Teaming Test Comp", ownerID)
+	eventID, compID := createTestEventAndCompetition(t, pool, eventSlug, compSlug, "Teaming Test Comp", ownerID)
+
+	// Create a second competition in the SAME event to verify multi-competition team membership
+	var comp2ID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO competitions (event_id, slug, name)
+		VALUES ($1, $2, 'Second Competition')
+		RETURNING id
+	`, eventID, fmt.Sprintf("comp2-teaming-%d", ts)).Scan(&comp2ID); err != nil {
+		t.Fatalf("failed to create second competition in event: %v", err)
+	}
 
 	p1ID := createTestUser(t, pool, fmt.Sprintf("p1_%d@example.com", ts), "Alice (Leader)", "user")
 	p2ID := createTestUser(t, pool, fmt.Sprintf("p2_%d@example.com", ts), "Bob (Member 1)", "user")
 	p3ID := createTestUser(t, pool, fmt.Sprintf("p3_%d@example.com", ts), "Charlie (Member 2)", "user")
 
-	linkMember(t, pool, compID, p1ID, "participant")
-	linkMember(t, pool, compID, p2ID, "participant")
-	linkMember(t, pool, compID, p3ID, "participant")
+	linkEventMember(t, pool, eventID, p1ID, "participant")
+	linkEventMember(t, pool, eventID, p2ID, "participant")
+	linkEventMember(t, pool, eventID, p3ID, "participant")
 
 	teamsRepo := NewRepository(pool, 4)
-	compRepo := competitions.NewRepository(pool)
+	eventsRepo := events.NewRepository(pool)
 	usersRepo := users.NewRepository(pool)
 
-	// Step A: Participant 1 creates a team
+	// Step A: Participant 1 creates a team in Competition 1
 	teamName := fmt.Sprintf("Team Rockets %d", ts)
 	teamID, err := teamsRepo.CreateTeam(ctx, compID, p1ID, teamName)
 	if err != nil {
@@ -142,7 +165,15 @@ func TestTeamingWorkflow(t *testing.T) {
 		t.Fatalf("expected creator to be sole member initially")
 	}
 
-	// Step B: Cannot create another team while already in a team
+	// Step A2: Participant 1 can also create/join a team in Competition 2 within the SAME event!
+	comp2TeamID, err := teamsRepo.CreateTeam(ctx, comp2ID, p1ID, fmt.Sprintf("Comp2 Team %d", ts))
+	if err != nil {
+		t.Fatalf("expected participant to be able to join a team in a second competition of the same event, got: %v", err)
+	}
+	_, _ = teamsRepo.LeaveTeam(ctx, comp2ID, p1ID)
+	_ = comp2TeamID
+
+	// Step B: Cannot create another team in the same competition while already in a team
 	_, err = teamsRepo.CreateTeam(ctx, compID, p1ID, fmt.Sprintf("Another Team %d", ts))
 	if err != ErrAlreadyInTeam {
 		t.Fatalf("expected ErrAlreadyInTeam, got %v", err)
@@ -184,13 +215,12 @@ func TestTeamingWorkflow(t *testing.T) {
 	}
 
 	// Step F: Test Max Size enforcement
-	// Set team max_size to 3
 	_, err = pool.Exec(ctx, `UPDATE teams SET max_size = 3 WHERE id = $1`, teamID)
 	if err != nil {
 		t.Fatalf("failed to set max_size: %v", err)
 	}
 	p4ID := createTestUser(t, pool, fmt.Sprintf("p4_%d@example.com", ts), "David", "user")
-	linkMember(t, pool, compID, p4ID, "participant")
+	linkEventMember(t, pool, eventID, p4ID, "participant")
 	_, err = teamsRepo.JoinByCode(ctx, compID, p4ID, createdTeam.JoinCode)
 	if err != ErrTeamFull {
 		t.Fatalf("expected ErrTeamFull, got %v", err)
@@ -227,7 +257,6 @@ func TestTeamingWorkflow(t *testing.T) {
 	}
 
 	// Step H: Explicit Leadership Transfer
-	// Alice transfers leadership to Charlie (p3)
 	_, err = teamsRepo.TransferLeadership(ctx, compID, p1ID, p3ID)
 	if err != nil {
 		t.Fatalf("failed to transfer leadership to Charlie: %v", err)
@@ -260,7 +289,6 @@ func TestTeamingWorkflow(t *testing.T) {
 	}
 
 	// Step J: Automatic leadership succession when Leader (Charlie / p3) leaves
-	// Remaining member is Alice (p1). Alice should become the leader automatically.
 	_, err = teamsRepo.LeaveTeam(ctx, compID, p3ID)
 	if err != nil {
 		t.Fatalf("failed for leader Charlie to leave: %v", err)
@@ -286,8 +314,7 @@ func TestTeamingWorkflow(t *testing.T) {
 		t.Fatalf("expected ErrTeamNotFound after sole member leaves, got %v", err)
 	}
 
-	// Step L: Competition Banning Eviction & Invariant
-	// Re-add Bob and Charlie to a new team
+	// Step L: Event Banning Eviction & Invariant across competitions in the event
 	team2ID, err := teamsRepo.CreateTeam(ctx, compID, p2ID, fmt.Sprintf("Bobs Team %d", ts))
 	if err != nil {
 		t.Fatalf("failed to create team 2: %v", err)
@@ -301,10 +328,10 @@ func TestTeamingWorkflow(t *testing.T) {
 		t.Fatalf("failed for Charlie to join team 2: %v", err)
 	}
 
-	// Ban Bob (the leader of team 2)
-	err = compRepo.BanMember(ctx, compID, p2ID)
+	// Ban Bob from the Event (the leader of team 2)
+	err = eventsRepo.BanMember(ctx, eventID, p2ID)
 	if err != nil {
-		t.Fatalf("failed to ban Bob: %v", err)
+		t.Fatalf("failed to ban Bob from event: %v", err)
 	}
 
 	// Verify Bob was evicted from team 2 and Charlie became the new leader
@@ -319,7 +346,7 @@ func TestTeamingWorkflow(t *testing.T) {
 		t.Fatalf("expected Charlie to become leader of team 2 after Bob was banned, got %v", team2AfterBan.Leader)
 	}
 
-	// Verify Bob cannot create or join teams now (banned participant)
+	// Verify Bob cannot create or join teams now (banned from event)
 	_, err = teamsRepo.CreateTeam(ctx, compID, p2ID, fmt.Sprintf("Banned Attempt %d", ts))
 	if err != ErrUserIsBanned {
 		t.Fatalf("expected ErrUserIsBanned on create team, got %v", err)
@@ -330,7 +357,7 @@ func TestTeamingWorkflow(t *testing.T) {
 	}
 
 	// Ban Charlie (the sole remaining member) -> team 2 dissolved
-	err = compRepo.BanMember(ctx, compID, p3ID)
+	err = eventsRepo.BanMember(ctx, eventID, p3ID)
 	if err != nil {
 		t.Fatalf("failed to ban Charlie: %v", err)
 	}
@@ -341,7 +368,7 @@ func TestTeamingWorkflow(t *testing.T) {
 
 	// Step M: Global Blacklist eviction
 	p5ID := createTestUser(t, pool, fmt.Sprintf("p5_%d@example.com", ts), "Eve", "user")
-	linkMember(t, pool, compID, p5ID, "participant")
+	linkEventMember(t, pool, eventID, p5ID, "participant")
 	team3ID, err := teamsRepo.CreateTeam(ctx, compID, p5ID, fmt.Sprintf("Eves Team %d", ts))
 	if err != nil {
 		t.Fatalf("failed to create team 3: %v", err)
@@ -363,14 +390,15 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 
 	ts := time.Now().UnixNano()
 
-	ownerID := createTestUser(t, pool, fmt.Sprintf("http_owner_%d@example.com", ts), "Comp Owner", "user")
+	ownerID := createTestUser(t, pool, fmt.Sprintf("http_owner_%d@example.com", ts), "Event Owner", "user")
+	eventSlug := fmt.Sprintf("http-event-%d", ts)
 	compSlug := fmt.Sprintf("http-comp-%d", ts)
-	compID := createTestCompetition(t, pool, compSlug, "HTTP Test Comp", ownerID)
+	eventID, compID := createTestEventAndCompetition(t, pool, eventSlug, compSlug, "HTTP Test Comp", ownerID)
 
 	p1ID := createTestUser(t, pool, fmt.Sprintf("http_p1_%d@example.com", ts), "User 1", "user")
 	p2ID := createTestUser(t, pool, fmt.Sprintf("http_p2_%d@example.com", ts), "User 2", "user")
-	linkMember(t, pool, compID, p1ID, "participant")
-	linkMember(t, pool, compID, p2ID, "participant")
+	linkEventMember(t, pool, eventID, p1ID, "participant")
+	linkEventMember(t, pool, eventID, p2ID, "participant")
 
 	teamsRepo := NewRepository(pool, 4)
 	teamsService := NewService(teamsRepo, nil)
@@ -378,7 +406,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 
 	// Router setup
 	r := chi.NewRouter()
-	r.Route("/c/{competitionSlug}/teams", func(tr chi.Router) {
+	r.Route("/e/{eventSlug}/c/{competitionSlug}/teams", func(tr chi.Router) {
 		RegisterScopedRoutes(tr, teamsHandler)
 	})
 
@@ -388,8 +416,15 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 			UserID:     userID,
 			GlobalRole: globalRole,
 		})
+		c = events.WithEventContext(c, &events.Context{
+			EventID: eventID,
+			Slug:    eventSlug,
+			UserID:  userID,
+			Role:    role,
+		})
 		c = competitions.WithCompetitionContext(c, &competitions.Context{
 			CompetitionID: compID,
+			EventID:       eventID,
 			Slug:          compSlug,
 			UserID:        userID,
 			Role:          role,
@@ -397,9 +432,11 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 		return c
 	}
 
+	baseURL := "/e/" + eventSlug + "/c/" + compSlug + "/teams"
+
 	// 1. Participant 1 creates a team
 	createBody := bytes.NewBufferString(`{"name":"HTTP Rockets"}`)
-	req := httptest.NewRequest(http.MethodPost, "/c/"+compSlug+"/teams", createBody).WithContext(withContext(p1ID, "participant", "user"))
+	req := httptest.NewRequest(http.MethodPost, baseURL, createBody).WithContext(withContext(p1ID, "participant", "user"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -417,7 +454,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 
 	// 2. Participant 2 joins by code
 	joinBody := bytes.NewBufferString(fmt.Sprintf(`{"code":"%s"}`, createResp.JoinCode))
-	req = httptest.NewRequest(http.MethodPost, "/c/"+compSlug+"/teams/join", joinBody).WithContext(withContext(p2ID, "participant", "user"))
+	req = httptest.NewRequest(http.MethodPost, baseURL+"/join", joinBody).WithContext(withContext(p2ID, "participant", "user"))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -428,7 +465,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 
 	// 3. Participant 1 transfers leadership to Participant 2
 	transferBody := bytes.NewBufferString(fmt.Sprintf(`{"new_leader_id":"%s"}`, p2ID))
-	req = httptest.NewRequest(http.MethodPost, "/c/"+compSlug+"/teams/my-team/transfer-leadership", transferBody).WithContext(withContext(p1ID, "participant", "user"))
+	req = httptest.NewRequest(http.MethodPost, baseURL+"/my-team/transfer-leadership", transferBody).WithContext(withContext(p1ID, "participant", "user"))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -438,7 +475,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 	}
 
 	// 4. Verify my-team for Participant 2 shows them as leader
-	req = httptest.NewRequest(http.MethodGet, "/c/"+compSlug+"/teams/my-team", nil).WithContext(withContext(p2ID, "participant", "user"))
+	req = httptest.NewRequest(http.MethodGet, baseURL+"/my-team", nil).WithContext(withContext(p2ID, "participant", "user"))
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 

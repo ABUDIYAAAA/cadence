@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/events"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,6 +17,7 @@ var (
 
 type Ticket struct {
 	ID          string     `json:"id"`
+	EventID     string     `json:"event_id"`
 	UserID      string     `json:"user_id"`
 	TicketCode  string     `json:"ticket_code"`
 	IsCheckedIn bool       `json:"is_checked_in"`
@@ -28,6 +30,7 @@ type Ticket struct {
 
 type TicketAttendeeInfo struct {
 	TicketID        string
+	EventID         string
 	UserID          string
 	TicketCode      string
 	IsCheckedIn     bool
@@ -60,17 +63,29 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
-// GetOrCreateTicket inserts a ticket if not exists, or returns the existing ticket for the user.
+func resolveEventID(ctx context.Context) string {
+	if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil && evCtx.EventID != "" {
+		return evCtx.EventID
+	}
+	if ev, ok := events.GetEvent(ctx); ok && ev != nil && ev.ID != "" {
+		return ev.ID
+	}
+	return events.DefaultEventID
+}
+
+// GetOrCreateTicket inserts a ticket if not exists, or returns the existing ticket for the user in the active event.
 func (r *Repository) GetOrCreateTicket(ctx context.Context, userID, ticketCode string) (*Ticket, error) {
+	eventID := resolveEventID(ctx)
 	query := `
-		INSERT INTO tickets (user_id, ticket_code)
-		VALUES ($1, $2)
-		ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-		RETURNING id, user_id, ticket_code, is_checked_in, checked_in_at, checked_in_by, email_sent_at, created_at, updated_at;
+		INSERT INTO tickets (event_id, user_id, ticket_code)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (event_id, user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+		RETURNING id, event_id, user_id, ticket_code, is_checked_in, checked_in_at, checked_in_by, email_sent_at, created_at, updated_at;
 	`
 	var t Ticket
-	err := r.db.QueryRow(ctx, query, userID, ticketCode).Scan(
+	err := r.db.QueryRow(ctx, query, eventID, userID, ticketCode).Scan(
 		&t.ID,
+		&t.EventID,
 		&t.UserID,
 		&t.TicketCode,
 		&t.IsCheckedIn,
@@ -86,24 +101,34 @@ func (r *Repository) GetOrCreateTicket(ctx context.Context, userID, ticketCode s
 	return &t, nil
 }
 
-// GetTicketByCode looks up a ticket and joins attendee profile and checker details.
+// GetTicketByCode looks up a ticket in the active event and joins attendee profile and checker details.
 func (r *Repository) GetTicketByCode(ctx context.Context, ticketCode string) (*TicketAttendeeInfo, error) {
+	eventID := resolveEventID(ctx)
 	query := `
 		SELECT 
-			t.id, t.user_id, t.ticket_code, t.is_checked_in, t.checked_in_at, t.checked_in_by, t.email_sent_at,
-			u.name, u.email, COALESCE(uc.role::text, 'participant'), u.phone_number, u.team_id,
-			tm.name,
+			t.id, t.event_id, t.user_id, t.ticket_code, t.is_checked_in, t.checked_in_at, t.checked_in_by, t.email_sent_at,
+			u.name, u.email, COALESCE(ue.role::text, 'participant'), u.phone_number,
+			tm_sub.team_id, tm_sub.team_name,
 			v.name
 		FROM tickets t
 		JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
-		LEFT JOIN user_competitions uc ON uc.user_id = u.id
-		LEFT JOIN teams tm ON tm.id = u.team_id
+		LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = t.event_id
+		LEFT JOIN LATERAL (
+			SELECT tm.team_id, tm_t.name AS team_name
+			FROM team_members tm
+			JOIN teams tm_t ON tm_t.id = tm.team_id
+			JOIN competitions c ON c.id = tm_t.competition_id
+			WHERE tm.user_id = u.id AND c.event_id = t.event_id
+			ORDER BY tm.joined_at DESC
+			LIMIT 1
+		) tm_sub ON TRUE
 		LEFT JOIN users v ON v.id = t.checked_in_by
-		WHERE t.ticket_code = $1;
+		WHERE t.event_id = $1 AND t.ticket_code = $2;
 	`
 	var info TicketAttendeeInfo
-	err := r.db.QueryRow(ctx, query, ticketCode).Scan(
+	err := r.db.QueryRow(ctx, query, eventID, ticketCode).Scan(
 		&info.TicketID,
+		&info.EventID,
 		&info.UserID,
 		&info.TicketCode,
 		&info.IsCheckedIn,
@@ -127,16 +152,18 @@ func (r *Repository) GetTicketByCode(ctx context.Context, ticketCode string) (*T
 	return &info, nil
 }
 
-// GetTicketByUserID finds ticket details for an authenticated user.
+// GetTicketByUserID finds ticket details for an authenticated user in the active event.
 func (r *Repository) GetTicketByUserID(ctx context.Context, userID string) (*Ticket, error) {
+	eventID := resolveEventID(ctx)
 	query := `
-		SELECT id, user_id, ticket_code, is_checked_in, checked_in_at, checked_in_by, email_sent_at, created_at, updated_at
+		SELECT id, event_id, user_id, ticket_code, is_checked_in, checked_in_at, checked_in_by, email_sent_at, created_at, updated_at
 		FROM tickets
-		WHERE user_id = $1;
+		WHERE event_id = $1 AND user_id = $2;
 	`
 	var t Ticket
-	err := r.db.QueryRow(ctx, query, userID).Scan(
+	err := r.db.QueryRow(ctx, query, eventID, userID).Scan(
 		&t.ID,
+		&t.EventID,
 		&t.UserID,
 		&t.TicketCode,
 		&t.IsCheckedIn,
@@ -199,8 +226,9 @@ func (r *Repository) GetUserByID(ctx context.Context, userID string) (string, st
 	return name, email, nil
 }
 
-// FindEligibleUsers queries users based on bulk ticket send criteria.
+// FindEligibleUsers queries users in the active event based on bulk ticket send criteria.
 func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsRequest) ([]EligibleUser, error) {
+	eventID := resolveEventID(ctx)
 	baseQuery := `
 		SELECT 
 			u.id, 
@@ -209,13 +237,13 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 			COALESCE(t.id::text, ''), 
 			COALESCE(t.ticket_code, ''), 
 			COALESCE(t.is_checked_in, false)
-		FROM users u
-		LEFT JOIN tickets t ON t.user_id = u.id
-		LEFT JOIN user_competitions uc ON uc.user_id = u.id
-		WHERE u.deleted_at IS NULL
+		FROM user_events ue
+		JOIN users u ON u.id = ue.user_id
+		LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = ue.event_id
+		WHERE ue.event_id = $1 AND ue.is_banned = FALSE AND u.deleted_at IS NULL
 	`
-	args := []any{}
-	argIdx := 1
+	args := []any{eventID}
+	argIdx := 2
 
 	if len(req.UserIDs) > 0 {
 		baseQuery += fmt.Sprintf(" AND u.id = ANY($%d)", argIdx)
@@ -224,13 +252,13 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 	}
 
 	if req.TeamID != nil && *req.TeamID != "" {
-		baseQuery += fmt.Sprintf(" AND u.team_id = $%d", argIdx)
+		baseQuery += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = u.id AND tm.team_id = $%d)", argIdx)
 		args = append(args, *req.TeamID)
 		argIdx++
 	}
 
 	if req.Role != nil && *req.Role != "" {
-		baseQuery += fmt.Sprintf(" AND uc.role = $%d::competition_role", argIdx)
+		baseQuery += fmt.Sprintf(" AND ue.role = $%d::event_role", argIdx)
 		args = append(args, *req.Role)
 		argIdx++
 	}
@@ -262,19 +290,20 @@ func (r *Repository) FindEligibleUsers(ctx context.Context, req BulkSendTicketsR
 	return result, nil
 }
 
-// GetAttendanceAnalytics calculates aggregate attendance metrics, hourly trends, team progress, and volunteer counts.
+// GetAttendanceAnalytics calculates aggregate attendance metrics, hourly trends, and team progress for the active event.
 func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResponse, error) {
+	eventID := resolveEventID(ctx)
 	var totalIssued int
 	var checkedInCount int
 
-	// Totals
 	countQuery := `
 		SELECT 
 			COUNT(*),
 			COUNT(CASE WHEN is_checked_in THEN 1 END)
-		FROM tickets;
+		FROM tickets
+		WHERE event_id = $1;
 	`
-	err := r.db.QueryRow(ctx, countQuery).Scan(&totalIssued, &checkedInCount)
+	err := r.db.QueryRow(ctx, countQuery, eventID).Scan(&totalIssued, &checkedInCount)
 	if err != nil {
 		return nil, fmt.Errorf("query ticket counts: %w", err)
 	}
@@ -290,11 +319,11 @@ func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResp
 			to_char(date_trunc('hour', checked_in_at), 'YYYY-MM-DD HH24:00') AS hr,
 			COUNT(*) AS cnt
 		FROM tickets
-		WHERE is_checked_in = true AND checked_in_at IS NOT NULL
+		WHERE event_id = $1 AND is_checked_in = true AND checked_in_at IS NOT NULL
 		GROUP BY hr
 		ORDER BY hr ASC;
 	`
-	hourlyRows, err := r.db.Query(ctx, hourlyQuery)
+	hourlyRows, err := r.db.Query(ctx, hourlyQuery, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("query hourly arrivals: %w", err)
 	}
@@ -309,7 +338,7 @@ func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResp
 		hourlyArrivals = append(hourlyArrivals, ha)
 	}
 
-	// Team completeness
+	// Team completeness across competitions in this event
 	teamQuery := `
 		SELECT 
 			tm.id,
@@ -317,12 +346,15 @@ func (r *Repository) GetAttendanceAnalytics(ctx context.Context) (*AnalyticsResp
 			COUNT(u.id) AS total_members,
 			COUNT(CASE WHEN t.is_checked_in THEN 1 END) AS checked_in_members
 		FROM teams tm
-		JOIN users u ON u.team_id = tm.id AND u.deleted_at IS NULL
-		LEFT JOIN tickets t ON t.user_id = u.id
+		JOIN competitions c ON c.id = tm.competition_id
+		JOIN team_members tmm ON tmm.team_id = tm.id
+		JOIN users u ON u.id = tmm.user_id AND u.deleted_at IS NULL
+		LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = c.event_id
+		WHERE c.event_id = $1
 		GROUP BY tm.id, tm.name
 		ORDER BY tm.name ASC;
 	`
-	teamRows, err := r.db.Query(ctx, teamQuery)
+	teamRows, err := r.db.Query(ctx, teamQuery, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("query team completeness: %w", err)
 	}

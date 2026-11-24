@@ -44,8 +44,9 @@ type settingsCache struct {
 var ErrInvalidDomain = errors.New("invalid email domain")
 
 func (r *Repository) GetSetting(ctx context.Context, key string) (json.RawMessage, error) {
+	eventID := resolveEventID(ctx)
 	var raw json.RawMessage
-	err := r.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE key = $1`, key).Scan(&raw)
+	err := r.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE event_id = $1 AND key = $2`, eventID, key).Scan(&raw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -56,14 +57,15 @@ func (r *Repository) GetSetting(ctx context.Context, key string) (json.RawMessag
 }
 
 func (r *Repository) SetSetting(ctx context.Context, key string, value any, updatedBy string) error {
+	eventID := resolveEventID(ctx)
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("encode setting: %w", err)
 	}
 	_, err = r.db.Exec(ctx, `
-		INSERT INTO app_settings (key, value, updated_by) VALUES ($1, $2, $3)
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
-		key, raw, updatedBy)
+		INSERT INTO app_settings (event_id, key, value, updated_by) VALUES ($1, $2, $3, NULLIF($4, '')::uuid)
+		ON CONFLICT (event_id, key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
+		eventID, key, raw, updatedBy)
 	if err != nil {
 		return fmt.Errorf("set setting: %w", err)
 	}

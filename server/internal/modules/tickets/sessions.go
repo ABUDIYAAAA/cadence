@@ -117,10 +117,11 @@ type SessionReport struct {
 // ---- Repository -------------------------------------------------------------------------------
 
 func (r *Repository) CreateSession(ctx context.Context, name, kind string, markTeam bool, createdBy string) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
 	var s ScanSession
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO scan_sessions (name, kind, mark_team, created_by) VALUES ($1, $2, $3, $4)
-		RETURNING id, name, kind, is_open, mark_team, created_at, closed_at`, name, kind, markTeam, createdBy,
+		INSERT INTO scan_sessions (event_id, name, kind, mark_team, created_by) VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid)
+		RETURNING id, name, kind, is_open, mark_team, created_at, closed_at`, eventID, name, kind, markTeam, createdBy,
 	).Scan(&s.ID, &s.Name, &s.Kind, &s.IsOpen, &s.MarkTeam, &s.CreatedAt, &s.ClosedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create scan session: %w", err)
@@ -129,10 +130,11 @@ func (r *Repository) CreateSession(ctx context.Context, name, kind string, markT
 }
 
 func (r *Repository) ListSessions(ctx context.Context) ([]ScanSession, error) {
+	eventID := resolveEventID(ctx)
 	rows, err := r.db.Query(ctx, `
 		SELECT s.id, s.name, s.kind, s.is_open, s.mark_team, s.created_at, s.closed_at,
 		       (SELECT COUNT(*) FROM scan_events e WHERE e.session_id = s.id)
-		FROM scan_sessions s ORDER BY s.is_open DESC, s.created_at DESC`)
+		FROM scan_sessions s WHERE s.event_id = $1 ORDER BY s.is_open DESC, s.created_at DESC`, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("list scan sessions: %w", err)
 	}
@@ -149,11 +151,12 @@ func (r *Repository) ListSessions(ctx context.Context) ([]ScanSession, error) {
 }
 
 func (r *Repository) GetSession(ctx context.Context, id string) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
 	var s ScanSession
 	err := r.db.QueryRow(ctx, `
 		SELECT s.id, s.name, s.kind, s.is_open, s.mark_team, s.created_at, s.closed_at,
 		       (SELECT COUNT(*) FROM scan_events e WHERE e.session_id = s.id)
-		FROM scan_sessions s WHERE s.id = $1`, id,
+		FROM scan_sessions s WHERE s.id = $1 AND s.event_id = $2`, id, eventID,
 	).Scan(&s.ID, &s.Name, &s.Kind, &s.IsOpen, &s.MarkTeam, &s.CreatedAt, &s.ClosedAt, &s.ScannedCount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -165,10 +168,11 @@ func (r *Repository) GetSession(ctx context.Context, id string) (*ScanSession, e
 }
 
 func (r *Repository) SetSessionOpen(ctx context.Context, id string, open bool) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
 	tag, err := r.db.Exec(ctx, `
 		UPDATE scan_sessions
 		SET is_open = $2, closed_at = CASE WHEN $2 THEN NULL ELSE CURRENT_TIMESTAMP END
-		WHERE id = $1`, id, open)
+		WHERE id = $1 AND event_id = $3`, id, open, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("toggle scan session: %w", err)
 	}
@@ -222,10 +226,18 @@ func (r *Repository) CountScans(ctx context.Context, sessionID string) (int, err
 }
 
 // MarkTeamOfLeader marks every member holding a pass of the team led by leaderID in the session.
-// Returns nil when the scanned user does not lead a team. The leader's own scan is excluded from the counts.
+// Returns nil when the scanned user does not lead a team in this event. The leader's own scan is excluded from the counts.
 func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, scannerID string) (*TeamScanResult, error) {
+	eventID := resolveEventID(ctx)
 	var teamID, teamName string
-	err := r.db.QueryRow(ctx, `SELECT id, name FROM teams WHERE leader_id = $1`, leaderID).Scan(&teamID, &teamName)
+	err := r.db.QueryRow(ctx, `
+		SELECT t.id, t.name
+		FROM teams t
+		JOIN competitions c ON c.id = t.competition_id
+		WHERE t.leader_id = $1 AND c.event_id = $2
+		ORDER BY t.created_at DESC
+		LIMIT 1
+	`, leaderID, eventID).Scan(&teamID, &teamName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -235,10 +247,11 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 
 	rows, err := r.db.Query(ctx, `
 		SELECT u.name, t.id
-		FROM users u
-		LEFT JOIN tickets t ON t.user_id = u.id
-		WHERE u.team_id = $1 AND u.id <> $2 AND u.deleted_at IS NULL
-		ORDER BY u.name`, teamID, leaderID)
+		FROM team_members tm
+		JOIN users u ON u.id = tm.user_id
+		LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = $3
+		WHERE tm.team_id = $1 AND u.id <> $2 AND u.deleted_at IS NULL
+		ORDER BY u.name`, teamID, leaderID, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("list team members: %w", err)
 	}
@@ -280,17 +293,26 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 	return res, nil
 }
 
-// sessionPeople returns every ticket holder with their scan time in the session (if any).
+// sessionPeople returns every ticket holder in the active event with their scan time in the session (if any).
 // Exit sessions only expect people who have entered; attendance sessions expect everyone.
 func (r *Repository) sessionPeople(ctx context.Context, sessionID, kind string) ([]SessionPerson, error) {
+	eventID := resolveEventID(ctx)
 	rows, err := r.db.Query(ctx, `
-		SELECT u.id, u.name, u.email, u.phone_number, tm.name, e.scanned_at
+		SELECT u.id, u.name, u.email, u.phone_number, tm_sub.team_name, e.scanned_at
 		FROM tickets t
 		JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
-		LEFT JOIN teams tm ON tm.id = u.team_id
+		LEFT JOIN LATERAL (
+			SELECT tm_t.name AS team_name
+			FROM team_members tm
+			JOIN teams tm_t ON tm_t.id = tm.team_id
+			JOIN competitions c ON c.id = tm_t.competition_id
+			WHERE tm.user_id = u.id AND c.event_id = t.event_id
+			ORDER BY tm.joined_at DESC
+			LIMIT 1
+		) tm_sub ON TRUE
 		LEFT JOIN scan_events e ON e.ticket_id = t.id AND e.session_id = $1
-		WHERE ($2 <> 'exit' OR t.is_checked_in = true)
-		ORDER BY u.name`, sessionID, kind)
+		WHERE t.event_id = $3 AND ($2 <> 'exit' OR t.is_checked_in = true)
+		ORDER BY u.name`, sessionID, kind, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("query session people: %w", err)
 	}

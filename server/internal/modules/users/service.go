@@ -358,7 +358,7 @@ func (s *Service) BlacklistUser(ctx context.Context, id string) error {
 
 	if s.redis != nil {
 		_ = s.redis.Set(ctx, fmt.Sprintf("blocked:user:%s", id), "blacklisted", 24*time.Hour).Err()
-		_ = s.redis.Del(ctx, fmt.Sprintf("user:%s:competitions", id)).Err()
+		_ = s.redis.Del(ctx, fmt.Sprintf("user:%s:events", id)).Err()
 	}
 
 	if s.auditor != nil {

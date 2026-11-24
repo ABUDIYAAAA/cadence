@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
@@ -29,8 +30,9 @@ func GetCompetition(ctx context.Context) (*Competition, bool) {
 	return c, ok
 }
 
-// ResolveCompetition middleware extracts the competitionSlug path parameter,
-// verifies the competition exists (using Redis cache with DB fallback), and binds it to context.
+// ResolveCompetition middleware extracts the competitionSlug path parameter within an event context,
+// verifies the competition exists in that event (using Redis cache with DB fallback), and binds both
+// Competition and CompetitionContext (inheriting the caller's validated role from EventContext).
 func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,151 +42,104 @@ func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) 
 				return
 			}
 
-			// If competition is already present in context matching the slug, pass through
-			if existing, ok := GetCompetition(r.Context()); ok && existing != nil && existing.Slug == slug {
-				next.ServeHTTP(w, r)
-				return
+			var eventID string
+			var userID, role string
+			if evCtx, ok := events.FromContext(r.Context()); ok && evCtx != nil {
+				eventID = evCtx.EventID
+				userID = evCtx.UserID
+				role = evCtx.Role
+			} else if ev, ok := events.GetEvent(r.Context()); ok && ev != nil {
+				eventID = ev.ID
 			}
-
-			cacheKey := "comp:slug:" + slug
-			var comp Competition
-
-			// 1. Check Redis cache (<1ms)
-			if rdb != nil {
-				if cached, err := rdb.Get(r.Context(), cacheKey).Bytes(); err == nil && len(cached) > 0 {
-					if err := json.Unmarshal(cached, &comp); err == nil {
-						ctx := WithCompetition(r.Context(), &comp)
-						next.ServeHTTP(w, r.WithContext(ctx))
-						return
+			if claims, ok := auth.GetUserClaims(r.Context()); ok && claims != nil {
+				if userID == "" {
+					userID = claims.UserID
+				}
+				if role == "" {
+					if claims.GlobalRole == "dev" {
+						role = "owner"
+					} else {
+						role = claims.Role
 					}
 				}
 			}
 
-			// 2. Query Postgres
-			if repo == nil {
-				utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
-				return
-			}
-			dbComp, err := repo.GetCompetitionBySlug(r.Context(), slug)
-			if err != nil {
-				if errors.Is(err, ErrCompetitionNotFound) {
-					utils.ErrorJSON(w, http.StatusNotFound, fmt.Sprintf("competition '%s' not found", slug))
-					return
+			// If competition is already present in context matching the slug, ensure CompetitionContext is set and pass through
+			if existing, ok := GetCompetition(r.Context()); ok && existing != nil && existing.Slug == slug && (eventID == "" || existing.EventID == eventID) {
+				ctx := r.Context()
+				if _, hasCompCtx := FromContext(ctx); !hasCompCtx && userID != "" {
+					ctx = WithCompetitionContext(ctx, &Context{
+						CompetitionID: existing.ID,
+						EventID:       existing.EventID,
+						Slug:          existing.Slug,
+						Name:          existing.Name,
+						UserID:        userID,
+						Role:          role,
+					})
 				}
-				utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
-				return
-			}
-
-			// 3. Cache in Redis (1h TTL)
-			if rdb != nil {
-				if data, err := json.Marshal(dbComp); err == nil {
-					_ = rdb.Set(r.Context(), cacheKey, data, time.Hour)
-				}
-			}
-
-			ctx := WithCompetition(r.Context(), dbComp)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
-// RequireMembership middleware verifies that the authenticated user is an active member
-// of the current competition, caches their role and accessible competitions in Redis, and attaches CompetitionContext.
-// Banned members are immediately rejected with 403 Forbidden.
-func RequireMembership(repo *Repository, rdb *redis.Client) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := auth.GetUserClaims(r.Context())
-			if !ok || claims.UserID == "" {
-				utils.ErrorJSON(w, http.StatusUnauthorized, "authentication required")
-				return
-			}
-
-			comp, ok := GetCompetition(r.Context())
-			if !ok || comp.ID == "" {
-				utils.ErrorJSON(w, http.StatusInternalServerError, "competition context missing")
-				return
-			}
-
-			// Dev bypass: global dev automatically gets full owner powers across all competitions
-			if claims.GlobalRole == "dev" {
-				compCtx := &Context{
-					CompetitionID: comp.ID,
-					Slug:          comp.Slug,
-					Name:          comp.Name,
-					UserID:        claims.UserID,
-					Role:          "owner",
-				}
-				ctx := WithCompetitionContext(r.Context(), compCtx)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			memberKey := fmt.Sprintf("comp:%s:member:%s", comp.ID, claims.UserID)
-			var role string
+			if eventID == "" {
+				eventID = events.DefaultEventID
+			}
+
+			cacheKey := fmt.Sprintf("event:%s:comp:slug:%s", eventID, slug)
+			var comp *Competition
 
 			// 1. Check Redis cache (<1ms)
 			if rdb != nil {
-				if cachedRole, err := rdb.Get(r.Context(), memberKey).Result(); err == nil && cachedRole != "" {
-					if cachedRole == "banned" {
-						utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this competition")
-						return
+				if cached, err := rdb.Get(r.Context(), cacheKey).Bytes(); err == nil && len(cached) > 0 {
+					var c Competition
+					if err := json.Unmarshal(cached, &c); err == nil {
+						comp = &c
 					}
-					role = cachedRole
 				}
 			}
 
 			// 2. Query Postgres on cache miss
-			if role == "" {
+			if comp == nil {
 				if repo == nil {
-					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
+					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
 					return
 				}
-				dbRole, isBanned, err := repo.GetMemberRole(r.Context(), comp.ID, claims.UserID)
+				dbComp, err := repo.GetCompetitionBySlug(r.Context(), eventID, slug)
 				if err != nil {
-					if errors.Is(err, ErrMemberNotFound) {
-						utils.ErrorJSON(w, http.StatusForbidden, "you are not a member of this competition")
+					if errors.Is(err, ErrCompetitionNotFound) {
+						utils.ErrorJSON(w, http.StatusNotFound, fmt.Sprintf("competition '%s' not found in this event", slug))
 						return
 					}
-					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
+					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
 					return
 				}
+				comp = dbComp
 
-				if isBanned {
-					if rdb != nil {
-						_ = rdb.Set(r.Context(), memberKey, "banned", 15*time.Minute).Err()
-						_ = rdb.SRem(r.Context(), fmt.Sprintf("user:%s:competitions", claims.UserID), comp.ID).Err()
-					}
-					utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this competition")
-					return
-				}
-
-				role = dbRole
-
-				// Cache in Redis (15m TTL) and update accessible competitions set (1h TTL)
+				// 3. Cache in Redis (1h TTL)
 				if rdb != nil {
-					_ = rdb.Set(r.Context(), memberKey, role, 15*time.Minute).Err()
-					userCompsKey := fmt.Sprintf("user:%s:competitions", claims.UserID)
-					_ = rdb.SAdd(r.Context(), userCompsKey, comp.ID).Err()
-					_ = rdb.Expire(r.Context(), userCompsKey, time.Hour).Err()
+					if data, err := json.Marshal(comp); err == nil {
+						_ = rdb.Set(r.Context(), cacheKey, data, time.Hour)
+					}
 				}
 			}
 
-			compCtx := &Context{
-				CompetitionID: comp.ID,
-				Slug:          comp.Slug,
-				Name:          comp.Name,
-				UserID:        claims.UserID,
-				Role:          role,
+			ctx := WithCompetition(r.Context(), comp)
+			if userID != "" {
+				ctx = WithCompetitionContext(ctx, &Context{
+					CompetitionID: comp.ID,
+					EventID:       comp.EventID,
+					Slug:          comp.Slug,
+					Name:          comp.Name,
+					UserID:        userID,
+					Role:          role,
+				})
 			}
-
-			ctx := WithCompetitionContext(r.Context(), compCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// RequireCompetitionRoles verifies that the user's role in the active competition matches
+// RequireCompetitionRoles verifies that the user's role in the active competition/event matches
 // one of the allowed roles.
 func RequireCompetitionRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 	roleSet := make(map[string]struct{}, len(allowedRoles))
@@ -194,14 +149,20 @@ func RequireCompetitionRoles(allowedRoles ...string) func(http.Handler) http.Han
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			compCtx, ok := FromContext(r.Context())
-			if !ok {
+			var activeRole string
+			if compCtx, ok := FromContext(r.Context()); ok && compCtx != nil {
+				activeRole = compCtx.Role
+			} else if evCtx, ok := events.FromContext(r.Context()); ok && evCtx != nil {
+				activeRole = evCtx.Role
+			}
+
+			if activeRole == "" {
 				utils.ErrorJSON(w, http.StatusForbidden, "competition access context missing")
 				return
 			}
 
 			// Global dev role has top-level bypass across all competition roles
-			if compCtx.Role == "dev" {
+			if activeRole == "dev" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -210,8 +171,8 @@ func RequireCompetitionRoles(allowedRoles ...string) func(http.Handler) http.Han
 				return
 			}
 
-			_, allowed := roleSet[compCtx.Role]
-			if !allowed && compCtx.Role == "owner" {
+			_, allowed := roleSet[activeRole]
+			if !allowed && activeRole == "owner" {
 				_, allowed = roleSet["admin"]
 			}
 			if !allowed {

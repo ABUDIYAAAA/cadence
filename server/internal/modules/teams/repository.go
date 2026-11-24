@@ -9,8 +9,9 @@ import (
 	"math/big"
 	"strings"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/internal/modules/competitions"
-	"devclubxnst.com/cadence/internal/modules/events"
+	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,6 +56,18 @@ type querier interface {
 type Repository struct {
 	db             *pgxpool.Pool
 	defaultMaxSize int
+	auditor        audit.Recorder
+}
+
+// EvictedTeamChange captures a team dissolution or leadership succession caused by member eviction.
+type EvictedTeamChange struct {
+	TeamID        string
+	TeamName      string
+	CompetitionID string
+	EventID       string
+	UserID        string
+	Deleted       bool
+	NewLeaderID   *string
 }
 
 func NewRepository(db *pgxpool.Pool, defaultMaxSize int) *Repository {
@@ -62,6 +75,74 @@ func NewRepository(db *pgxpool.Pool, defaultMaxSize int) *Repository {
 		defaultMaxSize = 4
 	}
 	return &Repository{db: db, defaultMaxSize: defaultMaxSize}
+}
+
+// WithAuditor attaches an audit recorder to the repository so cross-module evictions record team.update and team.delete audit events.
+func (r *Repository) WithAuditor(auditor audit.Recorder) *Repository {
+	r.auditor = auditor
+	return r
+}
+
+// RecordEvictionAudits emits team.delete or team.update audit events for each team affected by an eviction.
+func (r *Repository) RecordEvictionAudits(ctx context.Context, auditor audit.Recorder, changes []EvictedTeamChange) {
+	rec := auditor
+	if rec == nil {
+		rec = r.auditor
+	}
+	if rec == nil || len(changes) == 0 {
+		return
+	}
+	var actorID, actorEmail, actorRole *string
+	if claims, _ := auth.GetUserClaims(ctx); claims != nil {
+		actorID = &claims.UserID
+		actorEmail = &claims.Email
+		role := auth.GetEffectiveRole(ctx)
+		actorRole = &role
+	}
+	for _, ch := range changes {
+		teamID := ch.TeamID
+		var evID *string
+		if ch.EventID != "" {
+			eid := ch.EventID
+			evID = &eid
+		}
+		if ch.Deleted {
+			rec.Record(ctx, audit.Event{
+				EventID:     evID,
+				ActorID:     actorID,
+				ActorEmail:  actorEmail,
+				ActorRole:   actorRole,
+				Action:      audit.ActionTeamDelete,
+				TargetType:  audit.TargetTeam,
+				TargetID:    &teamID,
+				Description: fmt.Sprintf("Dissolved empty team %s after member %s left or was evicted", ch.TeamName, ch.UserID),
+				Metadata: map[string]any{
+					"team_id":        ch.TeamID,
+					"team_name":      ch.TeamName,
+					"competition_id": ch.CompetitionID,
+					"evicted_user":   ch.UserID,
+				},
+			})
+		} else if ch.NewLeaderID != nil {
+			rec.Record(ctx, audit.Event{
+				EventID:     evID,
+				ActorID:     actorID,
+				ActorEmail:  actorEmail,
+				ActorRole:   actorRole,
+				Action:      audit.ActionTeamUpdate,
+				TargetType:  audit.TargetTeam,
+				TargetID:    &teamID,
+				Description: fmt.Sprintf("Transferred leadership of team %s to %s after leader %s was evicted", ch.TeamName, *ch.NewLeaderID, ch.UserID),
+				Metadata: map[string]any{
+					"team_id":        ch.TeamID,
+					"team_name":      ch.TeamName,
+					"competition_id": ch.CompetitionID,
+					"new_leader_id":  *ch.NewLeaderID,
+					"former_leader":  ch.UserID,
+				},
+			})
+		}
+	}
 }
 
 func generateJoinCode() (string, error) {
@@ -86,20 +167,16 @@ func isConstraint(err error, name string) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == name
 }
 
+const defaultEventID = "00000000-0000-0000-0000-000000000001"
+
 func resolveEventIDFromContext(ctx context.Context) string {
-	if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil && evCtx.EventID != "" {
-		return evCtx.EventID
-	}
-	if ev, ok := events.GetEvent(ctx); ok && ev != nil && ev.ID != "" {
-		return ev.ID
-	}
 	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.EventID != "" {
 		return compCtx.EventID
 	}
 	if comp, ok := competitions.GetCompetition(ctx); ok && comp != nil && comp.EventID != "" {
 		return comp.EventID
 	}
-	return events.DefaultEventID
+	return defaultEventID
 }
 
 func resolveCompetitionIDFromContext(ctx context.Context) (string, bool) {
@@ -238,6 +315,7 @@ func lockUser(ctx context.Context, tx pgx.Tx, userID string) error {
 
 type teamLock struct {
 	ID            string
+	Name          string
 	CompetitionID string
 	LeaderID      *string
 	Frozen        bool
@@ -259,8 +337,8 @@ func (t teamLock) effectiveFrozen(s SettingsResponse) bool {
 func lockTeam(ctx context.Context, tx pgx.Tx, where string, args ...any) (*teamLock, error) {
 	var t teamLock
 	err := tx.QueryRow(ctx,
-		`SELECT id, competition_id, leader_id, is_frozen, max_size FROM teams WHERE `+where+` FOR UPDATE`, args...,
-	).Scan(&t.ID, &t.CompetitionID, &t.LeaderID, &t.Frozen, &t.MaxSize)
+		`SELECT id, name, competition_id, leader_id, is_frozen, max_size FROM teams WHERE `+where+` FOR UPDATE`, args...,
+	).Scan(&t.ID, &t.Name, &t.CompetitionID, &t.LeaderID, &t.Frozen, &t.MaxSize)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTeamNotFound
@@ -339,10 +417,6 @@ func (r *Repository) CreateTeam(ctx context.Context, compID, userID, name string
 		`INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, teamID, userID, compID); err != nil {
 		return "", fmt.Errorf("insert team member: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE users SET team_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, teamID, userID); err != nil {
-		return "", fmt.Errorf("link creator to team: %w", err)
-	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("commit create team tx: %w", err)
@@ -395,10 +469,6 @@ func (r *Repository) JoinByCode(ctx context.Context, compID, userID, code string
 		`INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, team.ID, userID, compID); err != nil {
 		return "", fmt.Errorf("insert team member: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE users SET team_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, team.ID, userID); err != nil {
-		return "", fmt.Errorf("join team: %w", err)
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("commit join tx: %w", err)
 	}
@@ -407,49 +477,43 @@ func (r *Repository) JoinByCode(ctx context.Context, compID, userID, code string
 
 // removeMemberTx detaches userID from teamID. A departing leader hands leadership to the
 // longest-standing remaining member; a team left with nobody is deleted.
-// It returns the team's remaining member count (0 means the team was deleted).
-func removeMemberTx(ctx context.Context, tx pgx.Tx, team *teamLock, userID string) (int, error) {
+// It returns the team's remaining member count (0 means the team was deleted) and any new leader ID.
+func removeMemberTx(ctx context.Context, tx pgx.Tx, team *teamLock, userID string) (int, *string, error) {
 	tag, err := tx.Exec(ctx,
 		`DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`,
 		team.ID, userID)
 	if err != nil {
-		return 0, fmt.Errorf("remove member from team: %w", err)
+		return 0, nil, fmt.Errorf("remove member from team: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return 0, ErrMemberNotFound
+		return 0, nil, ErrMemberNotFound
 	}
-
-	// Update legacy users.team_id pointer to another team if user is in one, or NULL
-	_, _ = tx.Exec(ctx, `
-		UPDATE users SET team_id = (
-			SELECT tm.team_id FROM team_members tm WHERE tm.user_id = $1 ORDER BY tm.joined_at DESC LIMIT 1
-		), updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND team_id = $2
-	`, userID, team.ID)
 
 	remaining, err := memberCount(ctx, tx, team.ID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if remaining == 0 {
 		if _, err := tx.Exec(ctx, `DELETE FROM teams WHERE id = $1`, team.ID); err != nil {
-			return 0, fmt.Errorf("delete empty team: %w", err)
+			return 0, nil, fmt.Errorf("delete empty team: %w", err)
 		}
-		return 0, nil
+		return 0, nil, nil
 	}
 
+	var newLeaderID *string
 	if team.LeaderID != nil && *team.LeaderID == userID {
-		if _, err := tx.Exec(ctx, `
+		if err := tx.QueryRow(ctx, `
 			UPDATE teams SET updated_at = CURRENT_TIMESTAMP, leader_id = (
 				SELECT tm.user_id FROM team_members tm
 				JOIN users u ON u.id = tm.user_id
 				WHERE tm.team_id = $1 AND u.deleted_at IS NULL
 				ORDER BY tm.joined_at ASC, tm.user_id ASC LIMIT 1
-			) WHERE id = $1`, team.ID); err != nil {
-			return 0, fmt.Errorf("transfer team leadership: %w", err)
+			) WHERE id = $1
+			RETURNING leader_id`, team.ID).Scan(&newLeaderID); err != nil {
+			return 0, nil, fmt.Errorf("transfer team leadership: %w", err)
 		}
 	}
-	return remaining, nil
+	return remaining, newLeaderID, nil
 }
 
 // LeaveTeam removes userID from their team in compID and returns the team id they left.
@@ -481,7 +545,7 @@ func (r *Repository) LeaveTeam(ctx context.Context, compID, userID string) (stri
 	if team.effectiveFrozen(settings) {
 		return "", ErrTeamFrozen
 	}
-	if _, err := removeMemberTx(ctx, tx, team, userID); err != nil {
+	if _, _, err := removeMemberTx(ctx, tx, team, userID); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -623,7 +687,7 @@ func (r *Repository) KickMember(ctx context.Context, compID, leaderID, targetID 
 	if team.effectiveFrozen(settings) {
 		return "", ErrTeamFrozen
 	}
-	if _, err := removeMemberTx(ctx, tx, team, targetID); err != nil {
+	if _, _, err := removeMemberTx(ctx, tx, team, targetID); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -692,12 +756,12 @@ func (r *Repository) EvictUserFromTeamTx(ctx context.Context, tx pgx.Tx, compID,
 
 	var t teamLock
 	err = tx.QueryRow(ctx, `
-		SELECT t.id, t.competition_id, t.leader_id, t.is_frozen, t.max_size
+		SELECT t.id, t.name, t.competition_id, t.leader_id, t.is_frozen, t.max_size
 		FROM teams t
 		JOIN team_members tm ON tm.team_id = t.id
 		WHERE tm.user_id = $1 AND t.competition_id = $2
 		FOR UPDATE OF t
-	`, userID, compID).Scan(&t.ID, &t.CompetitionID, &t.LeaderID, &t.Frozen, &t.MaxSize)
+	`, userID, compID).Scan(&t.ID, &t.Name, &t.CompetitionID, &t.LeaderID, &t.Frozen, &t.MaxSize)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", 0, nil, nil
@@ -705,14 +769,9 @@ func (r *Repository) EvictUserFromTeamTx(ctx context.Context, tx pgx.Tx, compID,
 		return "", 0, nil, fmt.Errorf("find team for eviction: %w", err)
 	}
 
-	rem, err := removeMemberTx(ctx, tx, &t, userID)
+	rem, updatedLeaderID, err := removeMemberTx(ctx, tx, &t, userID)
 	if err != nil {
 		return "", 0, nil, err
-	}
-
-	var updatedLeaderID *string
-	if rem > 0 {
-		_ = tx.QueryRow(ctx, `SELECT leader_id FROM teams WHERE id = $1`, t.ID).Scan(&updatedLeaderID)
 	}
 
 	return t.ID, rem, updatedLeaderID, nil
@@ -735,6 +794,153 @@ func (r *Repository) EvictUserFromTeam(ctx context.Context, compID, userID strin
 		return "", 0, nil, err
 	}
 	return teamID, rem, newLeader, nil
+}
+
+// EvictUserFromEventTeamsTx evicts userID from every team they belong to across all competitions in eventID.
+func (r *Repository) EvictUserFromEventTeamsTx(ctx context.Context, tx pgx.Tx, eventID, userID string) ([]EvictedTeamChange, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT t.id, t.name, t.competition_id, t.leader_id, t.is_frozen, t.max_size
+		FROM team_members tm
+		JOIN teams t ON t.id = tm.team_id
+		JOIN competitions c ON c.id = t.competition_id
+		WHERE tm.user_id = $1 AND c.event_id = $2
+		FOR UPDATE OF t
+	`, userID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	var affected []teamLock
+	for rows.Next() {
+		var tl teamLock
+		if err := rows.Scan(&tl.ID, &tl.Name, &tl.CompetitionID, &tl.LeaderID, &tl.Frozen, &tl.MaxSize); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		affected = append(affected, tl)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	changes := make([]EvictedTeamChange, 0, len(affected))
+	for i := range affected {
+		tl := &affected[i]
+		rem, newLeaderID, err := removeMemberTx(ctx, tx, tl, userID)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, EvictedTeamChange{
+			TeamID:        tl.ID,
+			TeamName:      tl.Name,
+			CompetitionID: tl.CompetitionID,
+			EventID:       eventID,
+			UserID:        userID,
+			Deleted:       rem == 0,
+			NewLeaderID:   newLeaderID,
+		})
+	}
+	return changes, nil
+}
+
+// EvictUserFromAllTeamsTx evicts userID from all teams across all competitions and events.
+func (r *Repository) EvictUserFromAllTeamsTx(ctx context.Context, tx pgx.Tx, userID string) ([]EvictedTeamChange, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT t.id, t.name, t.competition_id, COALESCE(c.event_id::text, ''), t.leader_id, t.is_frozen, t.max_size
+		FROM team_members tm
+		JOIN teams t ON t.id = tm.team_id
+		LEFT JOIN competitions c ON c.id = t.competition_id
+		WHERE tm.user_id = $1
+		FOR UPDATE OF t
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	type lockedTeamWithEvent struct {
+		lock    teamLock
+		eventID string
+	}
+	var affected []lockedTeamWithEvent
+	for rows.Next() {
+		var item lockedTeamWithEvent
+		if err := rows.Scan(
+			&item.lock.ID,
+			&item.lock.Name,
+			&item.lock.CompetitionID,
+			&item.eventID,
+			&item.lock.LeaderID,
+			&item.lock.Frozen,
+			&item.lock.MaxSize,
+		); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		affected = append(affected, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	changes := make([]EvictedTeamChange, 0, len(affected))
+	for i := range affected {
+		tl := &affected[i].lock
+		rem, newLeaderID, err := removeMemberTx(ctx, tx, tl, userID)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, EvictedTeamChange{
+			TeamID:        tl.ID,
+			TeamName:      tl.Name,
+			CompetitionID: tl.CompetitionID,
+			EventID:       affected[i].eventID,
+			UserID:        userID,
+			Deleted:       rem == 0,
+			NewLeaderID:   newLeaderID,
+		})
+	}
+	return changes, nil
+}
+
+// EvictAndAuditEventTeamsTx evicts userID from every team in eventID within tx and returns a post-commit audit callback.
+func (r *Repository) EvictAndAuditEventTeamsTx(ctx context.Context, tx pgx.Tx, eventID, userID string, auditor audit.Recorder) (func(), error) {
+	changes, err := r.EvictUserFromEventTeamsTx(ctx, tx, eventID, userID)
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		r.RecordEvictionAudits(ctx, auditor, changes)
+	}, nil
+}
+
+// EvictAndAuditAllTeamsTx evicts userID from all teams across all competitions within tx and returns a post-commit audit callback.
+func (r *Repository) EvictAndAuditAllTeamsTx(ctx context.Context, tx pgx.Tx, userID string, auditor audit.Recorder) (func(), error) {
+	changes, err := r.EvictUserFromAllTeamsTx(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		r.RecordEvictionAudits(ctx, auditor, changes)
+	}, nil
+}
+
+// EvictUserFromAnyTeam evicts a user from all teams across all competitions in a standalone transaction.
+func (r *Repository) EvictUserFromAnyTeam(ctx context.Context, userID string) ([]EvictedTeamChange, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin evict team tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	changes, err := r.EvictUserFromAllTeamsTx(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	r.RecordEvictionAudits(ctx, nil, changes)
+	return changes, nil
 }
 
 // ---- reads ----
@@ -1076,9 +1282,6 @@ func (r *Repository) DeleteTeam(ctx context.Context, id string) error {
 		}
 	}
 
-	if _, err := tx.Exec(ctx, "UPDATE users SET team_id = NULL WHERE team_id = $1", id); err != nil {
-		return fmt.Errorf("detach team members: %w", err)
-	}
 	tag, err := tx.Exec(ctx, "DELETE FROM teams WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("delete team: %w", err)
@@ -1127,10 +1330,6 @@ func (r *Repository) AddMember(ctx context.Context, compID, teamID, userID strin
 		`INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, team.ID, userID, compID); err != nil {
 		return fmt.Errorf("insert team member: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE users SET team_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, team.ID, userID); err != nil {
-		return fmt.Errorf("add member to team: %w", err)
-	}
 	return tx.Commit(ctx)
 }
 
@@ -1152,7 +1351,7 @@ func (r *Repository) RemoveMember(ctx context.Context, compID, teamID, userID st
 	if err != nil {
 		return err
 	}
-	if _, err := removeMemberTx(ctx, tx, team, userID); err != nil {
+	if _, _, err := removeMemberTx(ctx, tx, team, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -30,6 +30,9 @@ func NewService(
 	redis *redis.Client,
 	auditor audit.Recorder,
 ) *Service {
+	if repo != nil && auditor != nil {
+		repo.WithAuditor(auditor)
+	}
 	return &Service{
 		repo:        repo,
 		cfg:         cfg,

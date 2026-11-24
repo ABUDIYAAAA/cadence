@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -20,12 +21,35 @@ var (
 	ErrMemberNotFound         = errors.New("event member not found")
 )
 
+// TeamEvictor encapsulates team eviction within an event transaction and records any resulting team audit events after commit.
+type TeamEvictor interface {
+	EvictAndAuditEventTeamsTx(ctx context.Context, tx pgx.Tx, eventID, userID string, auditor audit.Recorder) (func(), error)
+}
+
 type Repository struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	teams   TeamEvictor
+	auditor audit.Recorder
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+	return &Repository{
+		db: db,
+	}
+}
+
+// WithTeamEvictor configures the teams domain seam used for transactional member eviction.
+func (r *Repository) WithTeamEvictor(evictor TeamEvictor) *Repository {
+	if evictor != nil {
+		r.teams = evictor
+	}
+	return r
+}
+
+// WithAuditor attaches an audit recorder so team dissolutions and leadership transfers during event evictions are audited.
+func (r *Repository) WithAuditor(auditor audit.Recorder) *Repository {
+	r.auditor = auditor
+	return r
 }
 
 // deriveNameFromEmail converts an email address into a human-friendly display name.
@@ -516,15 +540,25 @@ func (r *Repository) RemoveMember(ctx context.Context, eventID, targetUserID str
 	}
 	defer tx.Rollback(ctx)
 
-	if err := evictUserFromEventTeamsTx(ctx, tx, eventID, targetUserID); err != nil {
-		return fmt.Errorf("evict removed member from event teams: %w", err)
+	var postCommitAudit func()
+	if r.teams != nil {
+		postCommitAudit, err = r.teams.EvictAndAuditEventTeamsTx(ctx, tx, eventID, targetUserID, r.auditor)
+		if err != nil {
+			return fmt.Errorf("evict removed member from event teams: %w", err)
+		}
 	}
 
 	_, err = tx.Exec(ctx, `DELETE FROM user_events WHERE event_id = $1 AND user_id = $2`, eventID, targetUserID)
 	if err != nil {
 		return fmt.Errorf("remove member: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if postCommitAudit != nil {
+		postCommitAudit()
+	}
+	return nil
 }
 
 // GetMemberRole gets the active role of a user in an event along with ban status.
@@ -570,80 +604,20 @@ func (r *Repository) BanMember(ctx context.Context, eventID, targetUserID string
 		return fmt.Errorf("ban member: %w", err)
 	}
 
-	if err := evictUserFromEventTeamsTx(ctx, tx, eventID, targetUserID); err != nil {
-		return fmt.Errorf("evict banned member from event teams: %w", err)
+	var postCommitAudit func()
+	if r.teams != nil {
+		postCommitAudit, err = r.teams.EvictAndAuditEventTeamsTx(ctx, tx, eventID, targetUserID, r.auditor)
+		if err != nil {
+			return fmt.Errorf("evict banned member from event teams: %w", err)
+		}
 	}
 
-	return tx.Commit(ctx)
-}
-
-// evictUserFromEventTeamsTx evicts userID from every team they belong to across all competitions in eventID.
-func evictUserFromEventTeamsTx(ctx context.Context, tx pgx.Tx, eventID, userID string) error {
-	rows, err := tx.Query(ctx, `
-		SELECT t.id, t.leader_id
-		FROM team_members tm
-		JOIN teams t ON t.id = tm.team_id
-		JOIN competitions c ON c.id = t.competition_id
-		WHERE tm.user_id = $1 AND c.event_id = $2
-		FOR UPDATE OF t
-	`, userID, eventID)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	type teamEntry struct {
-		id       string
-		leaderID *string
+	if postCommitAudit != nil {
+		postCommitAudit()
 	}
-	var affected []teamEntry
-	for rows.Next() {
-		var te teamEntry
-		if err := rows.Scan(&te.id, &te.leaderID); err != nil {
-			rows.Close()
-			return err
-		}
-		affected = append(affected, te)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, te := range affected {
-		if _, err := tx.Exec(ctx, `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`, te.id, userID); err != nil {
-			return err
-		}
-		_, _ = tx.Exec(ctx, `UPDATE users SET team_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND team_id = $2`, userID, te.id)
-
-		var remaining int
-		if err := tx.QueryRow(ctx, `
-			SELECT COUNT(*)
-			FROM team_members tm
-			JOIN users u ON u.id = tm.user_id
-			WHERE tm.team_id = $1 AND u.deleted_at IS NULL
-		`, te.id).Scan(&remaining); err != nil {
-			return err
-		}
-
-		if remaining == 0 {
-			if _, err := tx.Exec(ctx, `DELETE FROM teams WHERE id = $1`, te.id); err != nil {
-				return fmt.Errorf("delete empty team: %w", err)
-			}
-			continue
-		}
-
-		if te.leaderID != nil && *te.leaderID == userID {
-			if _, err := tx.Exec(ctx, `
-				UPDATE teams SET updated_at = CURRENT_TIMESTAMP, leader_id = (
-					SELECT tm.user_id FROM team_members tm
-					JOIN users u ON u.id = tm.user_id
-					WHERE tm.team_id = $1 AND u.deleted_at IS NULL
-					ORDER BY tm.joined_at ASC, tm.user_id ASC LIMIT 1
-				) WHERE id = $1`, te.id); err != nil {
-				return fmt.Errorf("transfer team leadership: %w", err)
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -811,7 +785,10 @@ func (r *Repository) ListEventUsers(ctx context.Context, eventID string, filter 
 			FROM team_members tm
 			JOIN teams t ON t.id = tm.team_id
 			JOIN competitions c ON c.id = t.competition_id
-			WHERE tm.user_id = u.id AND c.event_id = ue.event_id
+			WHERE tm.user_id = u.id
+			  AND c.event_id = ue.event_id
+			  AND ($%d = '' OR tm.competition_id = $%d::uuid)
+			  AND ($%d = '' OR tm.team_id = $%d::uuid)
 			ORDER BY tm.joined_at DESC
 			LIMIT 1
 		) tm_sub ON TRUE
@@ -819,9 +796,9 @@ func (r *Repository) ListEventUsers(ctx context.Context, eventID string, filter 
 		WHERE %s
 		ORDER BY ue.created_at DESC
 		LIMIT $%d OFFSET $%d
-	`, whereClause, argIndex, argIndex+1)
+	`, argIndex, argIndex, argIndex+1, argIndex+1, whereClause, argIndex+2, argIndex+3)
 
-	args = append(args, limit, offset)
+	args = append(args, filter.CompetitionID, filter.TeamID, limit, offset)
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {

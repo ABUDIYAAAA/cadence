@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -15,12 +16,35 @@ var (
 	ErrUserAlreadyExists = errors.New("user with this email already exists")
 )
 
+// TeamEvictor encapsulates cross-competition team eviction owned by the teams module.
+type TeamEvictor interface {
+	EvictAndAuditAllTeamsTx(ctx context.Context, tx pgx.Tx, userID string, auditor audit.Recorder) (func(), error)
+}
+
 type Repository struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	teams   TeamEvictor
+	auditor audit.Recorder
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+	return &Repository{
+		db: db,
+	}
+}
+
+// WithTeamEvictor configures the teams domain seam used for transactional user eviction.
+func (r *Repository) WithTeamEvictor(evictor TeamEvictor) *Repository {
+	if evictor != nil {
+		r.teams = evictor
+	}
+	return r
+}
+
+// WithAuditor attaches an audit recorder so team dissolutions and leadership transfers during user deletion/blacklisting are audited.
+func (r *Repository) WithAuditor(auditor audit.Recorder) *Repository {
+	r.auditor = auditor
+	return r
 }
 
 func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
@@ -262,7 +286,10 @@ func (r *Repository) DeleteUser(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	_ = evictUserFromTeamTx(ctx, tx, id)
+	var postCommitAudit func()
+	if r.teams != nil {
+		postCommitAudit, _ = r.teams.EvictAndAuditAllTeamsTx(ctx, tx, id, r.auditor)
+	}
 
 	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 	if err != nil {
@@ -272,7 +299,13 @@ func (r *Repository) DeleteUser(ctx context.Context, id string) error {
 		return ErrUserNotFound
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if postCommitAudit != nil {
+		postCommitAudit()
+	}
+	return nil
 }
 
 // RestoreUser reactivates a soft-deleted user. Returns ErrUserNotFound if the user is not deleted.
@@ -294,9 +327,7 @@ func (r *Repository) RestoreUser(ctx context.Context, id string) error {
 	return nil
 }
 
-// EvictUserFromAnyTeam evicts a user from all teams they belong to across all competitions.
-// If the user was the team leader, leadership transfers to the earliest-joined remaining member.
-// If no members remain, the team is deleted.
+// EvictUserFromAnyTeam delegates to the teams module to evict a user from all teams across all competitions.
 func (r *Repository) EvictUserFromAnyTeam(ctx context.Context, userID string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -304,76 +335,18 @@ func (r *Repository) EvictUserFromAnyTeam(ctx context.Context, userID string) er
 	}
 	defer tx.Rollback(ctx)
 
-	if err := evictUserFromTeamTx(ctx, tx, userID); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func evictUserFromTeamTx(ctx context.Context, tx pgx.Tx, userID string) error {
-	rows, err := tx.Query(ctx, `
-		SELECT t.id, t.leader_id
-		FROM team_members tm
-		JOIN teams t ON t.id = tm.team_id
-		WHERE tm.user_id = $1
-		FOR UPDATE OF t
-	`, userID)
-	if err != nil {
-		return err
-	}
-	type teamEntry struct {
-		id       string
-		leaderID *string
-	}
-	var affected []teamEntry
-	for rows.Next() {
-		var te teamEntry
-		if err := rows.Scan(&te.id, &te.leaderID); err != nil {
-			rows.Close()
-			return err
-		}
-		affected = append(affected, te)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	_, _ = tx.Exec(ctx, `UPDATE users SET team_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, userID)
-
-	for _, te := range affected {
-		if _, err := tx.Exec(ctx, `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`, te.id, userID); err != nil {
-			return err
-		}
-
-		var remaining int
-		err = tx.QueryRow(ctx, `
-			SELECT COUNT(*)
-			FROM team_members tm
-			JOIN users u ON u.id = tm.user_id
-			WHERE tm.team_id = $1 AND u.deleted_at IS NULL AND tm.user_id <> $2
-		`, te.id, userID).Scan(&remaining)
+	var postCommitAudit func()
+	if r.teams != nil {
+		postCommitAudit, err = r.teams.EvictAndAuditAllTeamsTx(ctx, tx, userID, r.auditor)
 		if err != nil {
 			return err
 		}
-
-		if remaining == 0 {
-			if _, err := tx.Exec(ctx, `DELETE FROM teams WHERE id = $1`, te.id); err != nil {
-				return err
-			}
-		} else if te.leaderID != nil && *te.leaderID == userID {
-			_, err = tx.Exec(ctx, `
-				UPDATE teams SET updated_at = CURRENT_TIMESTAMP, leader_id = (
-					SELECT tm.user_id FROM team_members tm
-					JOIN users u ON u.id = tm.user_id
-					WHERE tm.team_id = $1 AND u.deleted_at IS NULL AND tm.user_id <> $2
-					ORDER BY tm.joined_at ASC, tm.user_id ASC LIMIT 1
-				) WHERE id = $1`, te.id, userID)
-			if err != nil {
-				return err
-			}
-		}
 	}
-
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if postCommitAudit != nil {
+		postCommitAudit()
+	}
 	return nil
 }

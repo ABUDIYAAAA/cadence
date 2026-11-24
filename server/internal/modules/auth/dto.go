@@ -16,7 +16,6 @@ type UserResponse struct {
 	GoogleID    *string         `json:"google_id,omitempty"`
 	AvatarURL   *string         `json:"avatar_url,omitempty"`
 	Role        string          `json:"role,omitempty"`
-	TeamID      *string         `json:"team_id,omitempty"`
 	Events      []UserEventRole `json:"events,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 }

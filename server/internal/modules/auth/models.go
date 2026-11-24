@@ -16,7 +16,6 @@ type User struct {
 	AvatarURL    *string
 	Role         string
 	PhoneNumber  *string
-	TeamID       *string
 	IsActive     bool
 	TokenVersion int
 	CreatedAt    time.Time

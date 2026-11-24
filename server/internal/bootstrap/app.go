@@ -156,15 +156,15 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard, limiter)
 	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
 
-	// Users module initialization
-	usersRepo := users.NewRepository(dbPool)
-	usersService := users.NewService(usersRepo, cfg, redisClient, auditQueue)
-	usersHandler := users.NewHandler(usersService)
-
 	// Teams module initialization
-	teamsRepo := teams.NewRepository(dbPool, cfg.DefaultMaxTeamSize)
+	teamsRepo := teams.NewRepository(dbPool, cfg.DefaultMaxTeamSize).WithAuditor(auditQueue)
 	teamsService := teams.NewService(teamsRepo, auditQueue)
 	teamsHandler := teams.NewHandler(teamsService, limiter)
+
+	// Users module initialization (delegates team eviction to teamsRepo)
+	usersRepo := users.NewRepository(dbPool).WithTeamEvictor(teamsRepo).WithAuditor(auditQueue)
+	usersService := users.NewService(usersRepo, cfg, redisClient, auditQueue)
+	usersHandler := users.NewHandler(usersService)
 
 	// Audit module initialization
 	auditHandler := audit.NewHandler(auditRepo)
@@ -213,7 +213,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	}
 
 	// Events & Competitions multi-tenant modules initialization
-	eventsRepo := events.NewRepository(dbPool)
+	eventsRepo := events.NewRepository(dbPool).WithTeamEvictor(teamsRepo).WithAuditor(auditQueue)
 	eventsService := events.NewService(eventsRepo, redisClient, auditQueue)
 	eventsHandler := events.NewHandler(eventsService)
 

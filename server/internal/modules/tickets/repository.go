@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/competitions"
 	"devclubxnst.com/cadence/internal/modules/events"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -170,57 +171,17 @@ func (r *Repository) IsEventMember(ctx context.Context, userID string) (bool, er
 }
 
 // GetTicketByCode looks up a ticket in the active event and joins attendee profile and checker details.
+// If a competition context is active, team lookup is scoped to that competition.
 func (r *Repository) GetTicketByCode(ctx context.Context, ticketCode string) (*TicketAttendeeInfo, error) {
-	eventID := resolveEventID(ctx)
-	query := `
-		SELECT 
-			t.id, t.event_id, t.user_id, t.ticket_code, t.is_checked_in, t.checked_in_at, t.checked_in_by,
-			t.email_status, t.email_sent_at, t.released_at,
-			u.name, u.email, COALESCE(ue.role::text, 'participant'), u.phone_number,
-			tm_sub.team_id, tm_sub.team_name,
-			v.name
-		FROM tickets t
-		JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
-		LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = t.event_id
-		LEFT JOIN LATERAL (
-			SELECT tm.team_id, tm_t.name AS team_name
-			FROM team_members tm
-			JOIN teams tm_t ON tm_t.id = tm.team_id
-			JOIN competitions c ON c.id = tm_t.competition_id
-			WHERE tm.user_id = u.id AND c.event_id = t.event_id
-			ORDER BY tm.joined_at DESC
-			LIMIT 1
-		) tm_sub ON TRUE
-		LEFT JOIN users v ON v.id = t.checked_in_by
-		WHERE t.event_id = $1 AND t.ticket_code = $2;
-	`
-	var info TicketAttendeeInfo
-	err := r.db.QueryRow(ctx, query, eventID, ticketCode).Scan(
-		&info.TicketID,
-		&info.EventID,
-		&info.UserID,
-		&info.TicketCode,
-		&info.IsCheckedIn,
-		&info.CheckedInAt,
-		&info.CheckedInByID,
-		&info.EmailStatus,
-		&info.EmailSentAt,
-		&info.ReleasedAt,
-		&info.UserName,
-		&info.UserEmail,
-		&info.UserRole,
-		&info.UserPhone,
-		&info.TeamID,
-		&info.TeamName,
-		&info.CheckedInByName,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrTicketNotFound
-		}
-		return nil, fmt.Errorf("query ticket by code: %w", err)
+	var compID *string
+	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.CompetitionID != "" {
+		cid := compCtx.CompetitionID
+		compID = &cid
+	} else if comp, ok := competitions.GetCompetition(ctx); ok && comp != nil && comp.ID != "" {
+		cid := comp.ID
+		compID = &cid
 	}
-	return &info, nil
+	return r.GetTicketByCodeForCompetition(ctx, ticketCode, compID)
 }
 
 // GetTicketByUserID finds ticket details for an authenticated user in the active event.

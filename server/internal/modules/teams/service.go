@@ -15,6 +15,9 @@ type Service struct {
 }
 
 func NewService(repo *Repository, auditor audit.Recorder) *Service {
+	if repo != nil && auditor != nil {
+		repo.WithAuditor(auditor)
+	}
 	return &Service{
 		repo:    repo,
 		auditor: auditor,

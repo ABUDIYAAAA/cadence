@@ -15,11 +15,29 @@ import (
 	"devclubxnst.com/cadence/internal/modules/competitions"
 	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/internal/modules/users"
+	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+type captureAuditRecorder struct {
+	events []audit.Event
+}
+
+func (c *captureAuditRecorder) Record(_ context.Context, ev audit.Event) {
+	c.events = append(c.events, ev)
+}
+
+func (c *captureAuditRecorder) hasActionForTarget(action, targetID string) bool {
+	for _, ev := range c.events {
+		if ev.Action == action && ev.TargetID != nil && *ev.TargetID == targetID {
+			return true
+		}
+	}
+	return false
+}
 
 func newTestDBPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -146,8 +164,8 @@ func TestTeamingWorkflow(t *testing.T) {
 	linkEventMember(t, pool, eventID, p3ID, "participant")
 
 	teamsRepo := NewRepository(pool, 4)
-	eventsRepo := events.NewRepository(pool)
-	usersRepo := users.NewRepository(pool)
+	eventsRepo := events.NewRepository(pool).WithTeamEvictor(teamsRepo)
+	usersRepo := users.NewRepository(pool).WithTeamEvictor(teamsRepo)
 
 	// Step A: Participant 1 creates a team in Competition 1
 	teamName := fmt.Sprintf("Team Rockets %d", ts)
@@ -559,3 +577,118 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 		t.Fatalf("expected Comp 2 MaxTeamSize=4 (default), got %d", comp2Settings.MaxTeamSize)
 	}
 }
+
+func TestTeamOwnershipEvictionAuditAndCompetitionScopedLookup(t *testing.T) {
+	pool := newTestDBPool(t)
+	ctx := context.Background()
+	ts := time.Now().UnixNano()
+
+	// 1. Verify redundant users.team_id column is dropped from the schema
+	var colCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'team_id'
+	`).Scan(&colCount); err != nil {
+		t.Fatalf("check users.team_id column: %v", err)
+	}
+	if colCount != 0 {
+		t.Fatalf("expected users.team_id column to be dropped (0 rows in information_schema.columns), got %d", colCount)
+	}
+
+	// 2. Setup event with TWO competitions
+	ownerID := createTestUser(t, pool, fmt.Sprintf("own_evict_%d@example.com", ts), "Owner", "user")
+	eventSlug := fmt.Sprintf("ev-evict-%d", ts)
+	comp1Slug := fmt.Sprintf("comp1-evict-%d", ts)
+	comp2Slug := fmt.Sprintf("comp2-evict-%d", ts)
+	eventID, comp1ID := createTestEventAndCompetition(t, pool, eventSlug, comp1Slug, "Comp 1", ownerID)
+
+	var comp2ID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO competitions (event_id, slug, name)
+		VALUES ($1, $2, 'Comp 2')
+		RETURNING id
+	`, eventID, comp2Slug).Scan(&comp2ID); err != nil {
+		t.Fatalf("create comp 2: %v", err)
+	}
+
+	u1ID := createTestUser(t, pool, fmt.Sprintf("u1_evict_%d@example.com", ts), "Leader One", "user")
+	u2ID := createTestUser(t, pool, fmt.Sprintf("u2_evict_%d@example.com", ts), "Member Two", "user")
+	u3ID := createTestUser(t, pool, fmt.Sprintf("u3_evict_%d@example.com", ts), "Solo Three", "user")
+	linkEventMember(t, pool, eventID, u1ID, "participant")
+	linkEventMember(t, pool, eventID, u2ID, "participant")
+	linkEventMember(t, pool, eventID, u3ID, "participant")
+
+	auditor := &captureAuditRecorder{}
+	teamsRepo := NewRepository(pool, 4).WithAuditor(auditor)
+	eventsRepo := events.NewRepository(pool).WithTeamEvictor(teamsRepo)
+	eventsService := events.NewService(eventsRepo, nil, auditor)
+	usersRepo := users.NewRepository(pool).WithTeamEvictor(teamsRepo)
+	usersService := users.NewService(usersRepo, nil, nil, auditor)
+
+	// u1 creates Team A in Comp 1 (joined by u2) and Team B in Comp 2 (later Timestamp!)
+	team1Name := fmt.Sprintf("Alpha Comp1 %d", ts)
+	team1ID, err := teamsRepo.CreateTeam(ctx, comp1ID, u1ID, team1Name)
+	if err != nil {
+		t.Fatalf("create team1 in comp1: %v", err)
+	}
+	team1Detail, err := teamsRepo.GetTeamByID(ctx, team1ID)
+	if err != nil {
+		t.Fatalf("get team1: %v", err)
+	}
+	if _, err := teamsRepo.JoinByCode(ctx, comp1ID, u2ID, team1Detail.JoinCode); err != nil {
+		t.Fatalf("u2 join team1: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	team2Name := fmt.Sprintf("Beta Comp2 %d", ts)
+	team2ID, err := teamsRepo.CreateTeam(ctx, comp2ID, u1ID, team2Name)
+	if err != nil {
+		t.Fatalf("create team2 in comp2: %v", err)
+	}
+	_ = team2ID
+
+	// 3. Verify events.ListEventUsers scopes the user's team lookup to filter.CompetitionID
+	listComp1, err := eventsService.ListEventUsers(ctx, eventID, events.EventUserFilter{
+		CompetitionID: comp1ID,
+		Search:        "Leader One",
+	})
+	if err != nil {
+		t.Fatalf("ListEventUsers for comp1: %v", err)
+	}
+	if len(listComp1.Users) != 1 {
+		t.Fatalf("expected 1 user matching search, got %d", len(listComp1.Users))
+	}
+	if listComp1.Users[0].TeamID == nil || *listComp1.Users[0].TeamID != team1ID {
+		t.Fatalf("expected ListEventUsers(CompetitionID=comp1) to return comp1 team %s, got %v (%v)",
+			team1ID, listComp1.Users[0].TeamID, listComp1.Users[0].TeamName)
+	}
+
+	// 4. Banning u1 via eventsService.BanMember must transfer leadership of Team 1 to u2,
+	// dissolve Team 2 (where u1 was sole member), and emit audit.ActionTeamUpdate and audit.ActionTeamDelete!
+	if err := eventsService.BanMember(ctx, eventID, ownerID, "owner", u1ID, nil); err != nil {
+		t.Fatalf("eventsService.BanMember(u1): %v", err)
+	}
+	if !auditor.hasActionForTarget(audit.ActionTeamUpdate, team1ID) {
+		t.Fatalf("expected BanMember to emit %s audit event for leadership succession on team %s; got events: %+v",
+			audit.ActionTeamUpdate, team1ID, auditor.events)
+	}
+	if !auditor.hasActionForTarget(audit.ActionTeamDelete, team2ID) {
+		t.Fatalf("expected BanMember to emit %s audit event for empty-team dissolution on team %s; got events: %+v",
+			audit.ActionTeamDelete, team2ID, auditor.events)
+	}
+
+	// 5. Blacklisting u3 via usersService.BlacklistUser must dissolve u3's solo team and emit audit.ActionTeamDelete!
+	team3ID, err := teamsRepo.CreateTeam(ctx, comp1ID, u3ID, fmt.Sprintf("Gamma Solo %d", ts))
+	if err != nil {
+		t.Fatalf("create team3: %v", err)
+	}
+	if err := usersService.BlacklistUser(ctx, u3ID); err != nil {
+		t.Fatalf("usersService.BlacklistUser(u3): %v", err)
+	}
+	if !auditor.hasActionForTarget(audit.ActionTeamDelete, team3ID) {
+		t.Fatalf("expected BlacklistUser to emit %s audit event for dissolved team %s; got events: %+v",
+			audit.ActionTeamDelete, team3ID, auditor.events)
+	}
+}
+

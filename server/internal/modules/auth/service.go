@@ -345,7 +345,6 @@ func toUserResponse(u *User, evs []UserEventRole) *UserResponse {
 		GoogleID:    u.GoogleID,
 		AvatarURL:   u.AvatarURL,
 		Role:        role,
-		TeamID:      u.TeamID,
 		Events:      evs,
 		CreatedAt:   u.CreatedAt,
 	}

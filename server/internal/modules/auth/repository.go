@@ -25,14 +25,14 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, email, name, google_id, avatar_url, role, phone_number, team_id,
+		SELECT id, email, name, google_id, avatar_url, role, phone_number,
 		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE LOWER(email) = LOWER($1)
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -46,14 +46,14 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) {
 	query := `
-		SELECT id, email, name, google_id, avatar_url, role, phone_number, team_id,
+		SELECT id, email, name, google_id, avatar_url, role, phone_number,
 		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -67,14 +67,14 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) 
 
 func (r *Repository) GetUserByGoogleID(ctx context.Context, googleID string) (*User, error) {
 	query := `
-		SELECT id, email, name, google_id, avatar_url, role, phone_number, team_id,
+		SELECT id, email, name, google_id, avatar_url, role, phone_number,
 		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE google_id = $1
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, googleID).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -103,12 +103,12 @@ func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name
 		    is_active = TRUE,
 		    deleted_at = NULL,
 		    updated_at = CURRENT_TIMESTAMP
-		RETURNING id, email, name, google_id, avatar_url, role, phone_number, team_id,
+		RETURNING id, email, name, google_id, avatar_url, role, phone_number,
 		          is_active, token_version, created_at, updated_at
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, email, name, googleID, avatarURL, defaultRole).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber, &u.TeamID,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
 		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {

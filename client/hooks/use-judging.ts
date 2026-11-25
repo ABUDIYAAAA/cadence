@@ -226,11 +226,14 @@ export function useUpdateMySubmission() {
   });
 }
 
-export function useSubmissionGate(options?: { enabled?: boolean }) {
+export function useSubmissionGate(
+  roundId?: string | null,
+  options?: { enabled?: boolean }
+) {
   const { ready, key } = useJudgingScope();
   return useQuery({
-    queryKey: key("submission-gate"),
-    queryFn: () => judgingService.getSubmissionGate(),
+    queryKey: key("submission-gate", roundId ?? ""),
+    queryFn: () => judgingService.getSubmissionGate(roundId),
     enabled: ready && (options?.enabled ?? true),
   });
 }
@@ -248,7 +251,8 @@ export function useSetSubmissionGate() {
   const queryClient = useQueryClient();
   const { key } = useJudgingScope();
   return useMutation({
-    mutationFn: (sessionId: string | null) => judgingService.setSubmissionGate(sessionId),
+    mutationFn: (payload: { roundId?: string | null; sessionId: string | null }) =>
+      judgingService.setSubmissionGate(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: key("submission-gate") });
       queryClient.invalidateQueries({ queryKey: key("team-status") });

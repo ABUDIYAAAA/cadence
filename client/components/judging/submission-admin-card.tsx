@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import { Download, ExternalLink, Eye, Search } from "lucide-react";
 import {
+  useJudgingRounds,
   useSubmissionGate,
   useSetSubmissionGate,
   useSubmissions,
@@ -25,7 +26,19 @@ import { Badge } from "@/components/ui/badge";
  */
 export function SubmissionAdminCard() {
   const toast = useToast();
-  const { data: gate } = useSubmissionGate();
+  const { data: rounds = [] } = useJudgingRounds();
+  const [selectedRoundId, setSelectedRoundId] = useState<string>("");
+
+  const effectiveRoundId = useMemo(() => {
+    if (selectedRoundId && rounds.some((r) => r.id === selectedRoundId)) {
+      return selectedRoundId;
+    }
+    const active = rounds.find((r) => r.status === "active");
+    if (active) return active.id;
+    return rounds[0]?.id ?? "";
+  }, [selectedRoundId, rounds]);
+
+  const { data: gate } = useSubmissionGate(effectiveRoundId || null);
   const setGate = useSetSubmissionGate();
   const { data: sessions = [] } = useScanSessions();
   const [exporting, setExporting] = useState(false);
@@ -38,7 +51,9 @@ export function SubmissionAdminCard() {
     refetch: refetchSubmissions,
   } = useSubmissions({ enabled: viewerOpen });
 
-  const attendance = sessions.filter((s) => s.kind === "attendance");
+  const eligibleSessions = sessions.filter(
+    (s) => s.kind === "attendance" || s.kind === "check_in"
+  );
 
   const submissions = useMemo(
     () => submissionsData?.submissions ?? [],
@@ -70,9 +85,14 @@ export function SubmissionAdminCard() {
 
   const changeGate = async (value: string) => {
     try {
-      await setGate.mutateAsync(value || null);
+      await setGate.mutateAsync({
+        roundId: effectiveRoundId || null,
+        sessionId: value || null,
+      });
       toast.success(
-        value ? "Submission gate updated." : "Submission gate closed."
+        value
+          ? "Submission gate updated for this round."
+          : "Gate cleared — submissions are open immediately to all teams."
       );
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, "Could not update the submission gate."));
@@ -93,23 +113,42 @@ export function SubmissionAdminCard() {
 
   return (
     <>
-      <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 flex flex-col md:flex-row md:items-end gap-4">
-        <div className="flex-1 space-y-1">
-          <Select
-            label="Submission gate (attendance session)"
-            value={gate?.session_id ?? ""}
-            onChange={(e) => changeGate(e.target.value)}
-            disabled={setGate.isPending}
-          >
-            <option value="">Closed: nobody can submit</option>
-            {attendance.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
+      <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 flex flex-col lg:flex-row lg:items-end gap-4">
+        <div className="flex-1 space-y-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {rounds.length > 0 && (
+              <Select
+                label="Judging round"
+                value={effectiveRoundId}
+                onChange={(e) => setSelectedRoundId(e.target.value)}
+                disabled={setGate.isPending}
+              >
+                {rounds.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name} ({r.status})
+                  </option>
+                ))}
+              </Select>
+            )}
+
+            <Select
+              label="Submission gate (optional)"
+              value={gate?.session_id ?? ""}
+              onChange={(e) => changeGate(e.target.value)}
+              disabled={setGate.isPending}
+            >
+              <option value="">No gate — open to all teams immediately</option>
+              {eligibleSessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.kind === "check_in" ? "Entry check-in" : "Attendance"})
+                </option>
+              ))}
+            </Select>
+          </div>
           <p className="text-[11px] text-[var(--ink-secondary)]">
-            Only teams with at least one member scanned in this session can submit or edit their project links.
+            {gate?.session_id
+              ? "Only teams with at least one member scanned in this session can submit or edit their project links."
+              : "No gate selected — submissions are open immediately to all teams."}
           </p>
         </div>
 

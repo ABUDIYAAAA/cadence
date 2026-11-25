@@ -444,21 +444,12 @@ function CompetitionHeader({
 				</span>
 			</Link>
 
-			<div className='flex items-center' style={{ height: ITEM_H }}>
-				<span
-					className='grid place-items-center shrink-0'
-					style={{ width: ITEM_H, height: ITEM_H }}>
-					<span className='grid h-8 w-8 place-items-center rounded-[10px] bg-[var(--color-blue-dim)] text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]'>
-						<Trophy className='h-4 w-4' />
-					</span>
-				</span>
-				<div className={cn('min-w-0 pr-2 leading-tight', labelCls)}>
-					<div className='truncate text-[13px] font-semibold text-[var(--ink-primary)]'>
-						{name}
-					</div>
-					<div className='truncate text-[11px] text-[var(--ink-tertiary)]'>
-						Competition
-					</div>
+			<div className={cn('px-3 py-1 leading-tight', labelCls)}>
+				<div className='truncate text-[13px] font-semibold text-[var(--ink-primary)]'>
+					{name}
+				</div>
+				<div className='truncate text-[11px] text-[var(--ink-tertiary)]'>
+					Competition
 				</div>
 			</div>
 		</div>

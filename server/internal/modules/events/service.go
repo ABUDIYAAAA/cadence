@@ -261,9 +261,11 @@ func (s *Service) BulkAddEventUsers(
 		TotalProcessed: len(req.Users),
 		Users:          make([]EventUserDetailResponse, 0, len(req.Users)),
 		SkippedErrors:  make([]string, 0),
+		MissingUsers:   make([]MissingUserEntry, 0),
 	}
 
 	seenUsers := make(map[string]*EventUserDetailResponse, len(req.Users))
+	missingEmails := make(map[string]bool)
 
 	for i, u := range req.Users {
 		normEmail := strings.TrimSpace(strings.ToLower(u.Email))
@@ -280,28 +282,73 @@ func (s *Service) BulkAddEventUsers(
 
 		detail, alreadySeen := seenUsers[normEmail]
 		if !alreadySeen {
-			addedDetail, createdAccount, err := s.repo.AddEventUser(ctx, eventID, actorID, actorRole, normEmail, u.Name, u.PhoneNumber, role)
-			if err != nil {
-				resp.SkippedCount++
-				resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): %v", i+1, u.Email, err))
-				continue
-			}
+			if req.SkipMissingUsers {
+				if missingEmails[normEmail] {
+					resp.SkippedCount++
+					resp.MissingUsers = append(resp.MissingUsers, MissingUserEntry{
+						Email:           normEmail,
+						Name:            u.Name,
+						PhoneNumber:     u.PhoneNumber,
+						CompetitionName: u.CompetitionName,
+						TeamName:        u.TeamName,
+					})
+					resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): account does not exist", i+1, u.Email))
+					continue
+				}
 
-			if createdAccount {
-				resp.TotalCreated++
-			} else {
+				existingDetail, exists, err := s.repo.FindOrEnrollExistingEventUser(ctx, eventID, normEmail, role)
+				if err != nil {
+					resp.SkippedCount++
+					resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): %v", i+1, u.Email, err))
+					continue
+				}
+				if !exists {
+					missingEmails[normEmail] = true
+					resp.SkippedCount++
+					resp.MissingUsers = append(resp.MissingUsers, MissingUserEntry{
+						Email:           normEmail,
+						Name:            u.Name,
+						PhoneNumber:     u.PhoneNumber,
+						CompetitionName: u.CompetitionName,
+						TeamName:        u.TeamName,
+					})
+					resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): account does not exist", i+1, u.Email))
+					continue
+				}
+
 				resp.TotalAdded++
-			}
+				if s.rdb != nil {
+					_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, existingDetail.ID), existingDetail.Role, 15*time.Minute).Err()
+					_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", existingDetail.ID), eventID).Err()
+				}
 
-			if s.rdb != nil {
-				_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, addedDetail.ID), role, 15*time.Minute).Err()
-				_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", addedDetail.ID), eventID).Err()
-				s.clearRestoredSoftDeleteBlock(ctx, addedDetail.ID)
-			}
+				detail = existingDetail
+				seenUsers[normEmail] = detail
+				resp.Users = append(resp.Users, *detail)
+			} else {
+				addedDetail, createdAccount, err := s.repo.AddEventUser(ctx, eventID, actorID, actorRole, normEmail, u.Name, u.PhoneNumber, role)
+				if err != nil {
+					resp.SkippedCount++
+					resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): %v", i+1, u.Email, err))
+					continue
+				}
 
-			detail = addedDetail
-			seenUsers[normEmail] = detail
-			resp.Users = append(resp.Users, *detail)
+				if createdAccount {
+					resp.TotalCreated++
+				} else {
+					resp.TotalAdded++
+				}
+
+				if s.rdb != nil {
+					_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, addedDetail.ID), role, 15*time.Minute).Err()
+					_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", addedDetail.ID), eventID).Err()
+					s.clearRestoredSoftDeleteBlock(ctx, addedDetail.ID)
+				}
+
+				detail = addedDetail
+				seenUsers[normEmail] = detail
+				resp.Users = append(resp.Users, *detail)
+			}
 		}
 
 		compName := ""

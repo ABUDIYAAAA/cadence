@@ -47,6 +47,13 @@ export interface BulkCreateResponse {
   teams_assigned?: number;
   skipped_count: number;
   skipped_errors?: string[];
+  missing_users?: Array<{
+    email: string;
+    name?: string;
+    phone_number?: string;
+    competition_name?: string;
+    team_name?: string;
+  }>;
   users: UserDetailResponse[];
 }
 

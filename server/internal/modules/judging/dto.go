@@ -245,14 +245,16 @@ type TeamStatusResponse struct {
 	SubmitBlockedReason string `json:"submit_blocked_reason,omitempty"`
 }
 
-// SubmissionGate is the attendance session a team must have been present at to submit.
+// SubmissionGate is the optional attendance/check-in session a team must have been present at to submit for a round.
 type SubmissionGate struct {
+	RoundID     *string `json:"round_id,omitempty"`
 	SessionID   *string `json:"session_id"`
 	SessionName *string `json:"session_name,omitempty"`
 }
 
-// UpdateSubmissionGateRequest sets or clears (null/empty) the gating attendance session.
+// UpdateSubmissionGateRequest sets or clears (null/empty) the optional gating session for a round.
 type UpdateSubmissionGateRequest struct {
+	RoundID   *string `json:"round_id,omitempty" validate:"omitempty,uuid"`
 	SessionID *string `json:"session_id" validate:"omitempty,uuid"`
 }
 

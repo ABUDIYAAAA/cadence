@@ -103,6 +103,7 @@ export const eventsService = {
       teams_assigned: data.teams_assigned,
       skipped_count: data.skipped_count,
       skipped_errors: data.skipped_errors,
+      missing_users: data.missing_users,
       users: (data.users ?? []).map(normalizeEventUser),
     };
   },

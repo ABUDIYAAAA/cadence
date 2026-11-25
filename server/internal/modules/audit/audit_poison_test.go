@@ -182,17 +182,23 @@ func TestAuditConsumer_OversizedAndPoisonMessagesDoNotStallQueue(t *testing.T) {
 		t.Fatalf("declare test dlq: %v", err)
 	}
 
-	q := &Queue{
-		conn:      conn,
-		pubCh:     pubCh,
-		repo:      repo,
-		queueName: testQueue,
-		dlqName:   testDLQ,
-		logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+	q, err := newQueueWithNames(
+		rabbitURL,
+		testQueue,
+		testDLQ,
+		repo,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		_ = pubCh.Close()
+		_ = conn.Close()
+		t.Fatalf("create test audit queue: %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = pubCh.QueueDelete(testQueue, false, false, false)
 		_, _ = pubCh.QueueDelete(testDLQ, false, false, false)
+		_ = pubCh.Close()
+		_ = conn.Close()
 		_ = q.Close()
 	})
 

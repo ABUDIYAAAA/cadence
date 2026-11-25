@@ -505,6 +505,110 @@ func (r *Repository) AddEventUser(
 	return &detail, createdAccount, nil
 }
 
+// FindOrEnrollExistingEventUser checks whether a live user account exists for email.
+// If no account exists, it returns (nil, false, nil) without creating one.
+// If the account exists, it ensures the user is enrolled in eventID (defaulting to role if not yet a member)
+// without downgrading an existing member's role, and returns their detail with exists=true.
+func (r *Repository) FindOrEnrollExistingEventUser(
+	ctx context.Context,
+	eventID string,
+	email string,
+	role string,
+) (*EventUserDetailResponse, bool, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return nil, false, errors.New("email cannot be empty")
+	}
+	if role == "" {
+		role = "participant"
+	}
+	if role == "owner" {
+		return nil, false, errors.New("cannot assign owner role; use transfer ownership endpoint")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var targetUserID string
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM users
+		WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL
+		LIMIT 1
+	`, email).Scan(&targetUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("lookup user: %w", err)
+	}
+
+	var existingRole string
+	var isBanned bool
+	err = tx.QueryRow(ctx, `
+		SELECT role::text, is_banned
+		FROM user_events
+		WHERE event_id = $1 AND user_id = $2
+		FOR UPDATE
+	`, eventID, targetUserID).Scan(&existingRole, &isBanned)
+	if err == nil {
+		if isBanned {
+			return nil, true, errors.New("user is banned from this event; unban first")
+		}
+	} else if errors.Is(err, pgx.ErrNoRows) {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO user_events (event_id, user_id, role)
+			VALUES ($1, $2, $3::event_role)
+		`, eventID, targetUserID, role); err != nil {
+			return nil, true, fmt.Errorf("insert member: %w", err)
+		}
+	} else {
+		return nil, true, fmt.Errorf("check membership: %w", err)
+	}
+
+	fetchQuery := `
+		SELECT u.id, u.email, u.name, u.phone_number, u.avatar_url,
+		       ue.role::text, ue.is_banned, ue.banned_at,
+		       tm_sub.team_id, tm_sub.team_name, tm_sub.is_leader,
+		       u.created_at
+		FROM users u
+		JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $1
+		LEFT JOIN LATERAL (
+			SELECT t.id AS team_id, t.name AS team_name, (t.leader_id = u.id) AS is_leader
+			FROM team_members tm
+			JOIN teams t ON t.id = tm.team_id
+			JOIN competitions c ON c.id = t.competition_id
+			WHERE tm.user_id = u.id AND c.event_id = $1
+			ORDER BY tm.joined_at DESC
+			LIMIT 1
+		) tm_sub ON TRUE
+		WHERE u.id = $2
+	`
+	var detail EventUserDetailResponse
+	var isLeader *bool
+	var bannedAt *time.Time
+	err = tx.QueryRow(ctx, fetchQuery, eventID, targetUserID).Scan(
+		&detail.ID, &detail.Email, &detail.Name, &detail.PhoneNumber, &detail.AvatarURL,
+		&detail.Role, &detail.IsBanned, &bannedAt,
+		&detail.TeamID, &detail.TeamName, &isLeader,
+		&detail.CreatedAt,
+	)
+	if err != nil {
+		return nil, true, fmt.Errorf("fetch user detail: %w", err)
+	}
+	detail.BannedAt = bannedAt
+	detail.IsLeader = isLeader
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, true, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return &detail, true, nil
+}
+
 // AssignOrUpdateMemberRole sets a member's role in an event.
 func (r *Repository) AssignOrUpdateMemberRole(ctx context.Context, eventID, targetUserID, role string) error {
 	if role == "owner" {

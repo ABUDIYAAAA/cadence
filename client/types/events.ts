@@ -53,6 +53,15 @@ export interface AddEventUserRequest {
 
 export interface BulkAddEventUsersRequest {
   users: AddEventUserRequest[];
+  skip_missing_users?: boolean;
+}
+
+export interface MissingUserEntry {
+  email: string;
+  name?: string;
+  phone_number?: string;
+  competition_name?: string;
+  team_name?: string;
 }
 
 export interface EventUserDetailResponse {
@@ -80,6 +89,7 @@ export interface BulkAddEventUsersResponse {
   teams_assigned?: number;
   skipped_count: number;
   skipped_errors?: string[];
+  missing_users?: MissingUserEntry[];
   users: EventUserDetailResponse[];
 }
 

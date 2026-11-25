@@ -607,17 +607,17 @@ func (s *Service) withSubmitGate(ctx context.Context, teamID string) (*TeamStatu
 	return resp, nil
 }
 
-// GetSubmissionGate returns the attendance session that gates submissions.
-func (s *Service) GetSubmissionGate(ctx context.Context) (SubmissionGate, error) {
-	return s.repo.GetSubmissionGate(ctx)
+// GetSubmissionGate returns the optional attendance/check-in session that gates submissions for a round.
+func (s *Service) GetSubmissionGate(ctx context.Context, roundID string) (SubmissionGate, error) {
+	return s.repo.GetSubmissionGate(ctx, roundID)
 }
 
-// SetSubmissionGate sets or clears the gating attendance session.
-func (s *Service) SetSubmissionGate(ctx context.Context, sessionID *string, actorID, actorEmail, actorRole, ip, ua string) (SubmissionGate, error) {
+// SetSubmissionGate sets or clears the optional gating session for a round.
+func (s *Service) SetSubmissionGate(ctx context.Context, roundID string, sessionID *string, actorID, actorEmail, actorRole, ip, ua string) (SubmissionGate, error) {
 	if sessionID != nil && *sessionID == "" {
 		sessionID = nil
 	}
-	gate, err := s.repo.SetSubmissionGate(ctx, sessionID, actorID)
+	gate, err := s.repo.SetSubmissionGate(ctx, roundID, sessionID, actorID)
 	if err != nil {
 		return gate, err
 	}
@@ -628,7 +628,7 @@ func (s *Service) SetSubmissionGate(ctx context.Context, sessionID *string, acto
 		nil,
 		fmt.Sprintf("Submission gate changed by %s", actorEmail),
 		&actorID, &actorEmail, &actorRole,
-		map[string]any{"submission_gate_session": sessionID},
+		map[string]any{"round_id": roundID, "submission_gate_session": sessionID},
 		&ip, &ua,
 	)
 	return gate, nil
@@ -643,17 +643,21 @@ func (s *Service) ListSubmissions(ctx context.Context) (*SubmissionsResponse, er
 	return &SubmissionsResponse{Submissions: rows}, nil
 }
 
-// gateStatus reports whether the team may submit under the attendance gate.
+// gateStatus reports whether the team may submit under the active round's optional gate.
+// If no gate session is configured, submissions are open immediately to all teams.
 func (s *Service) gateStatus(ctx context.Context, teamID string) (bool, string, error) {
-	// Submissions are closed until an admin picks an attendance session; then only teams with
-	// at least one member scanned in it may submit.
 	const closed = "Submissions are closed for your team."
-	gate, err := s.repo.GetSubmissionGate(ctx)
+	roundID, err := s.repo.ResolveActiveGateRoundID(ctx)
 	if err != nil {
 		return false, "", err
 	}
+	gate, err := s.repo.GetSubmissionGate(ctx, roundID)
+	if err != nil {
+		return false, "", err
+	}
+	// Optional gate: if no session is selected for the round, submissions are open immediately.
 	if gate.SessionID == nil {
-		return false, closed, nil
+		return true, "", nil
 	}
 	present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
 	if err != nil {

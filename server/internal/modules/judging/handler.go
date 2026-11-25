@@ -1073,9 +1073,10 @@ func (h *Handler) HandleUnqueueSlot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleGetSubmissionGate returns the attendance session that gates submissions.
+// HandleGetSubmissionGate returns the optional gating session for a round (or competition).
 func (h *Handler) HandleGetSubmissionGate(w http.ResponseWriter, r *http.Request) {
-	gate, err := h.service.GetSubmissionGate(r.Context())
+	roundID := r.URL.Query().Get("round_id")
+	gate, err := h.service.GetSubmissionGate(r.Context(), roundID)
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to load submission gate")
 		return
@@ -1083,7 +1084,7 @@ func (h *Handler) HandleGetSubmissionGate(w http.ResponseWriter, r *http.Request
 	utils.JSON(w, http.StatusOK, gate)
 }
 
-// HandleSetSubmissionGate sets or clears the attendance session that gates submissions.
+// HandleSetSubmissionGate sets or clears the optional gating session for a round.
 func (h *Handler) HandleSetSubmissionGate(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.GetUserClaims(r.Context())
 	if !ok {
@@ -1099,10 +1100,18 @@ func (h *Handler) HandleSetSubmissionGate(w http.ResponseWriter, r *http.Request
 		utils.ValidationErrorJSON(w, errs)
 		return
 	}
-	gate, err := h.service.SetSubmissionGate(r.Context(), req.SessionID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
+	roundID := r.URL.Query().Get("round_id")
+	if req.RoundID != nil && *req.RoundID != "" {
+		roundID = *req.RoundID
+	}
+	gate, err := h.service.SetSubmissionGate(r.Context(), roundID, req.SessionID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		if errors.Is(err, ErrGateSessionInvalid) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, ErrRoundNotFound) {
+			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
 			return
 		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update submission gate")

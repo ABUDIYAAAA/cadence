@@ -187,6 +187,7 @@ export interface TeamStatusResponse {
 }
 
 export interface SubmissionGate {
+  round_id?: string | null;
   session_id: string | null;
   session_name?: string | null;
 }

@@ -49,7 +49,17 @@ type AddEventUserRequest struct {
 
 // BulkAddEventUsersRequest defines payload to bulk add users to an event via emails.
 type BulkAddEventUsersRequest struct {
-	Users []AddEventUserRequest `json:"users" validate:"required,min=1,dive"`
+	Users            []AddEventUserRequest `json:"users" validate:"required,min=1,dive"`
+	SkipMissingUsers bool                  `json:"skip_missing_users,omitempty"`
+}
+
+// MissingUserEntry captures a bulk-import row whose email has no existing account when SkipMissingUsers is true.
+type MissingUserEntry struct {
+	Email           string  `json:"email"`
+	Name            *string `json:"name,omitempty"`
+	PhoneNumber     *string `json:"phone_number,omitempty"`
+	CompetitionName *string `json:"competition_name,omitempty"`
+	TeamName        *string `json:"team_name,omitempty"`
 }
 
 // BulkAddEventUsersResponse reports outcome of a bulk user add operation in an event.
@@ -61,6 +71,7 @@ type BulkAddEventUsersResponse struct {
 	TeamsAssigned  int                       `json:"teams_assigned,omitempty"`
 	SkippedCount   int                       `json:"skipped_count"`
 	SkippedErrors  []string                  `json:"skipped_errors,omitempty"`
+	MissingUsers   []MissingUserEntry        `json:"missing_users,omitempty"`
 	Users          []EventUserDetailResponse `json:"users"`
 }
 

@@ -2588,12 +2588,45 @@ func (r *Repository) UnqueueSlot(ctx context.Context, slotID string) error {
 
 const submissionGateKey = "submission_gate_session"
 
-// GetSubmissionGate returns the gating attendance session, or an empty gate when none is set.
-func (r *Repository) GetSubmissionGate(ctx context.Context) (SubmissionGate, error) {
+func submissionGateSettingKey(compID, roundID string) string {
+	if roundID != "" {
+		return compScopedSettingKey(compID, fmt.Sprintf("round:%s:%s", roundID, submissionGateKey))
+	}
+	return compScopedSettingKey(compID, submissionGateKey)
+}
+
+// ResolveActiveGateRoundID returns the currently active round for the competition,
+// falling back to the latest draft round if none is active, or "" if no rounds exist.
+func (r *Repository) ResolveActiveGateRoundID(ctx context.Context) (string, error) {
+	compID := r.resolveCompetitionID(ctx, "")
+	var roundID string
+	err := r.db.QueryRow(ctx, `
+		SELECT id::text
+		FROM judging_rounds
+		WHERE competition_id = $1 AND status IN ('active', 'draft')
+		ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, created_at DESC
+		LIMIT 1
+	`, compID).Scan(&roundID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("resolve active gate round: %w", err)
+	}
+	return roundID, nil
+}
+
+// GetSubmissionGate returns the optional gating session for a round (or competition when roundID == ""),
+// or an empty gate when none is set (meaning submissions are open immediately).
+func (r *Repository) GetSubmissionGate(ctx context.Context, roundID string) (SubmissionGate, error) {
 	eventID := resolveEventID(ctx)
 	compID := r.resolveCompetitionID(ctx, "")
-	key := compScopedSettingKey(compID, submissionGateKey)
+	key := submissionGateSettingKey(compID, roundID)
 	var gate SubmissionGate
+	if roundID != "" {
+		rid := roundID
+		gate.RoundID = &rid
+	}
 	var raw []byte
 	err := r.db.QueryRow(ctx, `SELECT value FROM app_settings WHERE event_id = $1 AND key = $2`, eventID, key).Scan(&raw)
 	if err != nil {
@@ -2618,11 +2651,20 @@ func (r *Repository) GetSubmissionGate(ctx context.Context) (SubmissionGate, err
 	return gate, nil
 }
 
-// SetSubmissionGate stores the gating attendance session (nil clears it).
-func (r *Repository) SetSubmissionGate(ctx context.Context, sessionID *string, updatedBy string) (SubmissionGate, error) {
+// SetSubmissionGate stores the optional gating session for a round (nil clears it, opening submissions immediately).
+func (r *Repository) SetSubmissionGate(ctx context.Context, roundID string, sessionID *string, updatedBy string) (SubmissionGate, error) {
 	eventID := resolveEventID(ctx)
 	compID := r.resolveCompetitionID(ctx, "")
-	key := compScopedSettingKey(compID, submissionGateKey)
+	if roundID != "" {
+		var exists bool
+		if err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM judging_rounds WHERE id = $1 AND competition_id = $2)`, roundID, compID).Scan(&exists); err != nil {
+			return SubmissionGate{}, fmt.Errorf("check gate round: %w", err)
+		}
+		if !exists {
+			return SubmissionGate{}, ErrRoundNotFound
+		}
+	}
+	key := submissionGateSettingKey(compID, roundID)
 	id := ""
 	if sessionID != nil {
 		id = *sessionID
@@ -2635,7 +2677,7 @@ func (r *Repository) SetSubmissionGate(ctx context.Context, sessionID *string, u
 			}
 			return SubmissionGate{}, fmt.Errorf("check gate session: %w", err)
 		}
-		if kind != "attendance" || (sessCompID != nil && *sessCompID != "" && *sessCompID != compID) {
+		if (kind != "attendance" && kind != "check_in") || (sessCompID != nil && *sessCompID != "" && *sessCompID != compID) {
 			return SubmissionGate{}, ErrGateSessionInvalid
 		}
 	}
@@ -2647,7 +2689,7 @@ func (r *Repository) SetSubmissionGate(ctx context.Context, sessionID *string, u
 	if err != nil {
 		return SubmissionGate{}, fmt.Errorf("set submission gate: %w", err)
 	}
-	return r.GetSubmissionGate(ctx)
+	return r.GetSubmissionGate(ctx, roundID)
 }
 
 // TeamPresentInSession reports whether at least one member of the team was scanned in the session.

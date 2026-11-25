@@ -494,14 +494,14 @@ func TestMultiTenantCompetitionIsolationAndSettings(t *testing.T) {
 		if err := pool.QueryRow(baseCtx, `INSERT INTO scan_sessions (event_id, name, kind) VALUES ($1, 'Gate A1', 'attendance') RETURNING id`, eventAID).Scan(&sessID); err != nil {
 			t.Fatalf("create scan session: %v", err)
 		}
-		if _, err := repo.SetSubmissionGate(ctxCompA1, &sessID, judgeID); err != nil {
+		if _, err := repo.SetSubmissionGate(ctxCompA1, "", &sessID, judgeID); err != nil {
 			t.Fatalf("set submission gate on Comp A1: %v", err)
 		}
-		gateA1, err := repo.GetSubmissionGate(ctxCompA1)
+		gateA1, err := repo.GetSubmissionGate(ctxCompA1, "")
 		if err != nil || gateA1.SessionID == nil || *gateA1.SessionID != sessID {
 			t.Fatalf("expected Comp A1 gate=%s, got %+v (err=%v)", sessID, gateA1, err)
 		}
-		gateA2, err := repo.GetSubmissionGate(ctxCompA2)
+		gateA2, err := repo.GetSubmissionGate(ctxCompA2, "")
 		if err != nil {
 			t.Fatalf("get submission gate on Comp A2: %v", err)
 		}
@@ -591,8 +591,8 @@ func TestSubmissionSingleSourceOfTruthAndGateConsistency(t *testing.T) {
 		t.Fatalf("get slot id: %v", err)
 	}
 
-	// 2. When no attendance gate session is configured (gate.SessionID == nil), BOTH GetTeamStatusForUser and GetMySubmission
-	// must report CanSubmit == false with the same blocked reason!
+	// 2. When no attendance gate session is configured on the active round (optional gate),
+	// BOTH GetTeamStatusForUser and GetMySubmission must report CanSubmit == true immediately!
 	statusResp, err := svc.GetTeamStatusForUser(ctxComp, leaderID)
 	if err != nil {
 		t.Fatalf("GetTeamStatusForUser: %v", err)
@@ -601,13 +601,38 @@ func TestSubmissionSingleSourceOfTruthAndGateConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMySubmission: %v", err)
 	}
-	if statusResp.CanSubmit != mySub.CanSubmit || statusResp.CanSubmit {
-		t.Fatalf("expected both statusResp.CanSubmit and mySub.CanSubmit to be false when no gate session is set; got status=%v (%q), mySub=%v (%q)",
+	if !statusResp.CanSubmit || !mySub.CanSubmit {
+		t.Fatalf("expected both statusResp.CanSubmit and mySub.CanSubmit to be true when no gate session is set; got status=%v (%q), mySub=%v (%q)",
 			statusResp.CanSubmit, statusResp.SubmitBlockedReason, mySub.CanSubmit, mySub.SubmitBlockedReason)
 	}
-	if statusResp.SubmitBlockedReason == "" || statusResp.SubmitBlockedReason != mySub.SubmitBlockedReason {
+
+	// 2b. Once an optional attendance gate IS set on the active round, an unscanned team is blocked
+	// consistently across both GetTeamStatusForUser and GetMySubmission.
+	var gateSessID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO scan_sessions (event_id, name, kind) VALUES ($1, 'Night 1 Gate', 'attendance') RETURNING id`, eventID).Scan(&gateSessID); err != nil {
+		t.Fatalf("create gate scan session: %v", err)
+	}
+	if _, err := repo.SetSubmissionGate(ctxComp, roundID, &gateSessID, judgeID); err != nil {
+		t.Fatalf("set round submission gate: %v", err)
+	}
+	statusBlocked, err := svc.GetTeamStatusForUser(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetTeamStatusForUser (gated): %v", err)
+	}
+	mySubBlocked, err := svc.GetMySubmission(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetMySubmission (gated): %v", err)
+	}
+	if statusBlocked.CanSubmit || mySubBlocked.CanSubmit {
+		t.Fatalf("expected both CanSubmit=false when round gate is set and team not scanned; got status=%v, mySub=%v", statusBlocked.CanSubmit, mySubBlocked.CanSubmit)
+	}
+	if statusBlocked.SubmitBlockedReason == "" || statusBlocked.SubmitBlockedReason != mySubBlocked.SubmitBlockedReason {
 		t.Fatalf("expected identical non-empty SubmitBlockedReason, got status=%q vs mySub=%q",
-			statusResp.SubmitBlockedReason, mySub.SubmitBlockedReason)
+			statusBlocked.SubmitBlockedReason, mySubBlocked.SubmitBlockedReason)
+	}
+	// Clearing the gate re-opens submissions immediately.
+	if _, err := repo.SetSubmissionGate(ctxComp, roundID, nil, judgeID); err != nil {
+		t.Fatalf("clear round submission gate: %v", err)
 	}
 
 	// 3. Updating slot links via UpdateSlotLinks (as admin) writes to teams and is immediately reflected in:

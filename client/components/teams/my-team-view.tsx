@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Copy, Crown, Lock, LogOut, Pencil, Plus, RefreshCw, Trophy, UserMinus, Users } from "lucide-react";
+import { Copy, Crown, Lock, LogOut, Pencil, Plus, RefreshCw, UserMinus, Users } from "lucide-react";
 import {
   useCreateTeam,
   useJoinTeam,
@@ -19,8 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import { TeamNameDialog } from "./team-dialog-create";
 import { TeamJoinDialog } from "./team-dialog-join";
 
@@ -68,10 +68,10 @@ export function MyTeamView({ hideCompetitionSwitcher = false }: MyTeamViewProps)
 
   const competitionSelector =
     !hideCompetitionSwitcher && competitions.length > 0 ? (
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-tertiary)]">
-            {competitions.length > 1 ? "Select competition" : "Competition"}
+          <span className="text-xs font-semibold text-[var(--ink-primary)]">
+            Competition
           </span>
           {activeCompetition && (
             <span className="text-[11px] text-[var(--ink-secondary)] tabular-nums">
@@ -83,67 +83,20 @@ export function MyTeamView({ hideCompetitionSwitcher = false }: MyTeamViewProps)
           )}
         </div>
 
-        {competitions.length > 1 ? (
-          <div
-            role="tablist"
-            aria-label="Select competition for team"
-            className="flex items-center gap-1.5 overflow-x-auto rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-1.5"
-          >
-            {competitions.map((comp) => {
-              const active = comp.slug === competitionSlug;
-              const sizeLabel =
-                comp.min_team_size && comp.max_team_size
-                  ? comp.min_team_size === comp.max_team_size
-                    ? `${comp.max_team_size}`
-                    : `${comp.min_team_size}–${comp.max_team_size}`
-                  : null;
-              return (
-                <button
-                  key={comp.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => {
-                    if (!active) selectCompetition(comp.slug);
-                  }}
-                  className={cn(
-                    "group inline-flex items-center gap-2 rounded-[10px] px-3 py-2 text-xs whitespace-nowrap transition-[background-color,color,box-shadow,border-color] duration-150 cursor-pointer shrink-0",
-                    active
-                      ? "bg-[var(--card-solid)] text-[var(--ink-primary)] font-semibold border border-[var(--card-line)] shadow-xs"
-                      : "border border-transparent text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)]/60 font-medium"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full transition-colors",
-                      active
-                        ? "bg-[var(--color-blue)]"
-                        : "bg-[var(--ink-tertiary)]/40 group-hover:bg-[var(--ink-tertiary)]"
-                    )}
-                  />
-                  <span>{comp.name}</span>
-                  {sizeLabel && (
-                    <span
-                      className={cn(
-                        "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
-                        active
-                          ? "bg-[var(--color-blue-dim)] text-[var(--color-blue)]"
-                          : "bg-[var(--card-solid)] text-[var(--ink-tertiary)]"
-                      )}
-                    >
-                      {sizeLabel}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] px-3 py-2 text-xs font-semibold text-[var(--ink-primary)]">
-            <Trophy className="h-3.5 w-3.5 text-[var(--color-blue)]" />
-            <span>{competitions[0].name}</span>
-          </div>
-        )}
+        <Select
+          aria-label="Select competition for team"
+          value={competitionSlug ?? ""}
+          onChange={(e) => {
+            if (e.target.value && e.target.value !== competitionSlug) {
+              selectCompetition(e.target.value);
+            }
+          }}
+          className="h-10 w-full text-xs font-medium"
+          options={competitions.map((comp) => ({
+            value: comp.slug,
+            label: comp.name,
+          }))}
+        />
       </div>
     ) : null;
 

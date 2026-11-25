@@ -196,7 +196,7 @@ export default function CompetitionJudgingPage() {
 	if (isParticipant && !isAdmin && !isJudge && !isVolunteer) {
 		return (
 			<div className='font-sans'>
-				<ParticipantJudgingStatusView />
+				<ParticipantJudgingStatusView hideCompetitionSwitcher />
 			</div>
 		);
 	}

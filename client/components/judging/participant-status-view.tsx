@@ -10,11 +10,46 @@ import {
   Users,
 } from "lucide-react";
 import { useTeamJudgingStatus } from "@/hooks/use-judging";
+import { useTenant } from "@/providers/tenant-provider";
+import { getCompetitionSectionHref } from "@/lib/competition-utils";
+import { Select } from "@/components/ui/select";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
-export function ParticipantJudgingStatusView({ compact = false }: { compact?: boolean } = {}) {
+export function ParticipantJudgingStatusView({
+  compact = false,
+  hideCompetitionSwitcher = false,
+}: {
+  compact?: boolean;
+  hideCompetitionSwitcher?: boolean;
+} = {}) {
+  const { competitionSlug, activeCompetition, competitions, selectCompetition } = useTenant();
   const { data: status, isLoading, isFetching, refetch } = useTeamJudgingStatus();
+
+  const competitionSelector =
+    !hideCompetitionSwitcher && competitions.length > 0 ? (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-[var(--ink-primary)]">
+            Competition
+          </span>
+        </div>
+        <Select
+          aria-label="Select competition for judging status"
+          value={competitionSlug ?? ""}
+          onChange={(e) => {
+            if (e.target.value && e.target.value !== competitionSlug) {
+              selectCompetition(e.target.value);
+            }
+          }}
+          className="h-10 w-full text-xs font-medium"
+          options={competitions.map((comp) => ({
+            value: comp.slug,
+            label: comp.name,
+          }))}
+        />
+      </div>
+    ) : null;
 
   const formatEstimatedTime = (iso?: string | null) => {
     if (!iso) return "TBD";
@@ -29,18 +64,22 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
   if (isLoading) {
     return (
       <div className="font-sans space-y-4">
+        {competitionSelector}
         <SkeletonCard />
       </div>
     );
   }
 
+  const compName = activeCompetition?.name || competitionSlug;
+
   if (!status || !status.has_active_round) {
     return (
       <div className="font-sans space-y-4">
         <SectionToolbar title="Judging status" onRefresh={() => refetch()} isFetching={isFetching} />
+        {competitionSelector}
 
         <EmptyState
-          title="No active judging round"
+          title={compName ? `No active judging round for ${compName}` : "No active judging round"}
           description="Once organizers start a round, your room, panel, and time slot will show up here."
         />
       </div>
@@ -132,13 +171,19 @@ export function ParticipantJudgingStatusView({ compact = false }: { compact?: bo
       >
         {compact && (
           <Link
-            href="/dashboard/judging"
+            href={
+              competitionSlug
+                ? getCompetitionSectionHref(competitionSlug, "judging")
+                : "/dashboard/judging"
+            }
             className="text-xs font-medium text-[var(--color-blue)] hover:underline"
           >
             Details
           </Link>
         )}
       </SectionToolbar>
+
+      {competitionSelector}
 
       <MetricGrid cols={3}>
         {facts.map((f) => (

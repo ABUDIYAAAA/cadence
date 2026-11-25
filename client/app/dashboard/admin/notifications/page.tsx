@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   ExternalLink,
   RefreshCw,
-  Search,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useTenant } from "@/providers/tenant-provider";
@@ -28,6 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
+import { SearchSelect } from "@/components/ui/search-select";
+import { UserDetailResponse } from "@/types/users";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -65,6 +66,13 @@ export default function AdminNotificationsPage() {
   const [isManualTeamId, setIsManualTeamId] = useState(false);
   const [isManualUserId, setIsManualUserId] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState("");
+  const [selectedUserRecord, setSelectedUserRecord] = useState<UserDetailResponse | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedUserSearch(userSearchQuery.trim()), 200);
+    return () => clearTimeout(t);
+  }, [userSearchQuery]);
 
   // Queries
   const broadcastMutation = useBroadcastNotification();
@@ -83,12 +91,16 @@ export default function AdminNotificationsPage() {
   const { data: teamsData, isLoading: teamsLoading } = useTeams({ limit: 100 });
   const teams = useMemo(() => teamsData?.data || [], [teamsData?.data]);
 
-  // Fetch Users for dropdown (with optional search filter)
-  const { data: usersData, isLoading: usersLoading } = useUsers({
-    limit: 100,
-    search: userSearchQuery.trim() || undefined,
-  });
+  // Fetch Users for search dropdown
+  const { data: usersData, isFetching: usersFetching } = useUsers(
+    {
+      limit: 20,
+      search: debouncedUserSearch || undefined,
+    },
+    { enabled: targetType === "user" && !isManualUserId }
+  );
   const users = useMemo(() => usersData?.data || [], [usersData?.data]);
+  const usersTotal = usersData?.total_count ?? users.length;
 
   // Currently selected competition object
   const selectedCompetition = useMemo(
@@ -104,8 +116,11 @@ export default function AdminNotificationsPage() {
 
   // Currently selected user object
   const selectedUser = useMemo(
-    () => users.find((u) => u.id === targetId),
-    [users, targetId]
+    () =>
+      (selectedUserRecord?.id === targetId ? selectedUserRecord : null) ??
+      users.find((u) => u.id === targetId) ??
+      null,
+    [selectedUserRecord, users, targetId]
   );
 
   if (authLoading) {
@@ -154,6 +169,8 @@ export default function AdminNotificationsPage() {
       setActionUrl("");
       setIconUrl("");
       setTargetId("");
+      setSelectedUserRecord(null);
+      setUserSearchQuery("");
       refetchHistory();
     } catch (err: unknown) {
       const apiErr = err as ApiError;
@@ -226,6 +243,8 @@ export default function AdminNotificationsPage() {
                             type="button"
                             onClick={() => {
                               setTargetType(item.id);
+                              setSelectedUserRecord(null);
+                              setUserSearchQuery("");
                               if (item.id === "competition" && activeCompetition) {
                                 setTargetId(activeCompetition.id);
                               } else {
@@ -396,7 +415,7 @@ export default function AdminNotificationsPage() {
                       </div>
                     )}
 
-                    {/* TARGET TYPE: SINGLE USER DROPDOWN + SEARCH */}
+                    {/* TARGET TYPE: SINGLE USER SEARCH */}
                     {targetType === "user" && (
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
@@ -405,7 +424,11 @@ export default function AdminNotificationsPage() {
                           </label>
                           <button
                             type="button"
-                            onClick={() => setIsManualUserId(!isManualUserId)}
+                            onClick={() => {
+                              setIsManualUserId(!isManualUserId);
+                              setSelectedUserRecord(null);
+                              setTargetId("");
+                            }}
                             className="text-[11px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] underline cursor-pointer"
                           >
                             {isManualUserId ? "Select from list" : "Enter UUID manually"}
@@ -420,43 +443,43 @@ export default function AdminNotificationsPage() {
                             helperText="Target a specific user UUID"
                           />
                         ) : (
-                          <div className="space-y-2">
-                            <div className="relative">
-                              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
-                              <input
-                                type="text"
-                                placeholder="Filter users by name or email..."
-                                value={userSearchQuery}
-                                onChange={(e) => setUserSearchQuery(e.target.value)}
-                                className="w-full h-8 pl-8 pr-3 text-xs rounded-[6px] border border-[var(--card-line)] bg-[var(--card-solid)] text-[var(--ink-primary)] focus:outline-none focus:border-[var(--color-blue)]"
-                              />
-                            </div>
-
-                            <Select
-                              value={targetId}
-                              onChange={(e) => setTargetId(e.target.value)}
-                              disabled={usersLoading}
-                            >
-                              <option value="">
-                                {usersLoading
-                                  ? "Loading accounts..."
-                                  : users.length === 0
-                                  ? "No accounts match search"
-                                  : "— Select an account —"}
-                              </option>
-                              {users.map((u) => (
-                                <option key={u.id} value={u.id}>
-                                  {u.name} — {u.email} ({u.role})
-                                </option>
-                              ))}
-                            </Select>
-                          </div>
-                        )}
-
-                        {selectedUser && (
-                          <p className="text-[11px] text-[var(--ink-secondary)]">
-                            Recipient: <span className="text-[var(--ink-primary)] font-medium">{selectedUser.name}</span> ({selectedUser.email}) · <span className="capitalize">{selectedUser.role}</span>
-                          </p>
+                          <SearchSelect
+                            ariaLabel="Search accounts by name or email"
+                            placeholder="Search accounts by name or email..."
+                            query={userSearchQuery}
+                            onQueryChange={setUserSearchQuery}
+                            isLoading={usersFetching}
+                            loadingMessage="Searching accounts..."
+                            emptyMessage="No accounts match search"
+                            maxVisible={3}
+                            totalMatches={usersTotal}
+                            options={users.map((u) => ({
+                              value: u.id,
+                              label: u.name,
+                              description: u.email,
+                              meta: u.role,
+                            }))}
+                            selectedOption={
+                              selectedUser
+                                ? {
+                                    value: selectedUser.id,
+                                    label: selectedUser.name,
+                                    description: selectedUser.email,
+                                    meta: selectedUser.role,
+                                  }
+                                : null
+                            }
+                            onSelect={(opt) => {
+                              const match = users.find((u) => u.id === opt.value) ?? null;
+                              setSelectedUserRecord(match);
+                              setTargetId(opt.value);
+                              setUserSearchQuery("");
+                            }}
+                            onClear={() => {
+                              setSelectedUserRecord(null);
+                              setTargetId("");
+                            }}
+                          />
                         )}
                       </div>
                     )}

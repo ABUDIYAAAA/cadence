@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
   Download,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -55,12 +58,18 @@ const card =
 type RosterFilter = "all" | "present" | "absent";
 type RosterSort = "latest" | "earliest" | "name" | "team";
 
-function formatTimestamp(iso?: string | null): { date: string; time: string; full: string } | null {
+function formatTimestamp(
+  iso?: string | null
+): { date: string; time: string; full: string } | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const time = d.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
   return { date, time, full: `${date}, ${time}` };
 }
 
@@ -75,8 +84,160 @@ function formatCheckedInBy(p: SessionPerson): string {
   return "Self / Staff";
 }
 
-function SessionDetailedStats({ session }: { session: ScanSession }) {
+function CollapsibleSection({
+  title,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[12px] border border-[var(--card-line)] overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 text-left bg-[var(--card-solid-subtle)]/50 hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {open ? (
+            <ChevronDown className="h-4 w-4 text-[var(--ink-tertiary)] shrink-0" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-[var(--ink-tertiary)] shrink-0" />
+          )}
+          <span className="text-xs font-semibold text-[var(--ink-primary)]">
+            {title}
+          </span>
+        </div>
+        {summary && (
+          <span className="text-[11px] text-[var(--ink-secondary)] truncate tabular-nums">
+            {summary}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="p-3.5 border-t border-[var(--card-line)] space-y-3 bg-[var(--card-solid)]">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExportMenu({
+  totalCount,
+  presentCount,
+  absentCount,
+  onExport,
+}: {
+  totalCount: number;
+  presentCount: number;
+  absentCount: number;
+  onExport: (scope: RosterFilter) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={menuRef} className="relative">
+      <Button
+        variant="outline"
+        size="sm"
+        type="button"
+        disabled={totalCount === 0}
+        onClick={() => setOpen((prev) => !prev)}
+        className="h-8 px-2.5 text-xs gap-1.5"
+      >
+        <Download className="h-3.5 w-3.5" />
+        <span>Export CSV</span>
+        <ChevronDown className="h-3 w-3 opacity-70" />
+      </Button>
+
+      {open && (
+        <div className="absolute right-0 mt-1.5 w-52 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-lg p-1 z-20 text-xs">
+          <button
+            type="button"
+            disabled={totalCount === 0}
+            onClick={() => {
+              onExport("all");
+              setOpen(false);
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] disabled:opacity-40 cursor-pointer"
+          >
+            <span>All attendees</span>
+            <span className="font-mono text-[11px] text-[var(--ink-tertiary)]">
+              {totalCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={presentCount === 0}
+            onClick={() => {
+              onExport("present");
+              setOpen(false);
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] disabled:opacity-40 cursor-pointer"
+          >
+            <span>Checked in only</span>
+            <span className="font-mono text-[11px] text-[var(--color-emerald)]">
+              {presentCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={absentCount === 0}
+            onClick={() => {
+              onExport("absent");
+              setOpen(false);
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] disabled:opacity-40 cursor-pointer"
+          >
+            <span>Not checked in</span>
+            <span className="font-mono text-[11px] text-[var(--color-coral)]">
+              {absentCount}
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SessionDetailedStats({
+  session,
+  onCopyToken,
+}: {
+  session: ScanSession;
+  onCopyToken: (code: string) => void;
+}) {
   const { data, isLoading, isFetching, refetch } = useSessionReport(session.id);
+
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showRoster, setShowRoster] = useState(false);
 
   const [view, setView] = useState<RosterFilter>("all");
   const [search, setSearch] = useState("");
@@ -243,152 +404,83 @@ function SessionDetailedStats({ session }: { session: ScanSession }) {
   const firstFmt = formatTimestamp(stats.firstAt);
   const latestFmt = formatTimestamp(stats.latestAt);
 
+  const breakdownSummary = [
+    `${stats.selfCount} self · ${stats.staffCount} staff`,
+    latestFmt ? `Latest ${latestFmt.time}` : null,
+    stats.totalTeams > 0
+      ? `${stats.completeTeams}/${stats.totalTeams} teams`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <div className={card}>
-      {/* Header & CSV Exports */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-[var(--card-line)]">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-bold tracking-tight text-[var(--ink-primary)]">
-              {session.name}
-            </h3>
-            {session.checkin_code && (
-              <span className="font-mono text-xs font-semibold tracking-wider px-2 py-0.5 rounded-[6px] border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] text-[var(--color-blue)]">
-                {session.checkin_code}
-              </span>
-            )}
-            <Badge variant={session.is_open ? "emerald" : "subtle"} size="sm" dot>
-              {session.is_open ? "Open" : "Closed"}
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <h3 className="text-base font-bold tracking-tight text-[var(--ink-primary)] truncate">
+            {session.name}
+          </h3>
+          {session.checkin_code && (
+            <button
+              type="button"
+              onClick={() => onCopyToken(session.checkin_code!)}
+              title="Copy check-in token"
+              className="inline-flex items-center gap-1 font-mono text-xs font-semibold tracking-wider px-2 py-0.5 rounded-[6px] border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] text-[var(--color-blue)] hover:opacity-90 cursor-pointer"
+            >
+              <span>{session.checkin_code}</span>
+              <Copy className="h-3 w-3" />
+            </button>
+          )}
+          <Badge variant={session.is_open ? "emerald" : "subtle"} size="sm" dot>
+            {session.is_open ? "Open" : "Closed"}
+          </Badge>
+          {session.competition_name && (
+            <Badge variant="subtle" size="sm">
+              {session.competition_name}
             </Badge>
-            {session.competition_name && (
-              <Badge variant="subtle" size="sm">
-                {session.competition_name}
-              </Badge>
-            )}
-          </div>
-          <p className="text-xs text-[var(--ink-secondary)]">
-            Detailed attendance breakdown — who checked in, exact timestamps, who hasn&apos;t checked in yet, and CSV exports.
-          </p>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button
             variant="outline"
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
             className="h-8 px-2.5 text-xs gap-1.5"
+            title="Refresh attendance stats"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
+            />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => exportCsv("present")}
-            disabled={stats.presentCount === 0}
-            className="h-8 px-2.5 text-xs gap-1.5"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Who checked in ({stats.presentCount})
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => exportCsv("absent")}
-            disabled={stats.absentCount === 0}
-            className="h-8 px-2.5 text-xs gap-1.5"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Who didn&apos;t ({stats.absentCount})
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => exportCsv("all")}
-            disabled={people.length === 0}
-            className="h-8 px-3 text-xs gap-1.5 font-semibold"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export all CSV
-          </Button>
+          <ExportMenu
+            totalCount={people.length}
+            presentCount={stats.presentCount}
+            absentCount={stats.absentCount}
+            onExport={exportCsv}
+          />
         </div>
       </div>
 
-      {/* KPI Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3.5">
-          <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Expected</span>
-            <Users className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
+      {/* Essential Progress Strip */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
+          <div className="flex items-baseline gap-2">
+            <span className="text-lg font-bold tabular-nums text-[var(--ink-primary)]">
+              {stats.presentCount}
+            </span>
+            <span className="text-[var(--ink-secondary)] tabular-nums">
+              of {stats.expected} checked in ({stats.rate}%)
+            </span>
           </div>
-          <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
-            {stats.expected}
-          </div>
-          <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
-            {stats.rate}% completion
-          </div>
+          <span className="text-[var(--color-coral)] font-medium tabular-nums">
+            {stats.absentCount} pending
+          </span>
         </div>
-
-        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3.5">
-          <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Checked in</span>
-            <UserCheck className="h-3.5 w-3.5 text-[var(--color-emerald)]" />
-          </div>
-          <div className="text-2xl font-bold tabular-nums text-[var(--color-emerald)] mt-1">
-            {stats.presentCount}
-          </div>
-          <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5 tabular-nums">
-            {stats.selfCount} self · {stats.staffCount} staff
-          </div>
-        </div>
-
-        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3.5">
-          <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Not checked in</span>
-            <UserX className="h-3.5 w-3.5 text-[var(--color-coral)]" />
-          </div>
-          <div className="text-2xl font-bold tabular-nums text-[var(--color-coral)] mt-1">
-            {stats.absentCount}
-          </div>
-          <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
-            Still pending
-          </div>
-        </div>
-
-        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3.5">
-          <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Check-in window</span>
-            <Clock className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
-          </div>
-          <div className="text-xs font-mono font-semibold text-[var(--ink-primary)] mt-1.5 space-y-0.5">
-            <div className="truncate">
-              <span className="text-[var(--ink-tertiary)] font-sans font-normal">First: </span>
-              {firstFmt ? firstFmt.time : "—"}
-            </div>
-            <div className="truncate">
-              <span className="text-[var(--ink-tertiary)] font-sans font-normal">Latest: </span>
-              {latestFmt ? latestFmt.time : "—"}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3.5 col-span-2 lg:col-span-1">
-          <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Teams complete</span>
-            <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-blue)]" />
-          </div>
-          <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
-            {stats.totalTeams > 0 ? `${stats.completeTeams}/${stats.totalTeams}` : "—"}
-          </div>
-          <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
-            {stats.totalTeams > 0 ? "All members present" : "No teams linked"}
-          </div>
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <div className="space-y-1">
         <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--card-solid-subtle)]">
           <div
             className="h-full rounded-full bg-[var(--color-emerald)] transition-[width] duration-300"
@@ -397,163 +489,433 @@ function SessionDetailedStats({ session }: { session: ScanSession }) {
         </div>
       </div>
 
-      {/* Roster Filter Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="inline-flex rounded-lg border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)] gap-1 self-start">
-          {(
-            [
-              ["all", `All (${people.length})`],
-              ["present", `Checked in (${stats.presentCount})`],
-              ["absent", `Not checked in (${stats.absentCount})`],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setView(key)}
-              className={cn(
-                "px-3 py-1 text-xs rounded-[6px] transition-colors cursor-pointer",
-                view === key
-                  ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
-                  : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
-            <Input
-              placeholder="Search name, email, team, phone..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-8 pl-8 text-xs"
-            />
+      {/* Collapsible: Breakdown & Timing */}
+      <CollapsibleSection
+        title="Stats & timing"
+        summary={breakdownSummary}
+        open={showBreakdown}
+        onToggle={() => setShowBreakdown((prev) => !prev)}
+      >
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
+              <span>Expected</span>
+              <Users className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
+            </div>
+            <div className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
+              {stats.expected}
+            </div>
+            <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
+              {stats.rate}% completion
+            </div>
           </div>
 
-          {uniqueTeams.length > 0 && (
+          <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
+              <span>Checked in</span>
+              <UserCheck className="h-3.5 w-3.5 text-[var(--color-emerald)]" />
+            </div>
+            <div className="text-xl font-bold tabular-nums text-[var(--color-emerald)] mt-1">
+              {stats.presentCount}
+            </div>
+            <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5 tabular-nums">
+              {stats.selfCount} self · {stats.staffCount} staff
+            </div>
+          </div>
+
+          <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
+              <span>Not checked in</span>
+              <UserX className="h-3.5 w-3.5 text-[var(--color-coral)]" />
+            </div>
+            <div className="text-xl font-bold tabular-nums text-[var(--color-coral)] mt-1">
+              {stats.absentCount}
+            </div>
+            <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
+              Still pending
+            </div>
+          </div>
+
+          <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
+              <span>Check-in window</span>
+              <Clock className="h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
+            </div>
+            <div className="text-xs font-mono font-semibold text-[var(--ink-primary)] mt-1.5 space-y-0.5">
+              <div className="truncate">
+                <span className="text-[var(--ink-tertiary)] font-sans font-normal">
+                  First:{" "}
+                </span>
+                {firstFmt ? firstFmt.time : "—"}
+              </div>
+              <div className="truncate">
+                <span className="text-[var(--ink-tertiary)] font-sans font-normal">
+                  Latest:{" "}
+                </span>
+                {latestFmt ? latestFmt.time : "—"}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3 col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
+              <span>Teams complete</span>
+              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-blue)]" />
+            </div>
+            <div className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
+              {stats.totalTeams > 0
+                ? `${stats.completeTeams}/${stats.totalTeams}`
+                : "—"}
+            </div>
+            <div className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
+              {stats.totalTeams > 0 ? "All members present" : "No teams linked"}
+            </div>
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* Collapsible: Attendee Roster */}
+      <CollapsibleSection
+        title="Attendee roster"
+        summary={`${people.length} total · ${stats.presentCount} in · ${stats.absentCount} pending`}
+        open={showRoster}
+        onToggle={() => setShowRoster((prev) => !prev)}
+      >
+        {/* Roster Filter Bar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="inline-flex rounded-lg border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)] gap-1 self-start">
+            {(
+              [
+                ["all", `All (${people.length})`],
+                ["present", `Checked in (${stats.presentCount})`],
+                ["absent", `Pending (${stats.absentCount})`],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setView(key)}
+                className={cn(
+                  "px-2.5 py-1 text-xs rounded-[6px] transition-colors cursor-pointer",
+                  view === key
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--ink-tertiary)]" />
+              <Input
+                placeholder="Search name, email, team, phone..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-8 pl-8 text-xs"
+              />
+            </div>
+
+            {uniqueTeams.length > 0 && (
+              <div className="w-36">
+                <Select
+                  aria-label="Filter by team"
+                  value={teamFilter}
+                  onChange={(e) => setTeamFilter(e.target.value)}
+                  className="h-8 text-xs"
+                >
+                  <option value="">All teams</option>
+                  <option value="__none__">No team</option>
+                  {uniqueTeams.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
+
             <div className="w-40">
               <Select
-                aria-label="Filter by team"
-                value={teamFilter}
-                onChange={(e) => setTeamFilter(e.target.value)}
+                aria-label="Sort attendees"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as RosterSort)}
                 className="h-8 text-xs"
               >
-                <option value="">All teams</option>
-                <option value="__none__">No team</option>
-                {uniqueTeams.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
+                <option value="latest">Latest first</option>
+                <option value="earliest">Earliest first</option>
+                <option value="name">Name (A–Z)</option>
+                <option value="team">Team (A–Z)</option>
               </Select>
             </div>
-          )}
-
-          <div className="w-44">
-            <Select
-              aria-label="Sort attendees"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as RosterSort)}
-              className="h-8 text-xs"
-            >
-              <option value="latest">Latest check-in first</option>
-              <option value="earliest">Earliest check-in first</option>
-              <option value="name">Name (A–Z)</option>
-              <option value="team">Team (A–Z)</option>
-            </Select>
           </div>
+        </div>
+
+        {/* Detailed Roster Table */}
+        {filteredPeople.length === 0 ? (
+          <EmptyState
+            title="No matching attendees"
+            description="Try clearing the search or switching between Checked in and Pending."
+          />
+        ) : (
+          <div className="max-h-[420px] overflow-auto rounded-[12px] border border-[var(--card-line)]">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Attendee</TableHead>
+                  <TableHead>Team</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>When</TableHead>
+                  <TableHead>Checked in by</TableHead>
+                  <TableHead>Phone</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredPeople.map((p) => {
+                  const ts = formatTimestamp(p.scanned_at);
+                  return (
+                    <TableRow key={p.user_id}>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-[var(--ink-primary)] text-xs">
+                            {p.name}
+                          </span>
+                          <Badge variant="subtle" size="sm">
+                            {p.is_external ? "External" : "Internal"}
+                          </Badge>
+                        </div>
+                        <div className="text-[11px] text-[var(--ink-tertiary)] font-mono">
+                          {p.email}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {p.team_name ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-[var(--ink-primary)]">
+                              {p.team_name}
+                            </span>
+                            {p.is_leader && (
+                              <Badge variant="blue" size="sm">
+                                Lead
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[var(--ink-tertiary)]">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={p.present ? "emerald" : "coral"}
+                          dot
+                          size="sm"
+                        >
+                          {p.present ? "Checked in" : "Pending"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs tabular-nums">
+                        {ts ? (
+                          <div>
+                            <div className="text-[var(--ink-primary)]">
+                              {ts.time}
+                            </div>
+                            <div className="text-[10px] text-[var(--ink-tertiary)]">
+                              {ts.date}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[var(--ink-tertiary)]">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-[var(--ink-secondary)]">
+                        {formatCheckedInBy(p)}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-[var(--ink-secondary)]">
+                        {p.phone_number || "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+function TokenCard({
+  session,
+  isSelected,
+  isBusy,
+  isManageOpen,
+  onSelect,
+  onToggleManage,
+  onCopyToken,
+  onEditCustom,
+  onRotateRandom,
+  onDisableCode,
+  onToggleOpen,
+}: {
+  session: ScanSession;
+  isSelected: boolean;
+  isBusy: boolean;
+  isManageOpen: boolean;
+  onSelect: () => void;
+  onToggleManage: () => void;
+  onCopyToken: (code: string) => void;
+  onEditCustom: () => void;
+  onRotateRandom: () => void;
+  onDisableCode: () => void;
+  onToggleOpen: () => void;
+}) {
+  return (
+    <div
+      onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={cn(
+        "rounded-[14px] border p-3.5 transition-colors cursor-pointer space-y-2.5 text-left",
+        isSelected
+          ? "border-[var(--color-blue)] bg-[var(--color-blue-dim)]/35 ring-1 ring-[var(--color-blue)]/30"
+          : "border-[var(--card-line)] bg-[var(--card-solid-subtle)]/50 hover:bg-[var(--card-solid-subtle)]"
+      )}
+    >
+      {/* Top row: Name + status */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-semibold text-[var(--ink-primary)] truncate">
+              {session.name}
+            </span>
+            {session.is_default && (
+              <Badge variant="blue" size="sm">
+                Default
+              </Badge>
+            )}
+          </div>
+          <div className="text-[11px] text-[var(--ink-secondary)] capitalize mt-0.5 truncate">
+            {session.kind === "check_in" ? "Entry check-in" : session.kind}
+            {session.competition_name ? ` · ${session.competition_name}` : ""}
+          </div>
+        </div>
+
+        <Badge variant={session.is_open ? "emerald" : "subtle"} size="sm" dot>
+          {session.is_open ? "Open" : "Closed"}
+        </Badge>
+      </div>
+
+      {/* Primary row: Token + Copy | Count + Manage toggle */}
+      <div
+        className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--card-line)]"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        {session.checkin_code ? (
+          <button
+            type="button"
+            onClick={() => onCopyToken(session.checkin_code!)}
+            title="Copy check-in token"
+            className="inline-flex items-center gap-1.5 font-mono text-xs font-bold tracking-wider px-2.5 py-1 rounded-[6px] border border-[var(--color-blue-border)] bg-[var(--card-solid)] text-[var(--color-blue)] hover:opacity-90 min-w-0 cursor-pointer"
+          >
+            <span className="truncate">{session.checkin_code}</span>
+            <Copy className="h-3 w-3 shrink-0" />
+          </button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isBusy}
+            onClick={onRotateRandom}
+            className="h-7 px-2.5 text-[11px]"
+          >
+            Generate token
+          </Button>
+        )}
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-xs font-mono font-semibold text-[var(--ink-primary)] tabular-nums">
+            {session.scanned_count}
+          </span>
+          <span className="text-[11px] text-[var(--ink-tertiary)]">in</span>
+          <button
+            type="button"
+            onClick={onToggleManage}
+            aria-expanded={isManageOpen}
+            title="Manage token"
+            className={cn(
+              "p-1.5 rounded-[6px] transition-colors cursor-pointer",
+              isManageOpen
+                ? "bg-[var(--card-solid)] text-[var(--ink-primary)] border border-[var(--card-line)]"
+                : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)]"
+            )}
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
-      {/* Detailed Roster Table */}
-      {filteredPeople.length === 0 ? (
-        <EmptyState
-          title="No matching attendees"
-          description="Try clearing the search or switching between Checked in and Not checked in."
-        />
-      ) : (
-        <div className="max-h-[460px] overflow-auto rounded-[12px] border border-[var(--card-line)]">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Attendee</TableHead>
-                <TableHead>Team</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>When</TableHead>
-                <TableHead>Checked in by</TableHead>
-                <TableHead>Phone</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredPeople.map((p) => {
-                const ts = formatTimestamp(p.scanned_at);
-                return (
-                  <TableRow key={p.user_id}>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-[var(--ink-primary)] text-xs">
-                          {p.name}
-                        </span>
-                        <Badge variant="subtle" size="sm">
-                          {p.is_external ? "External" : "Internal"}
-                        </Badge>
-                      </div>
-                      <div className="text-[11px] text-[var(--ink-tertiary)] font-mono">
-                        {p.email}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {p.team_name ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-[var(--ink-primary)]">
-                            {p.team_name}
-                          </span>
-                          {p.is_leader && (
-                            <Badge variant="blue" size="sm">
-                              Lead
-                            </Badge>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[var(--ink-tertiary)]">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={p.present ? "emerald" : "coral"}
-                        dot
-                        size="sm"
-                      >
-                        {p.present ? "Checked in" : "Not checked in"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs tabular-nums">
-                      {ts ? (
-                        <div>
-                          <div className="text-[var(--ink-primary)]">{ts.time}</div>
-                          <div className="text-[10px] text-[var(--ink-tertiary)]">
-                            {ts.date}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-[var(--ink-tertiary)]">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-[var(--ink-secondary)]">
-                      {formatCheckedInBy(p)}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-[var(--ink-secondary)]">
-                      {p.phone_number || "—"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+      {/* Collapsible secondary actions */}
+      {isManageOpen && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-[var(--card-line)]"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex flex-wrap items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isBusy}
+              onClick={onEditCustom}
+              className="h-7 px-2 text-[11px] gap-1"
+            >
+              <Pencil className="h-3 w-3" />
+              <span>Custom</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isBusy}
+              onClick={onRotateRandom}
+              className="h-7 px-2 text-[11px] gap-1"
+            >
+              <RefreshCw
+                className={`h-3 w-3 ${isBusy ? "animate-spin" : ""}`}
+              />
+              <span>Rotate</span>
+            </Button>
+            {session.checkin_code && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isBusy}
+                onClick={onDisableCode}
+                className="h-7 px-2 text-[11px] gap-1 text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)]"
+              >
+                <X className="h-3 w-3" />
+                <span>Disable</span>
+              </Button>
+            )}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-[11px]"
+            onClick={onToggleOpen}
+          >
+            {session.is_open ? "Close" : "Reopen"}
+          </Button>
         </div>
       )}
     </div>
@@ -569,6 +931,11 @@ export function CheckInTokensPanel() {
   const generateCode = useGenerateSessionCode();
   const clearCode = useClearSessionCode();
 
+  // Collapsible UI state
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
+  const [manageOpenId, setManageOpenId] = useState<string | null>(null);
+
   // Create new token form state
   const [name, setName] = useState("");
   const [customToken, setCustomToken] = useState("");
@@ -577,12 +944,25 @@ export function CheckInTokensPanel() {
   const [selectedCompetitionId, setSelectedCompetitionId] = useState("");
 
   // Selected session for detailed stats
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    null
+  );
 
   // Edit custom token dialog
-  const [editingSession, setEditingSession] = useState<ScanSession | null>(null);
+  const [editingSession, setEditingSession] = useState<ScanSession | null>(
+    null
+  );
   const [customCodeDraft, setCustomCodeDraft] = useState("");
   const [busySessionId, setBusySessionId] = useState<string | null>(null);
+
+  const openSessions = useMemo(
+    () => sessions.filter((s) => s.is_open),
+    [sessions]
+  );
+  const closedSessions = useMemo(
+    () => sessions.filter((s) => !s.is_open),
+    [sessions]
+  );
 
   const effectiveCompetitionId =
     selectedCompetitionId ||
@@ -596,8 +976,8 @@ export function CheckInTokensPanel() {
       const found = sessions.find((s) => s.id === selectedSessionId);
       if (found) return found;
     }
-    return sessions[0];
-  }, [sessions, selectedSessionId]);
+    return openSessions[0] ?? sessions[0];
+  }, [sessions, openSessions, selectedSessionId]);
 
   const handleCreateToken = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -618,6 +998,7 @@ export function CheckInTokensPanel() {
       const created = await create.mutateAsync(built.payload);
       setName("");
       setCustomToken("");
+      setShowCreateForm(false);
       setSelectedSessionId(created.id);
       toast.success(
         created.checkin_code
@@ -626,7 +1007,10 @@ export function CheckInTokensPanel() {
         "Check-in token created"
       );
     } catch (err: unknown) {
-      toast.error(apiErrorMessage(err, "Failed to create check-in token"), "Error");
+      toast.error(
+        apiErrorMessage(err, "Failed to create check-in token"),
+        "Error"
+      );
     }
   };
 
@@ -676,7 +1060,10 @@ export function CheckInTokensPanel() {
         s.is_open ? "Check-in closed" : "Check-in open"
       );
     } catch (err: unknown) {
-      toast.error(apiErrorMessage(err, "Failed to toggle check-in state"), "Error");
+      toast.error(
+        apiErrorMessage(err, "Failed to toggle check-in state"),
+        "Error"
+      );
     }
   };
 
@@ -689,268 +1076,207 @@ export function CheckInTokensPanel() {
     }
   };
 
+  const renderCard = (s: ScanSession) => (
+    <TokenCard
+      key={s.id}
+      session={s}
+      isSelected={selectedSession?.id === s.id}
+      isBusy={busySessionId === s.id}
+      isManageOpen={manageOpenId === s.id}
+      onSelect={() => setSelectedSessionId(s.id)}
+      onToggleManage={() =>
+        setManageOpenId((prev) => (prev === s.id ? null : s.id))
+      }
+      onCopyToken={copyToken}
+      onEditCustom={() => {
+        setEditingSession(s);
+        setCustomCodeDraft(s.checkin_code || "");
+      }}
+      onRotateRandom={() => handleRotateOrSetCode(s)}
+      onDisableCode={() => handleDisableCode(s)}
+      onToggleOpen={() => handleToggleOpen(s)}
+    />
+  );
+
   return (
-    <div className="space-y-6 font-sans">
-      {/* Create Check-in Token Form */}
-      <form onSubmit={handleCreateToken} className={card}>
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--ink-primary)]">
-            Create check-in token
-          </h2>
-          <p className="text-xs text-[var(--ink-secondary)] mt-0.5">
-            Create multiple check-in tokens (e.g. Day 1 Entry, Lunch, Midnight Check) with a custom code or auto-generated token.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-end">
-          <Input
-            label="Check-in name *"
-            placeholder="e.g. Day 1 Entry, Dinner Check-in"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="text-xs h-9"
-          />
-
-          <Input
-            label="Custom token (optional)"
-            placeholder="Blank = random (e.g. DAY1-IN)"
-            value={customToken}
-            maxLength={32}
-            onChange={(e) => setCustomToken(e.target.value.toUpperCase())}
-            className="text-xs h-9 font-mono uppercase tracking-wider"
-          />
-
-          <Select
-            label="Check-in type"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as ScanKind)}
-            className="text-xs h-9"
-          >
-            <option value="check_in">Entry check-in</option>
-            <option value="attendance">Attendance round</option>
-            <option value="exit">Exit</option>
-          </Select>
-
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            disabled={
-              name.trim().length < 2 ||
-              create.isPending ||
-              (kind === "attendance" && markTeam && !effectiveCompetitionId)
-            }
-            isLoading={create.isPending}
-            className="h-9 text-xs gap-1.5 font-semibold"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Create token
-          </Button>
-        </div>
-
-        {kind === "attendance" && (
-          <div className="flex flex-wrap items-center gap-4 pt-1">
-            <div className="w-60">
-              <Select
-                aria-label="Competition scope"
-                value={effectiveCompetitionId}
-                onChange={(e) => setSelectedCompetitionId(e.target.value)}
-                className="text-xs h-9"
-              >
-                {!markTeam && (
-                  <option value="">All event members (no competition)</option>
-                )}
-                {competitions.map((comp) => (
-                  <option key={comp.id} value={comp.id}>
-                    Competition: {comp.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-[var(--ink-primary)]">
-              <input
-                type="checkbox"
-                checked={markTeam}
-                onChange={(e) => setMarkTeam(e.target.checked)}
-                className="accent-[var(--color-blue)] h-4 w-4 rounded"
-              />
-              <span>Team leader check-in marks whole team</span>
-            </label>
-          </div>
-        )}
-      </form>
-
-      {/* Active & Past Check-in Tokens List */}
+    <div className="space-y-5 font-sans">
+      {/* Tokens Card (with collapsible Create form) */}
       <div className={card}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold text-[var(--ink-primary)]">
               Check-in tokens
             </h2>
-            <p className="text-xs text-[var(--ink-secondary)] mt-0.5">
-              Select any token to inspect detailed who/when/who-not attendance stats and export CSVs.
-            </p>
+            <Badge variant="subtle" size="sm">
+              {openSessions.length} open
+            </Badge>
           </div>
-          <Badge variant="subtle" size="sm">
-            {sessions.length} {sessions.length === 1 ? "token" : "tokens"}
-          </Badge>
+
+          <Button
+            type="button"
+            variant={showCreateForm ? "outline" : "primary"}
+            size="sm"
+            onClick={() => setShowCreateForm((prev) => !prev)}
+            className="h-8 px-3 text-xs gap-1.5"
+          >
+            {showCreateForm ? (
+              <>
+                <X className="h-3.5 w-3.5" />
+                <span>Cancel</span>
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5" />
+                <span>New token</span>
+              </>
+            )}
+          </Button>
         </div>
 
+        {/* Collapsible Create Token Form */}
+        {showCreateForm && (
+          <form
+            onSubmit={handleCreateToken}
+            className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]/50 p-3.5 space-y-3"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-end">
+              <Input
+                label="Name *"
+                placeholder="e.g. Day 1 Entry, Lunch"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="text-xs h-9"
+                autoFocus
+              />
+
+              <Input
+                label="Custom token (optional)"
+                placeholder="Blank = random"
+                value={customToken}
+                maxLength={32}
+                onChange={(e) => setCustomToken(e.target.value.toUpperCase())}
+                className="text-xs h-9 font-mono uppercase tracking-wider"
+              />
+
+              <Select
+                label="Type"
+                value={kind}
+                onChange={(e) => setKind(e.target.value as ScanKind)}
+                className="text-xs h-9"
+              >
+                <option value="check_in">Entry check-in</option>
+                <option value="attendance">Attendance round</option>
+                <option value="exit">Exit</option>
+              </Select>
+
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={
+                  name.trim().length < 2 ||
+                  create.isPending ||
+                  (kind === "attendance" && markTeam && !effectiveCompetitionId)
+                }
+                isLoading={create.isPending}
+                className="h-9 text-xs gap-1.5 font-semibold"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create token
+              </Button>
+            </div>
+
+            {kind === "attendance" && (
+              <div className="flex flex-wrap items-center gap-4 pt-1">
+                <div className="w-60">
+                  <Select
+                    aria-label="Competition scope"
+                    value={effectiveCompetitionId}
+                    onChange={(e) => setSelectedCompetitionId(e.target.value)}
+                    className="text-xs h-9"
+                  >
+                    {!markTeam && (
+                      <option value="">All event members</option>
+                    )}
+                    {competitions.map((comp) => (
+                      <option key={comp.id} value={comp.id}>
+                        Competition: {comp.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-[var(--ink-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={markTeam}
+                    onChange={(e) => setMarkTeam(e.target.checked)}
+                    className="accent-[var(--color-blue)] h-4 w-4 rounded"
+                  />
+                  <span>Team leader check-in marks whole team</span>
+                </label>
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* Open & Closed Tokens */}
         {isLoading ? (
           <SkeletonCard />
         ) : sessions.length === 0 ? (
           <EmptyState
             title="No check-in tokens yet"
-            description="Create your first check-in token above."
+            description="Create a token to let attendees check in with a short code."
+            action={
+              !showCreateForm ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setShowCreateForm(true)}
+                  className="text-xs gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Create check-in token
+                </Button>
+              ) : undefined
+            }
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {sessions.map((s) => {
-              const isSelected = selectedSession?.id === s.id;
-              const isBusy = busySessionId === s.id;
-              return (
-                <div
-                  key={s.id}
-                  onClick={() => setSelectedSessionId(s.id)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setSelectedSessionId(s.id);
-                    }
-                  }}
-                  className={cn(
-                    "rounded-[14px] border p-3.5 transition-colors cursor-pointer space-y-3 text-left",
-                    isSelected
-                      ? "border-[var(--color-blue)] bg-[var(--color-blue-dim)]/35 ring-1 ring-[var(--color-blue)]/30"
-                      : "border-[var(--card-line)] bg-[var(--card-solid-subtle)]/50 hover:bg-[var(--card-solid-subtle)]"
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-sm font-semibold text-[var(--ink-primary)] truncate">
-                          {s.name}
-                        </span>
-                        {s.is_default && (
-                          <Badge variant="blue" size="sm">
-                            Default
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-[var(--ink-secondary)] capitalize mt-0.5">
-                        {s.kind === "check_in" ? "Entry check-in" : s.kind}
-                        {s.competition_name ? ` · ${s.competition_name}` : ""}
-                      </div>
-                    </div>
+          <div className="space-y-3">
+            {openSessions.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {openSessions.map(renderCard)}
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--ink-secondary)]">
+                No open check-in tokens right now.
+              </p>
+            )}
 
-                    <Badge variant={s.is_open ? "emerald" : "subtle"} size="sm" dot>
-                      {s.is_open ? "Open" : "Closed"}
-                    </Badge>
-                  </div>
-
-                  {/* Token Display & Actions */}
-                  <div
-                    className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--card-line)]"
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => e.stopPropagation()}
-                  >
-                    {s.checkin_code ? (
-                      <div className="flex items-center gap-1 min-w-0">
-                        <span className="font-mono text-xs font-bold tracking-wider px-2 py-1 rounded-[6px] border border-[var(--color-blue-border)] bg-[var(--card-solid)] text-[var(--color-blue)] truncate">
-                          {s.checkin_code}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => copyToken(s.checkin_code!)}
-                          title="Copy token"
-                          className="p-1 rounded-[6px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)] cursor-pointer"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() => {
-                            setEditingSession(s);
-                            setCustomCodeDraft(s.checkin_code || "");
-                          }}
-                          title="Edit custom token"
-                          className="p-1 rounded-[6px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)] disabled:opacity-50 cursor-pointer"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() => handleRotateOrSetCode(s)}
-                          title="Rotate to random token"
-                          className="p-1 rounded-[6px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)] disabled:opacity-50 cursor-pointer"
-                        >
-                          <RefreshCw className={`h-3.5 w-3.5 ${isBusy ? "animate-spin" : ""}`} />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() => handleDisableCode(s)}
-                          title="Disable token"
-                          className="p-1 rounded-[6px] text-[var(--ink-tertiary)] hover:text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] disabled:opacity-50 cursor-pointer"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={isBusy}
-                          onClick={() => handleRotateOrSetCode(s)}
-                          className="h-7 px-2 text-[11px]"
-                        >
-                          Random
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={isBusy}
-                          onClick={() => {
-                            setEditingSession(s);
-                            setCustomCodeDraft("");
-                          }}
-                          className="h-7 px-2 text-[11px]"
-                        >
-                          Custom…
-                        </Button>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs font-mono font-semibold text-[var(--ink-primary)] tabular-nums">
-                        {s.scanned_count}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-[11px]"
-                        onClick={() => handleToggleOpen(s)}
-                      >
-                        {s.is_open ? "Close" : "Reopen"}
-                      </Button>
-                    </div>
-                  </div>
+            {closedSessions.length > 0 && (
+              <CollapsibleSection
+                title="Closed tokens"
+                summary={`${closedSessions.length} closed`}
+                open={showClosed || openSessions.length === 0}
+                onToggle={() => setShowClosed((prev) => !prev)}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {closedSessions.map(renderCard)}
                 </div>
-              );
-            })}
+              </CollapsibleSection>
+            )}
           </div>
         )}
       </div>
 
-      {/* Selected Token Detailed Stats & Roster */}
+      {/* Selected Token Summary + Collapsible Details & Roster */}
       {selectedSession && (
-        <SessionDetailedStats key={selectedSession.id} session={selectedSession} />
+        <SessionDetailedStats
+          key={selectedSession.id}
+          session={selectedSession}
+          onCopyToken={copyToken}
+        />
       )}
 
       {/* Custom Token Dialog */}

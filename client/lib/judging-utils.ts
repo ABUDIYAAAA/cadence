@@ -16,7 +16,7 @@ export interface SubmissionViewState {
 export function resolveSubmissionViewState(
   data?: MySubmission | null
 ): SubmissionViewState {
-  if (!data || !data.has_team) {
+  if (!data || !data.has_team || !data.can_submit) {
     return {
       visible: false,
       blocked: false,
@@ -32,17 +32,13 @@ export function resolveSubmissionViewState(
   const hasSavedContent =
     Boolean(data.project_name && data.project_name.trim().length > 0) ||
     hasSavedLinks;
-  const blocked = !data.can_submit;
 
   return {
     visible: true,
-    blocked,
-    canEdit: data.can_submit,
+    blocked: false,
+    canEdit: true,
     hasSavedContent,
-    blockedReason: blocked
-      ? data.submit_blocked_reason ||
-        "Submissions are currently closed for your team."
-      : "",
+    blockedReason: "",
   };
 }
 

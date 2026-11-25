@@ -11,10 +11,13 @@ import {
   hasActiveAuditFilters,
 } from "@/lib/audit-registry";
 import type { Competition } from "@/types/competitions";
+import type { Event } from "@/types/events";
 import { AuditLogFilter } from "@/types/audit";
 
 interface AuditFiltersProps {
   filters: AuditLogFilter;
+  /** Available orgs/events when a platform dev browses global audit logs. */
+  events?: ReadonlyArray<Pick<Event, "id" | "name" | "slug">>;
   competitions?: ReadonlyArray<Competition>;
   onChange: (filters: AuditLogFilter) => void;
   onReset: () => void;
@@ -22,18 +25,24 @@ interface AuditFiltersProps {
 
 export function AuditFilters({
   filters,
+  events = [],
   competitions = [],
   onChange,
   onReset,
 }: AuditFiltersProps) {
   const hasActiveFilters = hasActiveAuditFilters(filters);
+  const showEventFilter = events.length > 0;
   const showCompetitionFilter = competitions.length > 0;
 
   return (
     <div className="space-y-3 font-sans">
       <div
         className={`grid grid-cols-1 sm:grid-cols-2 ${
-          showCompetitionFilter ? "lg:grid-cols-6" : "lg:grid-cols-5"
+          showEventFilter && showCompetitionFilter
+            ? "lg:grid-cols-7"
+            : showEventFilter || showCompetitionFilter
+            ? "lg:grid-cols-6"
+            : "lg:grid-cols-5"
         } gap-3`}
       >
         {/* Search */}
@@ -58,6 +67,33 @@ export function AuditFilters({
             </button>
           )}
         </div>
+
+        {/* Org / Event Dropdown (platform dev mode) */}
+        {showEventFilter && (
+          <div>
+            <Select
+              aria-label="Filter by event or organization"
+              value={filters.event_id || ""}
+              onChange={(e) =>
+                onChange({
+                  ...filters,
+                  event_id: e.target.value || undefined,
+                  competition_id: undefined,
+                  page: 1,
+                })
+              }
+              className="text-xs"
+            >
+              <option value="">All Events (Orgs)</option>
+              <option value="platform">Platform / Global Only</option>
+              {events.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
 
         {/* Competition Dropdown (when inside an event with competitions) */}
         {showCompetitionFilter && (

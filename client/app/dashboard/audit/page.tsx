@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Download,
@@ -10,7 +10,14 @@ import {
 import { useAuth } from "@/providers/auth-provider";
 import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
-import { useAuditLogs, useExportAuditLogs } from "@/hooks/use-audit";
+import {
+  useAuditLogs,
+  useExportAuditLogs,
+  useExportPlatformAuditLogs,
+  usePlatformAuditLogs,
+} from "@/hooks/use-audit";
+import { useEvents } from "@/hooks/use-events";
+import { useCompetitions } from "@/hooks/use-competitions";
 import { AuditLogFilter, AuditLogResponse } from "@/types/audit";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,14 +34,21 @@ import {
 export default function AuditLogsPage() {
   const router = useRouter();
   const toast = useToast();
-  const { user, isAdmin, isLoading: authLoading } = useAuth();
-  const { competitions } = useTenant();
+  const { user, isAdmin, isDev, isLoading: authLoading } = useAuth();
+  const { eventSlug, activeEvent, competitions: tenantCompetitions } = useTenant();
+
+  const [selectedMode, setSelectedMode] = useState<"event" | "platform">(() =>
+    !eventSlug ? "platform" : "event"
+  );
+  const mode: "event" | "platform" =
+    isDev && !eventSlug ? "platform" : isDev ? selectedMode : "event";
 
   // Filters state
   const [filters, setFilters] = useState<AuditLogFilter>({
     page: 1,
     limit: 20,
     search: "",
+    event_id: undefined,
     competition_id: undefined,
     action: undefined,
     target_type: undefined,
@@ -42,17 +56,47 @@ export default function AuditLogsPage() {
     to_date: undefined,
   });
 
-  // Query & Export
-  const {
-    data: auditResponse,
-    isLoading: auditLoading,
-    isFetching,
-    isError: auditError,
-    error: auditErrorObj,
-    refetch,
-  } = useAuditLogs(filters);
+  // For platform dev mode: load all orgs/events and cascade competitions when an org is picked
+  const { data: allEvents = [] } = useEvents({
+    enabled: Boolean(user) && isDev && mode === "platform",
+  });
 
-  const exportMutation = useExportAuditLogs();
+  const selectedOrg = useMemo(() => {
+    if (mode !== "platform" || !filters.event_id || filters.event_id === "platform") {
+      return null;
+    }
+    return allEvents.find((ev) => ev.id === filters.event_id) ?? null;
+  }, [mode, filters.event_id, allEvents]);
+
+  const { data: selectedOrgCompetitions = [] } = useCompetitions(
+    selectedOrg?.slug ?? null,
+    { enabled: Boolean(selectedOrg?.slug) }
+  );
+
+  const visibleCompetitions =
+    mode === "event" ? tenantCompetitions : selectedOrgCompetitions;
+
+  // Query & Export
+  const eventAuditQuery = useAuditLogs(filters, {
+    enabled: Boolean(user) && isAdmin && mode === "event",
+  });
+  const platformAuditQuery = usePlatformAuditLogs(filters, {
+    enabled: Boolean(user) && isDev && mode === "platform",
+  });
+
+  const activeQuery =
+    mode === "platform" ? platformAuditQuery : eventAuditQuery;
+  const auditResponse = activeQuery.data;
+  const auditLoading = activeQuery.isLoading;
+  const isFetching = activeQuery.isFetching;
+  const auditError = activeQuery.isError;
+  const auditErrorObj = activeQuery.error;
+  const refetch = activeQuery.refetch;
+
+  const exportEventMutation = useExportAuditLogs();
+  const exportPlatformMutation = useExportPlatformAuditLogs();
+  const isExporting =
+    exportEventMutation.isPending || exportPlatformMutation.isPending;
 
   // Dialog state
   const [selectedLog, setSelectedLog] = useState<AuditLogResponse | null>(null);
@@ -92,11 +136,24 @@ export default function AuditLogsPage() {
     );
   }
 
+  const handleModeSwitch = (nextMode: "event" | "platform") => {
+    setSelectedMode(nextMode);
+    setFilters((prev) => ({
+      ...prev,
+      page: 1,
+      event_id: undefined,
+      competition_id: undefined,
+    }));
+  };
+
   // Handlers
   const handleExportCsv = async () => {
     try {
       toast.info("Generating CSV export from audit stream...", "Export started");
-      const blob = await exportMutation.mutateAsync(filters);
+      const blob =
+        mode === "platform"
+          ? await exportPlatformMutation.mutateAsync(filters)
+          : await exportEventMutation.mutateAsync(filters);
 
       // Create download anchor
       const url = window.URL.createObjectURL(blob);
@@ -122,12 +179,14 @@ export default function AuditLogsPage() {
     }
   };
 
+  const displayEventName = activeEvent?.event_name || eventSlug || "this event";
+
   return (
     <div className="space-y-6 font-sans">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               Audit log
             </h1>
@@ -138,12 +197,41 @@ export default function AuditLogsPage() {
             )}
           </div>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
-            Activity and security events across the platform.
+            {mode === "platform"
+              ? "Activity and security events across the platform and all organizations."
+              : `Activity and security events scoped to ${displayEventName}.`}
           </p>
         </div>
 
         {/* Action Toolbar */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {isDev && Boolean(eventSlug) && (
+            <div className="inline-flex rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => handleModeSwitch("event")}
+                className={`px-2.5 py-1.5 rounded-[8px] font-medium transition-colors cursor-pointer ${
+                  mode === "event"
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                }`}
+              >
+                This Event
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModeSwitch("platform")}
+                className={`px-2.5 py-1.5 rounded-[8px] font-medium transition-colors cursor-pointer ${
+                  mode === "platform"
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+                }`}
+              >
+                All Events
+              </button>
+            </div>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -162,7 +250,7 @@ export default function AuditLogsPage() {
             variant="primary"
             size="sm"
             onClick={handleExportCsv}
-            isLoading={exportMutation.isPending}
+            isLoading={isExporting}
             className="h-9 px-4 text-xs gap-1.5 font-semibold"
           >
             <Download className="h-3.5 w-3.5" />
@@ -186,13 +274,15 @@ export default function AuditLogsPage() {
       <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
         <AuditFilters
           filters={filters}
-          competitions={competitions}
+          events={mode === "platform" ? allEvents : []}
+          competitions={visibleCompetitions}
           onChange={(newFilters) => setFilters(newFilters)}
           onReset={() =>
             setFilters({
               page: 1,
               limit: filters.limit,
               search: "",
+              event_id: undefined,
               competition_id: undefined,
               action: undefined,
               target_type: undefined,

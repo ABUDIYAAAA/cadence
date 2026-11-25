@@ -70,9 +70,6 @@ export default function CompetitionsPage() {
     isAdmin,
     isOwner,
     isDev,
-    isVolunteer,
-    isJudge,
-    isParticipant,
   } = useAuth();
   const {
     eventSlug,
@@ -177,10 +174,7 @@ export default function CompetitionsPage() {
 
   const handleOpenCompetition = (comp: Competition) => {
     selectCompetition(comp.slug);
-    const participantOnly =
-      isParticipant && !isAdmin && !isVolunteer && !isJudge;
-    const defaultSection = participantOnly ? "judging" : "teams";
-    router.push(getCompetitionSectionHref(comp.slug, defaultSection));
+    router.push(getCompetitionSectionHref(comp.slug, "teams"));
   };
 
   const parsedMinSize = minTeamSize.trim() === "" ? NaN : Number(minTeamSize.trim());

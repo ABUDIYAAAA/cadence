@@ -570,7 +570,7 @@ export function Sidebar() {
 								'teams',
 							),
 							icon: Layers,
-							roles: ['owner', 'admin', 'volunteer', 'judge'],
+							roles: ['owner', 'admin', 'volunteer', 'judge', 'participant'],
 						},
 						{
 							label: 'Judging',

@@ -28,6 +28,7 @@ import { Select } from "@/components/ui/select";
 import {
   SessionScanner,
   ScanSessionsPanel,
+  CheckInTokensPanel,
   TicketBulkSendDialog,
   type DeliveryMode,
   TicketUserTable,
@@ -40,7 +41,7 @@ export default function TicketsPage() {
   const { user, isAdmin, isVolunteer, isParticipant, isLoading: authLoading } = useAuth();
 
   // Active view tab for Admin
-  const [adminTab, setAdminTab] = useState<"users" | "scanner" | "sessions">("users");
+  const [adminTab, setAdminTab] = useState<"users" | "scanner" | "checkin" | "sessions">("users");
 
   // Filters for User Directory
   const [userFilters, setUserFilters] = useState<UserFilter>({
@@ -267,6 +268,17 @@ export default function TicketsPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setAdminTab("checkin")}
+                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
+                  adminTab === "checkin"
+                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
+                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
+                }`}
+              >
+                Check-in
+              </button>
+              <button
+                type="button"
                 onClick={() => setAdminTab("sessions")}
                 className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
                   adminTab === "sessions"
@@ -381,6 +393,8 @@ export default function TicketsPage() {
               <SessionScanner />
             </div>
           )}
+
+          {adminTab === "checkin" && <CheckInTokensPanel />}
 
           {adminTab === "sessions" && <ScanSessionsPanel />}
 

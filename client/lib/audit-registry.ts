@@ -142,6 +142,7 @@ export function getAuditActionBadgeVariant(
 export function hasActiveAuditFilters(filters: AuditLogFilter): boolean {
   return Boolean(
     filters.search ||
+      filters.event_id ||
       filters.action ||
       filters.target_type ||
       filters.competition_id ||

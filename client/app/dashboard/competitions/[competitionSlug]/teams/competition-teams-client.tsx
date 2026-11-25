@@ -41,6 +41,7 @@ import {
   TeamEditDialog,
   TeamDetailDialog,
   TeamDeleteDialog,
+  MyTeamView,
 } from "@/components/teams";
 
 export default function CompetitionTeamsPage() {
@@ -119,24 +120,19 @@ export default function CompetitionTeamsPage() {
     );
   }
 
-  // Participants role guard (the directory endpoints require admin, volunteer, or judge)
+  // Participants see their own team management view scoped to this competition
   if (isParticipant && !isAdmin && !isVolunteer && !isJudge) {
     return (
-      <div className="font-sans space-y-4">
-        <Alert variant="info" title="Team directory">
-          <div>
-            The full event squad directory is managed by organizers, volunteers, and judges. You can create, join and manage your own team in the participant portal.
-          </div>
-          <div className="mt-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/dashboard/participant")}
-            >
-              Go to participant portal
-            </Button>
-          </div>
-        </Alert>
+      <div className="font-sans space-y-6">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+            My Team
+          </h1>
+          <p className="text-sm text-[var(--ink-secondary)] mt-1">
+            Create a team, share your join code, or join an existing squad for this competition.
+          </p>
+        </div>
+        <MyTeamView hideCompetitionSwitcher />
       </div>
     );
   }

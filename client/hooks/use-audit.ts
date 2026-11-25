@@ -20,8 +20,26 @@ export function useAuditLogs(
   });
 }
 
+export function usePlatformAuditLogs(
+  filters?: AuditLogFilter,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: [...AUDIT_QUERY_KEY, "platform-list", filters],
+    queryFn: () => auditService.listPlatform(filters),
+    enabled: options?.enabled ?? true,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useExportAuditLogs() {
   return useMutation({
     mutationFn: (filters?: AuditLogFilter) => auditService.export(filters),
+  });
+}
+
+export function useExportPlatformAuditLogs() {
+  return useMutation({
+    mutationFn: (filters?: AuditLogFilter) => auditService.exportPlatform(filters),
   });
 }

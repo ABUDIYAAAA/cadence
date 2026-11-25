@@ -77,8 +77,10 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (
 	var args []any
 	argIndex := 1
 
-	if filter.EventID != "" {
-		conditions = append(conditions, fmt.Sprintf("(event_id = $%d OR event_id IS NULL)", argIndex))
+	if filter.EventID == "platform" {
+		conditions = append(conditions, "event_id IS NULL")
+	} else if filter.EventID != "" {
+		conditions = append(conditions, fmt.Sprintf("event_id = $%d", argIndex))
 		args = append(args, filter.EventID)
 		argIndex++
 	}

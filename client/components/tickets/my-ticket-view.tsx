@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { CheckCircle2, Clock, KeyRound } from "lucide-react";
+import { CheckCircle2, Clock } from "lucide-react";
 import { useCheckInByCode, useMyTicket } from "@/hooks/use-tickets";
 import { useAuth } from "@/providers/auth-provider";
 import { useTenant } from "@/providers/tenant-provider";
@@ -43,9 +43,8 @@ function SelfCheckInCodeCard() {
       onSubmit={handleSubmit}
       className="rounded-[16px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 space-y-2"
     >
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-primary)]">
-        <KeyRound className="h-3.5 w-3.5 text-[var(--color-blue)]" />
-        <span>Check in with session code</span>
+      <div className="text-xs font-semibold text-[var(--ink-primary)]">
+        Check in with session code
       </div>
       <div className="flex items-center gap-2">
         <Input

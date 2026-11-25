@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Copy, Crown, Lock, LogOut, Pencil, Plus, RefreshCw, UserMinus, Users } from "lucide-react";
+import { Copy, Crown, Lock, LogOut, Pencil, Plus, RefreshCw, Trophy, UserMinus, Users } from "lucide-react";
 import {
   useCreateTeam,
   useJoinTeam,
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { TeamNameDialog } from "./team-dialog-create";
 import { TeamJoinDialog } from "./team-dialog-join";
 
@@ -29,9 +30,26 @@ function errorMessage(err: unknown, fallback: string): string {
     : fallback;
 }
 
-export function MyTeamView() {
+function formatTeamSizeRange(min?: number, max?: number): string | null {
+  if (!max) return null;
+  if (!min || min === max) return `${max} ${max === 1 ? "member" : "members"}`;
+  return `${min}–${max} members`;
+}
+
+interface MyTeamViewProps {
+  /** Hide the inline competition selector when already inside a competition-scoped route. */
+  hideCompetitionSwitcher?: boolean;
+}
+
+export function MyTeamView({ hideCompetitionSwitcher = false }: MyTeamViewProps) {
   const { user } = useAuth();
-  const { competitionSlug, isLoadingCompetitions } = useTenant();
+  const {
+    competitionSlug,
+    activeCompetition,
+    competitions,
+    isLoadingCompetitions,
+    selectCompetition,
+  } = useTenant();
   const toast = useToast();
   const { data: team, isLoading, isError, refetch } = useMyTeam();
 
@@ -48,7 +66,88 @@ export function MyTeamView() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
 
-  if (isLoading || isLoadingCompetitions) {
+  const competitionSelector =
+    !hideCompetitionSwitcher && competitions.length > 0 ? (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-tertiary)]">
+            {competitions.length > 1 ? "Select competition" : "Competition"}
+          </span>
+          {activeCompetition && (
+            <span className="text-[11px] text-[var(--ink-secondary)] tabular-nums">
+              {formatTeamSizeRange(
+                activeCompetition.min_team_size,
+                activeCompetition.max_team_size
+              )}
+            </span>
+          )}
+        </div>
+
+        {competitions.length > 1 ? (
+          <div
+            role="tablist"
+            aria-label="Select competition for team"
+            className="flex items-center gap-1.5 overflow-x-auto rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-1.5"
+          >
+            {competitions.map((comp) => {
+              const active = comp.slug === competitionSlug;
+              const sizeLabel =
+                comp.min_team_size && comp.max_team_size
+                  ? comp.min_team_size === comp.max_team_size
+                    ? `${comp.max_team_size}`
+                    : `${comp.min_team_size}–${comp.max_team_size}`
+                  : null;
+              return (
+                <button
+                  key={comp.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => {
+                    if (!active) selectCompetition(comp.slug);
+                  }}
+                  className={cn(
+                    "group inline-flex items-center gap-2 rounded-[10px] px-3 py-2 text-xs whitespace-nowrap transition-[background-color,color,box-shadow,border-color] duration-150 cursor-pointer shrink-0",
+                    active
+                      ? "bg-[var(--card-solid)] text-[var(--ink-primary)] font-semibold border border-[var(--card-line)] shadow-xs"
+                      : "border border-transparent text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)]/60 font-medium"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full transition-colors",
+                      active
+                        ? "bg-[var(--color-blue)]"
+                        : "bg-[var(--ink-tertiary)]/40 group-hover:bg-[var(--ink-tertiary)]"
+                    )}
+                  />
+                  <span>{comp.name}</span>
+                  {sizeLabel && (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
+                        active
+                          ? "bg-[var(--color-blue-dim)] text-[var(--color-blue)]"
+                          : "bg-[var(--card-solid)] text-[var(--ink-tertiary)]"
+                      )}
+                    >
+                      {sizeLabel}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] px-3 py-2 text-xs font-semibold text-[var(--ink-primary)]">
+            <Trophy className="h-3.5 w-3.5 text-[var(--color-blue)]" />
+            <span>{competitions[0].name}</span>
+          </div>
+        )}
+      </div>
+    ) : null;
+
+  if (isLoadingCompetitions) {
     return <Skeleton className="h-40 w-full rounded-[20px]" />;
   }
 
@@ -61,25 +160,43 @@ export function MyTeamView() {
     );
   }
 
+  if (isLoading) {
+    return (
+      <section className="font-sans space-y-3" aria-label="Your team">
+        {competitionSelector}
+        <Skeleton className="h-40 w-full rounded-[20px]" />
+      </section>
+    );
+  }
+
   // `null` means "no team yet"; an error is a real failure.
   if (isError && !team) {
     return (
-      <EmptyState
-        title="Couldn't load your team"
-        description="Check your connection and try again."
-        action={
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            Retry
-          </Button>
-        }
-      />
+      <section className="font-sans space-y-3" aria-label="Your team">
+        {competitionSelector}
+        <EmptyState
+          title="Couldn't load your team"
+          description="Check your connection and try again."
+          action={
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Retry
+            </Button>
+          }
+        />
+      </section>
     );
   }
+
+  const compName = activeCompetition?.name ?? competitionSlug;
+  const sizeHint = formatTeamSizeRange(
+    activeCompetition?.min_team_size,
+    activeCompetition?.max_team_size
+  );
 
   const handleCreate = async (name: string) => {
     try {
       await createTeam.mutateAsync({ name });
-      toast.success(`Team "${name}" created. Share the join code with your teammates.`, "Team created");
+      toast.success(`Team "${name}" created for ${compName}. Share the join code with your teammates.`, "Team created");
     } catch (err) {
       toast.error(errorMessage(err, "Failed to create team"), "Could not create team");
       throw err;
@@ -95,9 +212,14 @@ export function MyTeamView() {
   if (!team) {
     return (
       <section className="font-sans space-y-3" aria-label="Your team">
+        {competitionSelector}
         <EmptyState
-          title="You're not on a team yet"
-          description="Start a team and share its code, or join one with a code from your team leader."
+          title={`No team for ${compName} yet`}
+          description={
+            sizeHint
+              ? `Start a team (${sizeHint}) and share its code, or join one with a code from your team leader.`
+              : "Start a team and share its code, or join one with a code from your team leader."
+          }
           action={
             <div className="flex flex-wrap justify-center gap-2">
               <Button variant="primary" size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
@@ -115,7 +237,7 @@ export function MyTeamView() {
           onClose={() => setCreateOpen(false)}
           onSubmit={handleCreate}
           isLoading={createTeam.isPending}
-          title="Create a team"
+          title={`Create a team for ${compName}`}
           description="You'll be the team leader. Teammates join with the code you share."
           submitLabel="Create team"
         />
@@ -191,6 +313,7 @@ export function MyTeamView() {
 
   return (
     <section className="font-sans space-y-3" aria-label="Your team">
+      {competitionSelector}
       <div className="flex items-baseline justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <h2 className="text-base font-semibold tracking-tight text-[var(--ink-primary)] truncate">

@@ -4,3 +4,4 @@ export * from "./ticket-user-table";
 export * from "./my-ticket-view";
 export * from "./scan-sessions-panel";
 export * from "./session-scanner";
+export * from "./checkin-tokens-panel";

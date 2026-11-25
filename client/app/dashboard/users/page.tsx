@@ -211,10 +211,21 @@ export default function UsersPage() {
         mode === "platform"
           ? await bulkCreatePlatformUsers.mutateAsync(payload)
           : await bulkCreateEventMembers.mutateAsync(payload);
-      toast.success(
-        `Imported ${res.total_created} of ${res.total_processed} records.`,
-        "Import complete"
-      );
+      const teamPart =
+        res.teams_assigned && res.teams_assigned > 0
+          ? `, ${res.teams_assigned} team assignment${res.teams_assigned === 1 ? "" : "s"}`
+          : "";
+      if (res.skipped_count > 0) {
+        toast.warning(
+          `Processed ${res.total_processed} rows (${res.total_created} accounts${teamPart}, ${res.skipped_count} skipped).`,
+          "Import completed with warnings"
+        );
+      } else {
+        toast.success(
+          `Imported ${res.total_created} account${res.total_created === 1 ? "" : "s"}${teamPart}.`,
+          "Import complete"
+        );
+      }
       return res;
     } catch (err: unknown) {
       const errorMsg = apiErrorMessage(err, "Bulk import failed");
@@ -548,6 +559,7 @@ export default function UsersPage() {
         open={isBulkCreateOpen}
         onClose={() => setIsBulkCreateOpen(false)}
         onSubmit={handleBulkCreate}
+        competitions={mode === "event" ? competitions : []}
         isLoading={
           bulkCreateEventMembers.isPending || bulkCreatePlatformUsers.isPending
         }

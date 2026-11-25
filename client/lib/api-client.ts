@@ -50,7 +50,9 @@ export const apiClientV2: AxiosInstance = apiClient;
 
 // Request interceptor: rewrite relative feature paths to active event/competition scope.
 apiClient.interceptors.request.use((config) => {
-  if (config.url) {
+  const skipScope = (config as InternalAxiosRequestConfig & { skipTenantScope?: boolean })
+    .skipTenantScope;
+  if (config.url && !skipScope) {
     config.url = resolveScopedPath(config.url, getTenantScope());
   }
   return config;

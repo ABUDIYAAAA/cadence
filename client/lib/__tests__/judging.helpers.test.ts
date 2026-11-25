@@ -9,7 +9,7 @@ import {
 } from "../judging-utils.ts";
 
 describe("Seam 2: Judging Operations, Submissions & Migration 000010 Alignment", () => {
-  it("resolves participant submission view state so gated/blocked teams see the block reason and any saved submission in read-only mode", () => {
+  it("hides the participant submission view whenever the user has no team or submissions are not open for their team", () => {
     // 1. Not loaded or participant has no team -> hidden
     assert.deepEqual(resolveSubmissionViewState(null), {
       visible: false,
@@ -34,7 +34,7 @@ describe("Seam 2: Judging Operations, Submissions & Migration 000010 Alignment",
       }
     );
 
-    // 2. Has team, gate blocked, with existing saved submission -> visible in read-only mode with blocked banner!
+    // 2. Has team, submissions closed/blocked -> hidden
     assert.deepEqual(
       resolveSubmissionViewState({
         has_team: true,
@@ -46,16 +46,14 @@ describe("Seam 2: Judging Operations, Submissions & Migration 000010 Alignment",
           'No member of your team was present at "Night 1 Attendance".',
       }),
       {
-        visible: true,
-        blocked: true,
+        visible: false,
+        blocked: false,
         canEdit: false,
-        hasSavedContent: true,
-        blockedReason:
-          'No member of your team was present at "Night 1 Attendance".',
+        hasSavedContent: false,
+        blockedReason: "",
       }
     );
 
-    // 3. Has team, gate blocked, no saved submission yet -> visible with blocked reason so team knows why they cannot submit
     assert.deepEqual(
       resolveSubmissionViewState({
         has_team: true,
@@ -66,15 +64,15 @@ describe("Seam 2: Judging Operations, Submissions & Migration 000010 Alignment",
         submit_blocked_reason: "Submissions are currently closed.",
       }),
       {
-        visible: true,
-        blocked: true,
+        visible: false,
+        blocked: false,
         canEdit: false,
         hasSavedContent: false,
-        blockedReason: "Submissions are currently closed.",
+        blockedReason: "",
       }
     );
 
-    // 4. Has team, gate cleared -> visible and editable
+    // 3. Has team, submissions open -> visible and editable
     assert.deepEqual(
       resolveSubmissionViewState({
         has_team: true,

@@ -7,6 +7,7 @@ import {
   CreateUserRequest,
 } from "@/types/users";
 import { UserRole } from "@/types/auth";
+import type { Competition } from "@/types/competitions";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -16,14 +17,42 @@ interface UserBulkCreateDialogProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (data: BulkCreateUsersRequest) => Promise<BulkCreateResponse>;
+  competitions?: ReadonlyArray<Competition>;
   isLoading: boolean;
 }
 
-const SAMPLE_CSV = `email,name,role,phone_number,competition_name,team_name
-alice@example.com,Alice Smith,participant,+15550101,AI Track,Neural Ninjas
-bob@example.com,Bob Jones,participant,+15550102,AI Track,Neural Ninjas
-alice@example.com,Alice Smith,participant,+15550101,Web Track,Pixel Forge
-charlie@example.com,Charlie Brown,judge,,,`;
+function escapeCsvCell(val: string): string {
+  return /[",\r\n]/.test(val) ? `"${val.replace(/"/g, '""')}"` : val;
+}
+
+function buildSampleCsv(competitions: ReadonlyArray<Competition>): string {
+  if (competitions.length >= 2) {
+    const c1 = escapeCsvCell(competitions[0].name);
+    const c2 = escapeCsvCell(competitions[1].name);
+    return [
+      "email,name,role,phone_number,competition_name,team_name",
+      `alice@example.com,Alice Smith,participant,+15550101,${c1},Neural Ninjas`,
+      `bob@example.com,Bob Jones,participant,+15550102,${c1},Neural Ninjas`,
+      `alice@example.com,Alice Smith,participant,+15550101,${c2},Pixel Forge`,
+      "charlie@example.com,Charlie Brown,judge,,,",
+    ].join("\n");
+  }
+  if (competitions.length === 1) {
+    const c1 = escapeCsvCell(competitions[0].name);
+    return [
+      "email,name,role,phone_number,competition_name,team_name",
+      `alice@example.com,Alice Smith,participant,+15550101,${c1},Neural Ninjas`,
+      `bob@example.com,Bob Jones,participant,+15550102,${c1},Neural Ninjas`,
+      "charlie@example.com,Charlie Brown,judge,,,",
+    ].join("\n");
+  }
+  return [
+    "email,name,role,phone_number",
+    "alice@example.com,Alice Smith,participant,+15550101",
+    "bob@example.com,Bob Jones,participant,+15550102",
+    "charlie@example.com,Charlie Brown,judge,",
+  ].join("\n");
+}
 
 /** Splits a single CSV line, respecting double-quoted cells and escaped quotes (""). */
 function parseCsvLine(line: string): string[] {
@@ -69,12 +98,19 @@ export function UserBulkCreateDialog({
   open,
   onClose,
   onSubmit,
+  competitions = [],
   isLoading,
 }: UserBulkCreateDialogProps) {
   const [csvText, setCsvText] = useState("");
   const [parsedUsers, setParsedUsers] = useState<CreateUserRequest[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [result, setResult] = useState<BulkCreateResponse | null>(null);
+
+  const sampleCsv = useMemo(() => buildSampleCsv(competitions), [competitions]);
+  const hasTeamColumns = useMemo(
+    () => parsedUsers.some((u) => Boolean(u.team_name)),
+    [parsedUsers]
+  );
 
   const uniqueUserCount = useMemo(() => {
     const emails = new Set(parsedUsers.map((u) => u.email.trim().toLowerCase()));
@@ -227,16 +263,16 @@ export function UserBulkCreateDialog({
                 <span className="text-[var(--ink-secondary)]">Accounts Created / Enrolled</span>
                 <strong className="text-[var(--ink-primary)] font-mono">{result.total_created}</strong>
               </div>
-              {(result.teams_created ?? 0) > 0 && (
+              {(hasTeamColumns || (result.teams_created ?? 0) > 0) && (
                 <div className="flex justify-between p-3">
                   <span className="text-[var(--ink-secondary)]">Teams Created</span>
-                  <strong className="text-[var(--ink-primary)] font-mono">{result.teams_created}</strong>
+                  <strong className="text-[var(--ink-primary)] font-mono">{result.teams_created ?? 0}</strong>
                 </div>
               )}
-              {(result.teams_assigned ?? 0) > 0 && (
+              {(hasTeamColumns || (result.teams_assigned ?? 0) > 0) && (
                 <div className="flex justify-between p-3">
                   <span className="text-[var(--ink-secondary)]">Team Assignments</span>
-                  <strong className="text-[var(--ink-primary)] font-mono">{result.teams_assigned}</strong>
+                  <strong className="text-[var(--ink-primary)] font-mono">{result.teams_assigned ?? 0}</strong>
                 </div>
               )}
               <div className="flex justify-between p-3">
@@ -268,8 +304,8 @@ export function UserBulkCreateDialog({
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  setCsvText(SAMPLE_CSV);
-                  parseCsv(SAMPLE_CSV);
+                  setCsvText(sampleCsv);
+                  parseCsv(sampleCsv);
                 }}
                 className="h-6 text-[10px] px-2"
               >
@@ -286,6 +322,15 @@ export function UserBulkCreateDialog({
               <code className="font-mono text-[var(--ink-primary)]">team_name</code>.
             </p>
 
+            {competitions.length > 0 && (
+              <p className="text-[11px] font-sans text-[var(--ink-tertiary)]">
+                Available competitions:{" "}
+                <span className="font-mono text-[var(--ink-secondary)]">
+                  {competitions.map((c) => c.name).join(", ")}
+                </span>
+              </p>
+            )}
+
             <textarea
               rows={6}
               value={csvText}
@@ -293,7 +338,7 @@ export function UserBulkCreateDialog({
                 setCsvText(e.target.value);
                 parseCsv(e.target.value);
               }}
-              placeholder={SAMPLE_CSV}
+              placeholder={sampleCsv}
               className="w-full rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3 font-mono text-xs text-[var(--ink-primary)] focus:border-[#83A2DB] focus:outline-none"
             />
 

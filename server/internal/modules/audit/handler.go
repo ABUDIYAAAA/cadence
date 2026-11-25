@@ -139,10 +139,8 @@ func (h *Handler) parseFilter(r *http.Request) AuditLogFilter {
 		TargetID:      q.Get("target_id"),
 		Search:        q.Get("search"),
 	}
-	if filter.EventID == "" {
-		if evCtx, ok := events.FromContext(r.Context()); ok && evCtx != nil && evCtx.EventID != "" {
-			filter.EventID = evCtx.EventID
-		}
+	if evCtx, ok := events.FromContext(r.Context()); ok && evCtx != nil && evCtx.EventID != "" {
+		filter.EventID = evCtx.EventID
 	}
 
 	if fromStr := q.Get("from_date"); fromStr != "" {

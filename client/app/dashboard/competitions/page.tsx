@@ -334,10 +334,13 @@ export default function CompetitionsPage() {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               Competitions
             </h1>
-            <Badge variant="subtle" size="sm">
-              {competitions.length}{" "}
-              {competitions.length === 1 ? "competition" : "competitions"}
-            </Badge>
+            {((!competitionsLoading && !competitionsError) ||
+              competitions.length > 0) && (
+              <Badge variant="subtle" size="sm">
+                {competitions.length}{" "}
+                {competitions.length === 1 ? "competition" : "competitions"}
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
             Open a competition in{" "}
@@ -414,7 +417,7 @@ export default function CompetitionsPage() {
       {/* Competition List */}
       {competitionsLoading && competitions.length === 0 ? (
         <CompetitionsListSkeleton />
-      ) : competitions.length === 0 ? (
+      ) : competitionsError && competitions.length === 0 ? null : competitions.length === 0 ? (
         <EmptyState
           title="No competitions in this event yet"
           description={

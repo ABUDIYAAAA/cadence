@@ -274,13 +274,9 @@ export function Navbar() {
 
             {isAuthenticated && hasSidebar && eventSlug && (
               <div className="hidden sm:flex items-center gap-1.5 min-w-0 pl-2 border-l border-[var(--card-line)]">
-                <Link
-                  href="/events"
-                  title="Switch event"
-                  className="text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] truncate max-w-[160px] transition-colors"
-                >
+                <span className="text-xs font-medium text-[var(--ink-secondary)] truncate max-w-[160px]">
                   {displayEventName}
-                </Link>
+                </span>
                 {competitionContext && (
                   <>
                     <span className="text-xs text-[var(--ink-tertiary)]">/</span>

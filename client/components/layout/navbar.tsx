@@ -41,6 +41,127 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
 import { LogoUploadField } from "@/components/events/logo-upload-field";
 
+interface HeaderSwitcherItem {
+  slug: string;
+  name: string;
+}
+
+function HeaderSwitcher({
+  label,
+  heading,
+  activeSlug,
+  displayName,
+  items,
+  onSelect,
+  emphasized = false,
+}: {
+  label: string;
+  heading: string;
+  activeSlug: string;
+  displayName: string;
+  items: HeaderSwitcherItem[];
+  onSelect: (slug: string) => void;
+  emphasized?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  if (items.length <= 1) {
+    return (
+      <span
+        className={`text-xs truncate max-w-[180px] ${
+          emphasized
+            ? "font-semibold text-[var(--ink-primary)]"
+            : "font-medium text-[var(--ink-secondary)]"
+        }`}
+      >
+        {displayName}
+      </span>
+    );
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={label}
+        className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-[6px] text-xs hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer max-w-[180px] ${
+          emphasized
+            ? "font-semibold text-[var(--ink-primary)]"
+            : "font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+        }`}
+      >
+        <span className="truncate">{displayName}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] transition-transform duration-150 ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label={label}
+          className="absolute left-0 mt-1.5 w-60 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 p-1.5 max-h-72 overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-150"
+        >
+          <div className="px-2.5 py-1 text-[11px] font-medium text-[var(--ink-tertiary)]">
+            {heading}
+          </div>
+          <div className="space-y-0.5">
+            {items.map((item) => {
+              const active = item.slug === activeSlug;
+              return (
+                <button
+                  key={item.slug}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    setOpen(false);
+                    onSelect(item.slug);
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 text-xs rounded-[8px] text-left transition-colors cursor-pointer ${
+                    active
+                      ? "bg-[var(--card-solid-subtle)] font-semibold text-[var(--ink-primary)]"
+                      : "text-[var(--ink-secondary)] hover:bg-[var(--card-solid-subtle)] hover:text-[var(--ink-primary)]"
+                  }`}
+                >
+                  <span className="truncate">{item.name}</span>
+                  {active && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -77,7 +198,6 @@ export function Navbar() {
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [eventSwitcherOpen, setEventSwitcherOpen] = useState(false);
   const [isDark, setIsDark] = useState(false);
 
   // Event Settings / Ownership Transfer Dialog state
@@ -90,7 +210,6 @@ export function Navbar() {
   const [eventError, setEventError] = useState<string | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const eventSwitcherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const isDarkMode = document.documentElement.classList.contains("dark");
@@ -126,22 +245,15 @@ export function Navbar() {
       ) {
         setDropdownOpen(false);
       }
-      if (
-        eventSwitcherRef.current &&
-        !eventSwitcherRef.current.contains(event.target as Node)
-      ) {
-        setEventSwitcherOpen(false);
-      }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setDropdownOpen(false);
-        setEventSwitcherOpen(false);
       }
     };
 
-    if (dropdownOpen || eventSwitcherOpen) {
+    if (dropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("keydown", handleKeyDown);
     }
@@ -150,7 +262,7 @@ export function Navbar() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [dropdownOpen, eventSwitcherOpen]);
+  }, [dropdownOpen]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -252,19 +364,17 @@ export function Navbar() {
     isDashboard ||
     (pathname === "/events" && (isDev || Boolean(eventSlug)));
   const displayEventName =
-    eventDetail?.name || activeEvent?.event_name || eventSlug;
+    eventDetail?.name || activeEvent?.event_name || eventSlug || "";
   const switcherEvents = isDev
     ? allEvents.map((e) => ({ slug: e.slug, name: e.name }))
     : events.map((e) => ({ slug: e.event_slug, name: e.event_name }));
-  const canSwitchEvents = switcherEvents.length > 1;
   const competitionContext = getCompetitionRouteContext(pathname);
   const currentCompetitionName = competitionContext
     ? competitions.find((c) => c.slug === competitionContext.competitionSlug)
         ?.name ?? competitionContext.competitionSlug
-    : null;
+    : "";
 
   const handleSelectEvent = (nextSlug: string) => {
-    setEventSwitcherOpen(false);
     if (nextSlug === eventSlug) return;
     selectEvent(nextSlug);
     if (
@@ -274,6 +384,18 @@ export function Navbar() {
     ) {
       router.push(getAuthenticatedHomeRoute(user, nextSlug));
     }
+  };
+
+  const handleSelectCompetition = (nextSlug: string) => {
+    if (!nextSlug || !competitionContext || nextSlug === competitionContext.competitionSlug) return;
+    selectCompetition(nextSlug);
+    const section =
+      competitionContext.section === "judging"
+        ? "judging"
+        : competitionContext.section === "users"
+        ? "users"
+        : "teams";
+    router.push(getCompetitionSectionHref(nextSlug, section));
   };
 
   return (
@@ -308,98 +430,27 @@ export function Navbar() {
             </Link>
 
             {isAuthenticated && hasSidebar && eventSlug && (
-              <div className="flex items-center gap-1.5 min-w-0 pl-2 border-l border-[var(--card-line)]">
-                {canSwitchEvents ? (
-                  <div className="relative" ref={eventSwitcherRef}>
-                    <button
-                      type="button"
-                      onClick={() => setEventSwitcherOpen((prev) => !prev)}
-                      aria-haspopup="listbox"
-                      aria-expanded={eventSwitcherOpen}
-                      aria-label="Switch event"
-                      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-[6px] text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer max-w-[180px]"
-                    >
-                      <span className="truncate">{displayEventName}</span>
-                      <ChevronDown
-                        className={`h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] transition-transform duration-150 ${
-                          eventSwitcherOpen ? "rotate-180" : ""
-                        }`}
-                      />
-                    </button>
-
-                    {eventSwitcherOpen && (
-                      <div
-                        role="listbox"
-                        aria-label="Available events"
-                        className="absolute left-0 mt-1.5 w-60 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 p-1.5 max-h-72 overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-150"
-                      >
-                        <div className="px-2.5 py-1 text-[11px] font-medium text-[var(--ink-tertiary)]">
-                          Switch event
-                        </div>
-                        <div className="space-y-0.5">
-                          {switcherEvents.map((ev) => {
-                            const active = ev.slug === eventSlug;
-                            return (
-                              <button
-                                key={ev.slug}
-                                type="button"
-                                role="option"
-                                aria-selected={active}
-                                onClick={() => handleSelectEvent(ev.slug)}
-                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 text-xs rounded-[8px] text-left transition-colors cursor-pointer ${
-                                  active
-                                    ? "bg-[var(--card-solid-subtle)] font-semibold text-[var(--ink-primary)]"
-                                    : "text-[var(--ink-secondary)] hover:bg-[var(--card-solid-subtle)] hover:text-[var(--ink-primary)]"
-                                }`}
-                              >
-                                <span className="truncate">{ev.name}</span>
-                                {active && (
-                                  <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-xs font-medium text-[var(--ink-secondary)] truncate max-w-[160px]">
-                    {displayEventName}
-                  </span>
-                )}
+              <div className="flex items-center gap-1 min-w-0 pl-2 border-l border-[var(--card-line)]">
+                <HeaderSwitcher
+                  label="Switch event"
+                  heading="Switch event"
+                  activeSlug={eventSlug}
+                  displayName={displayEventName}
+                  items={switcherEvents}
+                  onSelect={handleSelectEvent}
+                />
                 {competitionContext && (
                   <>
                     <span className="text-xs text-[var(--ink-tertiary)]">/</span>
-                    {competitions.length > 1 ? (
-                      <select
-                        aria-label="Active competition"
-                        value={competitionContext.competitionSlug}
-                        onChange={(e) => {
-                          const nextSlug = e.target.value;
-                          if (!nextSlug) return;
-                          selectCompetition(nextSlug);
-                          const section =
-                            competitionContext.section === "judging"
-                              ? "judging"
-                              : "teams";
-                          router.push(
-                            getCompetitionSectionHref(nextSlug, section)
-                          );
-                        }}
-                        className="h-7 rounded-[6px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] px-2 text-xs font-semibold text-[var(--ink-primary)] focus:outline-none focus:border-[var(--color-blue)] cursor-pointer max-w-[180px] truncate"
-                      >
-                        {competitions.map((comp) => (
-                          <option key={comp.id} value={comp.slug}>
-                            {comp.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-xs font-semibold text-[var(--ink-primary)] truncate max-w-[180px]">
-                        {currentCompetitionName}
-                      </span>
-                    )}
+                    <HeaderSwitcher
+                      label="Switch competition"
+                      heading="Switch competition"
+                      activeSlug={competitionContext.competitionSlug}
+                      displayName={currentCompetitionName}
+                      items={competitions.map((c) => ({ slug: c.slug, name: c.name }))}
+                      onSelect={handleSelectCompetition}
+                      emphasized
+                    />
                   </>
                 )}
               </div>

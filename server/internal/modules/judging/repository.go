@@ -10,6 +10,7 @@ import (
 
 	"devclubxnst.com/cadence/internal/modules/competitions"
 	"devclubxnst.com/cadence/internal/modules/events"
+	"devclubxnst.com/cadence/internal/modules/teams"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -52,11 +53,23 @@ var (
 )
 
 type Repository struct {
-	db *pgxpool.Pool
+	db    *pgxpool.Pool
+	teams teams.RosterManager
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+	return &Repository{
+		db:    db,
+		teams: teams.NewRepository(db),
+	}
+}
+
+// WithTeamRosterManager configures the teams domain seam used for team submission updates.
+func (r *Repository) WithTeamRosterManager(manager teams.RosterManager) *Repository {
+	if manager != nil {
+		r.teams = manager
+	}
+	return r
 }
 
 func resolveEventID(ctx context.Context) string {
@@ -770,17 +783,8 @@ func (r *Repository) ConfigureSlots(ctx context.Context, panelID string, slots [
 				return err
 			}
 			if len(cleanedLinks) > 0 || project != "" {
-				linksJSON, _ := json.Marshal(cleanedLinks)
-				var projArg *string
-				if project != "" {
-					projArg = &project
-				}
-				if _, err := tx.Exec(ctx, `
-					UPDATE teams
-					SET project_name = COALESCE($2, project_name),
-					    submission_links = CASE WHEN $3::jsonb = '{}'::jsonb THEN submission_links ELSE $3::jsonb END
-					WHERE id = $1 AND competition_id = $4`, s.TeamID, projArg, linksJSON, compID); err != nil {
-					return fmt.Errorf("update team submission for slot %s: %w", s.TeamID, err)
+				if err := r.teams.SetTeamSubmissionTx(ctx, tx, compID, s.TeamID, project, cleanedLinks); err != nil {
+					return err
 				}
 			}
 		}
@@ -1310,23 +1314,6 @@ func (r *Repository) ExtendTimer(ctx context.Context, slotID string, seconds int
 		return fmt.Errorf("extend timer: %w", err)
 	}
 	return tx.Commit(ctx)
-}
-
-// requireSlotInProgress returns ErrSlotNotStarted unless the slot's pitch is currently running.
-func requireSlotInProgress(ctx context.Context, q interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
-}, slotID string) error {
-	var status string
-	if err := q.QueryRow(ctx, `SELECT status::text FROM judging_slots WHERE id = $1`, slotID).Scan(&status); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrSlotNotFound
-		}
-		return fmt.Errorf("check slot status: %w", err)
-	}
-	if status != "in_progress" {
-		return ErrSlotNotStarted
-	}
-	return nil
 }
 
 // UpsertScores records criteria scores for a judge on a slot. Fails if already locked.
@@ -2590,21 +2577,22 @@ const submissionGateKey = "submission_gate_session"
 
 func submissionGateSettingKey(compID, roundID string) string {
 	if roundID != "" {
-		return compScopedSettingKey(compID, fmt.Sprintf("round:%s:%s", roundID, submissionGateKey))
+		// Keep under app_settings.key VARCHAR(100): "comp:<36>:r:<36>:sub_gate" = 89 chars.
+		return compScopedSettingKey(compID, fmt.Sprintf("r:%s:sub_gate", roundID))
 	}
 	return compScopedSettingKey(compID, submissionGateKey)
 }
 
-// ResolveActiveGateRoundID returns the currently active round for the competition,
-// falling back to the latest draft round if none is active, or "" if no rounds exist.
+// ResolveActiveGateRoundID returns the currently active (published) round for the competition,
+// or "" if no round is currently active.
 func (r *Repository) ResolveActiveGateRoundID(ctx context.Context) (string, error) {
 	compID := r.resolveCompetitionID(ctx, "")
 	var roundID string
 	err := r.db.QueryRow(ctx, `
 		SELECT id::text
 		FROM judging_rounds
-		WHERE competition_id = $1 AND status IN ('active', 'draft')
-		ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, created_at DESC
+		WHERE competition_id = $1 AND status = 'active'
+		ORDER BY created_at DESC
 		LIMIT 1
 	`, compID).Scan(&roundID)
 	if err != nil {
@@ -2741,24 +2729,13 @@ func (r *Repository) GetTeamSubmission(ctx context.Context, teamID string) (name
 	return name, project, links, nil
 }
 
-// SetTeamSubmission saves the team's project_name and submission_links on the teams table (the single source of truth).
+// SetTeamSubmission delegates team project_name and submission_links updates to teams.RosterManager.
 func (r *Repository) SetTeamSubmission(ctx context.Context, teamID, project string, links map[string]string) error {
-	linksJSON, err := json.Marshal(links)
-	if err != nil {
-		return fmt.Errorf("marshal links: %w", err)
-	}
-	var projArg *string
-	if project != "" {
-		projArg = &project
-	}
-	tag, err := r.db.Exec(ctx, `UPDATE teams SET project_name = COALESCE($2, project_name), submission_links = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, teamID, projArg, linksJSON)
-	if err != nil {
-		return fmt.Errorf("update team submission: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
+	err := r.teams.SetTeamSubmission(ctx, teamID, project, links)
+	if errors.Is(err, teams.ErrTeamNotFound) {
 		return ErrUnknownTeam
 	}
-	return nil
+	return err
 }
 
 // ListSubmissions lists every team's project name and links in the active competition for the CSV export.

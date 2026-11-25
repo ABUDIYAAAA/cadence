@@ -678,7 +678,7 @@ func (s *Service) isExternal(ctx context.Context, email string) (bool, error) {
 	return !utils.IsEmailExcluded(email, domains), nil
 }
 
-func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest, actorID, actorEmail, actorRole, ip, ua string) (*ScanSession, error) {
+func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest, actorID, actorEmail string) (*ScanSession, error) {
 	kind := strings.TrimSpace(req.Kind)
 	if kind == "" {
 		kind = KindAttendance
@@ -714,21 +714,22 @@ func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest, a
 	}
 
 	if req.CheckInCode != nil && strings.TrimSpace(*req.CheckInCode) != "" {
-		sess, err = s.GenerateSessionCheckInCode(ctx, sess.ID, req.CheckInCode, actorID, actorEmail, actorRole, ip, ua)
+		sess, err = s.GenerateSessionCheckInCode(ctx, sess.ID, req.CheckInCode, actorEmail)
 		if err != nil {
 			return nil, err
 		}
 	} else if req.GenerateCode {
-		sess, err = s.GenerateSessionCheckInCode(ctx, sess.ID, nil, actorID, actorEmail, actorRole, ip, ua)
+		sess, err = s.GenerateSessionCheckInCode(ctx, sess.ID, nil, actorEmail)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	s.recordAudit(ctx, audit.ActionScanSessionCreate, audit.TargetScanSession, &sess.ID,
-		fmt.Sprintf("%s created %s scan session %q (mark_team=%t)", actorEmail, kind, req.Name, markTeam),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"name": req.Name, "kind": kind, "mark_team": markTeam, "competition_id": compID, "checkin_code": sess.CheckInCode}, &ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionCreate, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s created %s scan session %q (mark_team=%t)", actorEmail, kind, req.Name, markTeam),
+			map[string]any{"name": req.Name, "kind": kind, "mark_team": markTeam, "competition_id": compID, "checkin_code": sess.CheckInCode})
+	}
 	return sess, nil
 }
 
@@ -738,7 +739,7 @@ func (s *Service) GenerateSessionCheckInCode(
 	ctx context.Context,
 	sessionID string,
 	customCode *string,
-	actorID, actorEmail, actorRole, ip, ua string,
+	actorEmail string,
 ) (*ScanSession, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		defSess, err := s.repo.EnsureDefaultCheckInSession(ctx)
@@ -777,10 +778,11 @@ func (s *Service) GenerateSessionCheckInCode(
 		}
 	}
 
-	s.recordAudit(ctx, audit.ActionScanSessionCodeGen, audit.TargetScanSession, &sess.ID,
-		fmt.Sprintf("%s generated new check-in code for session %q", actorEmail, sess.Name),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": sess.CheckInCode}, &ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionCodeGen, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s generated new check-in code for session %q", actorEmail, sess.Name),
+			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": sess.CheckInCode})
+	}
 
 	return sess, nil
 }
@@ -789,7 +791,7 @@ func (s *Service) GenerateSessionCheckInCode(
 func (s *Service) ClearSessionCheckInCode(
 	ctx context.Context,
 	sessionID string,
-	actorID, actorEmail, actorRole, ip, ua string,
+	actorEmail string,
 ) (*ScanSession, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		defSess, err := s.repo.EnsureDefaultCheckInSession(ctx)
@@ -804,10 +806,11 @@ func (s *Service) ClearSessionCheckInCode(
 		return nil, err
 	}
 
-	s.recordAudit(ctx, audit.ActionScanSessionCodeClear, audit.TargetScanSession, &sess.ID,
-		fmt.Sprintf("%s cleared check-in code for session %q", actorEmail, sess.Name),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": nil}, &ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionCodeClear, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s cleared check-in code for session %q", actorEmail, sess.Name),
+			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": nil})
+	}
 
 	return sess, nil
 }
@@ -817,7 +820,7 @@ func (s *Service) ClearSessionCheckInCode(
 func (s *Service) CheckInByCode(
 	ctx context.Context,
 	rawCode string,
-	userID, userEmail, userRole, ip, ua string,
+	userID, userEmail string,
 ) (*SessionScanResponse, *SessionScanRejection, error) {
 	isMember, err := s.repo.IsEventMember(ctx, userID)
 	if err != nil {
@@ -849,13 +852,11 @@ func (s *Service) CheckInByCode(
 	}
 
 	// Delegate to ScanInSession using the participant's own ticket code and userID as the self-check-in actor
-	resp, rejection, err := s.ScanInSession(ctx, sess.ID, ticket.TicketCode, userID, userEmail, userRole, ip, ua)
-	if err == nil && resp != nil {
-		s.recordAudit(ctx, audit.ActionTicketCodeCheckIn, audit.TargetScanSession, &sess.ID,
+	resp, rejection, err := s.ScanInSession(ctx, sess.ID, ticket.TicketCode, userID, userEmail)
+	if err == nil && resp != nil && s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketCodeCheckIn, audit.TargetScanSession, &sess.ID,
 			fmt.Sprintf("Participant %s self-checked in to %q via code", userEmail, sess.Name),
-			&userID, &userEmail, &userRole,
-			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind, "ticket_id": ticket.ID},
-			&ip, &ua)
+			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind, "ticket_id": ticket.ID})
 	}
 	return resp, rejection, err
 }
@@ -864,7 +865,7 @@ func (s *Service) ListSessions(ctx context.Context) ([]ScanSession, error) {
 	return s.repo.ListSessions(ctx)
 }
 
-func (s *Service) SetSessionOpen(ctx context.Context, id string, open bool, actorID, actorEmail, actorRole, ip, ua string) (*ScanSession, error) {
+func (s *Service) SetSessionOpen(ctx context.Context, id string, open bool, actorEmail string) (*ScanSession, error) {
 	sess, err := s.repo.SetSessionOpen(ctx, id, open)
 	if err != nil {
 		return nil, err
@@ -873,9 +874,11 @@ func (s *Service) SetSessionOpen(ctx context.Context, id string, open bool, acto
 	if open {
 		state = "opened"
 	}
-	s.recordAudit(ctx, audit.ActionScanSessionToggle, audit.TargetScanSession, &sess.ID,
-		fmt.Sprintf("%s %s scan session %q", actorEmail, state, sess.Name),
-		&actorID, &actorEmail, &actorRole, map[string]any{"is_open": open}, &ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionToggle, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s %s scan session %q", actorEmail, state, sess.Name),
+			map[string]any{"is_open": open})
+	}
 	return sess, nil
 }
 
@@ -883,7 +886,7 @@ func (s *Service) SetSessionOpen(ctx context.Context, id string, open bool, acto
 // and supporting either per-member scanning or full-team-via-leader scanning in the linked competition).
 func (s *Service) ScanInSession(
 	ctx context.Context, sessionID, ticketCode string,
-	scannerID, scannerEmail, scannerRole, ip, ua string,
+	scannerID, scannerEmail string,
 ) (*SessionScanResponse, *SessionScanRejection, error) {
 	sess, err := s.repo.GetSession(ctx, sessionID)
 	if err != nil {
@@ -891,12 +894,14 @@ func (s *Service) ScanInSession(
 	}
 	// Refusals are audited so a gate dispute can be traced. The ticket code itself is never logged: it is the credential.
 	auditRejected := func(code, desc string, targetID *string, extra map[string]any) {
+		if s.auditQueue == nil {
+			return
+		}
 		meta := map[string]any{"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind, "reason": code}
 		for k, v := range extra {
 			meta[k] = v
 		}
-		s.recordAudit(ctx, audit.ActionTicketScanRejected, audit.TargetScanSession, targetID,
-			desc, &scannerID, &scannerEmail, &scannerRole, meta, &ip, &ua)
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketScanRejected, audit.TargetScanSession, targetID, desc, meta)
 	}
 
 	if !sess.IsOpen {
@@ -947,14 +952,15 @@ func (s *Service) ScanInSession(
 			return nil, nil, err
 		}
 		metrics.InstrumentTicketScan("duplicate")
-		s.recordAudit(ctx, audit.ActionTicketDuplicateScan, audit.TargetTicket, &info.TicketID,
-			fmt.Sprintf("Duplicate %s scan of %s in %q by %s", sess.Kind, info.UserEmail, sess.Name, scannerEmail),
-			&scannerID, &scannerEmail, &scannerRole,
-			map[string]any{
-				"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind,
-				"attendee_id": info.UserID, "attendee_email": info.UserEmail,
-				"prior_scanned_at": prevAt.Format(time.RFC3339),
-			}, &ip, &ua)
+		if s.auditQueue != nil {
+			s.auditQueue.RecordAction(ctx, audit.ActionTicketDuplicateScan, audit.TargetTicket, &info.TicketID,
+				fmt.Sprintf("Duplicate %s scan of %s in %q by %s", sess.Kind, info.UserEmail, sess.Name, scannerEmail),
+				map[string]any{
+					"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind,
+					"attendee_id": info.UserID, "attendee_email": info.UserEmail,
+					"prior_scanned_at": prevAt.Format(time.RFC3339),
+				})
+		}
 		return nil, &SessionScanRejection{
 			Error: "Already scanned in this session", Code: "duplicate",
 			ScannedAt: prevAt.Format(time.RFC3339), ScannedByID: prevByID, ScannedByName: prevByName, Attendee: attendee,
@@ -969,18 +975,18 @@ func (s *Service) ScanInSession(
 	scannerName, _, _ := s.repo.GetUserByID(ctx, scannerID)
 
 	metrics.InstrumentTicketScan("valid")
-	s.recordAudit(ctx, audit.ActionTicketSessionScan, audit.TargetTicket, &info.TicketID,
-		fmt.Sprintf("%s scanned %s in %s %q", scannerEmail, info.UserEmail, sess.Kind, sess.Name),
-		&scannerID, &scannerEmail, &scannerRole,
-		map[string]any{
-			"session_id":     sess.ID,
-			"session_name":   sess.Name,
-			"kind":           sess.Kind,
-			"attendee_id":    info.UserID,
-			"attendee_email": info.UserEmail,
-			"scanned_by_id":  scannerID,
-		},
-		&ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketSessionScan, audit.TargetTicket, &info.TicketID,
+			fmt.Sprintf("%s scanned %s in %s %q", scannerEmail, info.UserEmail, sess.Kind, sess.Name),
+			map[string]any{
+				"session_id":     sess.ID,
+				"session_name":   sess.Name,
+				"kind":           sess.Kind,
+				"attendee_id":    info.UserID,
+				"attendee_email": info.UserEmail,
+				"scanned_by_id":  scannerID,
+			})
+	}
 
 	resp := &SessionScanResponse{
 		Success:        true,
@@ -1002,11 +1008,11 @@ func (s *Service) ScanInSession(
 		if team != nil {
 			resp.Team = team
 			resp.Message = fmt.Sprintf("Team %s: %d marked present", team.TeamName, team.Marked+1)
-			s.recordAudit(ctx, audit.ActionTicketSessionScan, audit.TargetScanSession, &sess.ID,
-				fmt.Sprintf("%s scanned team leader %s; team %q marked in %q", scannerEmail, info.UserEmail, team.TeamName, sess.Name),
-				&scannerID, &scannerEmail, &scannerRole,
-				map[string]any{"team_id": team.TeamID, "team": team.TeamName, "marked": team.Marked, "already": team.Already, "skipped": len(team.Skipped)},
-				&ip, &ua)
+			if s.auditQueue != nil {
+				s.auditQueue.RecordAction(ctx, audit.ActionTicketSessionScan, audit.TargetScanSession, &sess.ID,
+					fmt.Sprintf("%s scanned team leader %s; team %q marked in %q", scannerEmail, info.UserEmail, team.TeamName, sess.Name),
+					map[string]any{"team_id": team.TeamID, "team": team.TeamName, "marked": team.Marked, "already": team.Already, "skipped": len(team.Skipped)})
+			}
 		}
 	}
 
@@ -1060,7 +1066,7 @@ func sortRecent(p []SessionPerson) {
 }
 
 // ReleaseTickets marks event tickets as released globally and creates dashboard tickets for all current event members, sending no email.
-func (s *Service) ReleaseTickets(ctx context.Context, req BulkSendTicketsRequest, actorID, actorEmail, actorRole, ip, ua string) (*ReleaseTicketsResponse, error) {
+func (s *Service) ReleaseTickets(ctx context.Context, req BulkSendTicketsRequest, actorID, actorEmail string) (*ReleaseTicketsResponse, error) {
 	if err := s.setTicketsReleased(ctx, true, actorID); err != nil {
 		return nil, err
 	}
@@ -1097,10 +1103,10 @@ func (s *Service) ReleaseTickets(ctx context.Context, req BulkSendTicketsRequest
 		}
 		resp.Released++
 	}
-	s.recordAudit(ctx, audit.ActionTicketReleased, audit.TargetTicket, nil,
-		fmt.Sprintf("%s released %d passes to the dashboard without email", actorEmail, resp.Released),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"released": resp.Released, "already_had": resp.AlreadyHad, "skipped": resp.Skipped, "tickets_released": true},
-		&ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketReleased, audit.TargetTicket, nil,
+			fmt.Sprintf("%s released %d passes to the dashboard without email", actorEmail, resp.Released),
+			map[string]any{"released": resp.Released, "already_had": resp.AlreadyHad, "skipped": resp.Skipped, "tickets_released": true})
+	}
 	return resp, nil
 }

@@ -56,9 +56,8 @@ func (s *Service) generateTicketCode() (string, error) {
 // CheckIn processes an attendee ticket scan with instant duplicate detection.
 func (s *Service) CheckIn(
 	ctx context.Context,
-	volunteerID, volunteerEmail, volunteerRole string,
+	volunteerID, volunteerEmail string,
 	ticketCode string,
-	ip, userAgent string,
 ) (*CheckInResponse, *DuplicateCheckInResponse, error) {
 	info, err := s.repo.GetTicketByCode(ctx, ticketCode)
 	if err != nil {
@@ -84,23 +83,21 @@ func (s *Service) CheckIn(
 			checkedAtStr = info.CheckedInAt.Format(time.RFC3339)
 		}
 
-		s.recordAudit(
-			ctx,
-			audit.ActionTicketDuplicateScan,
-			audit.TargetTicket,
-			&info.TicketID,
-			fmt.Sprintf("Duplicate ticket check-in attempted by %s for attendee %s", volunteerEmail, info.UserEmail),
-			&volunteerID,
-			&volunteerEmail,
-			&volunteerRole,
-			map[string]any{
-				"attendee_id":         info.UserID,
-				"attendee_email":      info.UserEmail,
-				"prior_checked_in_at": checkedAtStr,
-				"prior_volunteer_id":  info.CheckedInByID,
-			},
-			&ip, &userAgent,
-		)
+		if s.auditQueue != nil {
+			s.auditQueue.RecordAction(
+				ctx,
+				audit.ActionTicketDuplicateScan,
+				audit.TargetTicket,
+				&info.TicketID,
+				fmt.Sprintf("Duplicate ticket check-in attempted by %s for attendee %s", volunteerEmail, info.UserEmail),
+				map[string]any{
+					"attendee_id":         info.UserID,
+					"attendee_email":      info.UserEmail,
+					"prior_checked_in_at": checkedAtStr,
+					"prior_volunteer_id":  info.CheckedInByID,
+				},
+			)
+		}
 
 		return nil, &DuplicateCheckInResponse{
 			Error:           "Ticket has already been checked in",
@@ -145,22 +142,20 @@ func (s *Service) CheckIn(
 	checkedAtStr := checkedInAt.Format(time.RFC3339)
 	metrics.InstrumentTicketScan("valid")
 
-	s.recordAudit(
-		ctx,
-		audit.ActionTicketCheckIn,
-		audit.TargetTicket,
-		&info.TicketID,
-		fmt.Sprintf("Attendee %s successfully checked in by %s", info.UserEmail, volunteerEmail),
-		&volunteerID,
-		&volunteerEmail,
-		&volunteerRole,
-		map[string]any{
-			"attendee_id":    info.UserID,
-			"attendee_email": info.UserEmail,
-			"checked_in_at":  checkedAtStr,
-		},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionTicketCheckIn,
+			audit.TargetTicket,
+			&info.TicketID,
+			fmt.Sprintf("Attendee %s successfully checked in by %s", info.UserEmail, volunteerEmail),
+			map[string]any{
+				"attendee_id":    info.UserID,
+				"attendee_email": info.UserEmail,
+				"checked_in_at":  checkedAtStr,
+			},
+		)
+	}
 
 	return &CheckInResponse{
 		Success:          true,
@@ -201,8 +196,6 @@ func (s *Service) SendSingleTicket(
 	ctx context.Context,
 	targetUserID string,
 	req SendSingleTicketRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
 ) (*SingleSendTicketResponse, error) {
 	name, email, err := s.repo.GetUserByID(ctx, targetUserID)
 	if err != nil {
@@ -252,22 +245,20 @@ func (s *Service) SendSingleTicket(
 		emailStatus = EmailStatusSent
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionTicketIssued,
-		audit.TargetTicket,
-		&ticket.ID,
-		fmt.Sprintf("Entry ticket issued and emailed to %s", email),
-		&actorID,
-		&actorEmail,
-		&actorRole,
-		map[string]any{
-			"recipient_id":   targetUserID,
-			"recipient_mail": email,
-			"custom_html":    renderedHTML != "",
-		},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionTicketIssued,
+			audit.TargetTicket,
+			&ticket.ID,
+			fmt.Sprintf("Entry ticket issued and emailed to %s", email),
+			map[string]any{
+				"recipient_id":   targetUserID,
+				"recipient_mail": email,
+				"custom_html":    renderedHTML != "",
+			},
+		)
+	}
 
 	return &SingleSendTicketResponse{
 		Message:     "Ticket generated and enqueued for delivery",
@@ -283,8 +274,7 @@ func (s *Service) SendSingleTicket(
 func (s *Service) BulkSendTickets(
 	ctx context.Context,
 	req BulkSendTicketsRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
+	actorID, actorEmail string,
 ) (*BulkSendTicketsResponse, error) {
 	subject, customHTML, err := s.resolveEmailTemplateSettings(ctx, req.EmailSubject, req.EmailHTML)
 	if err != nil {
@@ -393,28 +383,26 @@ func (s *Service) BulkSendTickets(
 		resp.Enqueued++
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionTicketIssued,
-		audit.TargetTicket,
-		nil,
-		fmt.Sprintf("Bulk ticket dispatch executed by %s: %d enqueued, %d already mailed, %d excluded by domain, %d skipped",
-			actorEmail, resp.Enqueued, resp.AlreadyMailed, resp.ExcludedDomain, resp.Skipped),
-		&actorID,
-		&actorEmail,
-		&actorRole,
-		map[string]any{
-			"total_processed":  resp.TotalProcessed,
-			"enqueued":         resp.Enqueued,
-			"already_mailed":   resp.AlreadyMailed,
-			"excluded_domain":  resp.ExcludedDomain,
-			"skipped":          resp.Skipped,
-			"excluded_domains": effectiveExcludeDomains,
-			"force_resend":     req.ForceResend,
-			"custom_html":      customHTML != "",
-		},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionTicketIssued,
+			audit.TargetTicket,
+			nil,
+			fmt.Sprintf("Bulk ticket dispatch executed by %s: %d enqueued, %d already mailed, %d excluded by domain, %d skipped",
+				actorEmail, resp.Enqueued, resp.AlreadyMailed, resp.ExcludedDomain, resp.Skipped),
+			map[string]any{
+				"total_processed":  resp.TotalProcessed,
+				"enqueued":         resp.Enqueued,
+				"already_mailed":   resp.AlreadyMailed,
+				"excluded_domain":  resp.ExcludedDomain,
+				"skipped":          resp.Skipped,
+				"excluded_domains": effectiveExcludeDomains,
+				"force_resend":     req.ForceResend,
+				"custom_html":      customHTML != "",
+			},
+		)
+	}
 
 	return resp, nil
 }
@@ -492,33 +480,4 @@ func (s *Service) GetMyTicket(ctx context.Context, userID string) (*MyTicketResp
 // GetAnalytics computes full event attendance statistics.
 func (s *Service) GetAnalytics(ctx context.Context) (*AnalyticsResponse, error) {
 	return s.repo.GetAttendanceAnalytics(ctx)
-}
-
-func (s *Service) recordAudit(
-	ctx context.Context,
-	action, targetType string,
-	targetID *string,
-	desc string,
-	actorID, actorEmail, actorRole *string,
-	metadata map[string]any,
-	ip, ua *string,
-) {
-	if s.auditQueue == nil {
-		return
-	}
-	eventID := resolveEventID(ctx)
-	s.auditQueue.Record(ctx, audit.Event{
-		EventID:     &eventID,
-		ActorID:     actorID,
-		ActorEmail:  actorEmail,
-		ActorRole:   actorRole,
-		Action:      action,
-		TargetType:  targetType,
-		TargetID:    targetID,
-		Description: desc,
-		Metadata:    metadata,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Timestamp:   time.Now(),
-	})
 }

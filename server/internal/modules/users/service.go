@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/internal/config"
-	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/redis/go-redis/v9"
 )
@@ -99,27 +98,14 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserBulkImport,
-			TargetType:  audit.TargetUser,
-			Description: fmt.Sprintf("Bulk import completed: %d created, %d skipped", resp.TotalCreated, resp.SkippedCount),
-			Metadata: map[string]any{
+		s.auditor.RecordAction(ctx, audit.ActionUserBulkImport, audit.TargetUser, nil,
+			fmt.Sprintf("Bulk import completed: %d created, %d skipped", resp.TotalCreated, resp.SkippedCount),
+			map[string]any{
 				"total_processed": resp.TotalProcessed,
 				"total_created":   resp.TotalCreated,
 				"skipped_count":   resp.SkippedCount,
 			},
-		})
+		)
 	}
 
 	return resp, nil
@@ -141,26 +127,13 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserD
 
 	user, err := s.repo.GetUserByID(ctx, bulkResp.Users[0].ID)
 	if err == nil && s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserCreate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &user.ID,
-			Description: fmt.Sprintf("Created user %s (%s)", user.Email, user.Role),
-			Metadata: map[string]any{
+		s.auditor.RecordAction(ctx, audit.ActionUserCreate, audit.TargetUser, &user.ID,
+			fmt.Sprintf("Created user %s (%s)", user.Email, user.Role),
+			map[string]any{
 				"email": user.Email,
 				"role":  user.Role,
 			},
-		})
+		)
 	}
 
 	return user, err
@@ -228,22 +201,8 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req UpdateUserReque
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserUpdate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: fmt.Sprintf("Updated user profile %s", user.Email),
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			fmt.Sprintf("Updated user profile %s", user.Email), nil)
 	}
 	return user, nil
 }
@@ -293,26 +252,12 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
 		email := id
 		if user != nil {
 			email = user.Email
 		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserDelete,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: fmt.Sprintf("Administrator removed and blocked user %s", email),
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserDelete, audit.TargetUser, &id,
+			fmt.Sprintf("Administrator removed and blocked user %s", email), nil)
 	}
 
 	return nil
@@ -336,22 +281,8 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserUpdate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: "Administrator reactivated a removed user",
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			"Administrator reactivated a removed user", nil)
 	}
 	return nil
 }
@@ -371,22 +302,8 @@ func (s *Service) BlacklistUser(ctx context.Context, id string) error {
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserUpdate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: fmt.Sprintf("Developer blacklisted user %s", id),
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			fmt.Sprintf("Developer blacklisted user %s", id), nil)
 	}
 	return nil
 }
@@ -403,22 +320,8 @@ func (s *Service) UnblacklistUser(ctx context.Context, id string) error {
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserUpdate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: fmt.Sprintf("Developer unblacklisted user %s", id),
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			fmt.Sprintf("Developer unblacklisted user %s", id), nil)
 	}
 	return nil
 }

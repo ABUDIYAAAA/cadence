@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/url"
 	"strings"
-	"time"
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/modules/events"
@@ -170,7 +169,6 @@ func (s *Service) Subscribe(
 	userID string,
 	req SubscribeRequest,
 	userAgent *string,
-	ip string,
 ) error {
 	if err := ValidatePushEndpoint(req.Endpoint); err != nil {
 		return err
@@ -180,16 +178,16 @@ func (s *Service) Subscribe(
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionNotificationSubscribe,
-		audit.TargetNotification,
-		nil,
-		"Client registered for Web Push notifications",
-		&userID, nil, nil,
-		map[string]any{"endpoint": req.Endpoint},
-		&ip, userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionNotificationSubscribe,
+			audit.TargetNotification,
+			nil,
+			"Client registered for Web Push notifications",
+			map[string]any{"endpoint": req.Endpoint},
+		)
+	}
 
 	return nil
 }
@@ -199,23 +197,21 @@ func (s *Service) Unsubscribe(
 	ctx context.Context,
 	userID string,
 	req UnsubscribeRequest,
-	userAgent *string,
-	ip string,
 ) error {
 	if err := s.repo.DeleteUserSubscription(ctx, userID, req.Endpoint); err != nil {
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionNotificationUnsubscribe,
-		audit.TargetNotification,
-		nil,
-		"Client unregistered from Web Push notifications",
-		&userID, nil, nil,
-		map[string]any{"endpoint": req.Endpoint},
-		&ip, userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionNotificationUnsubscribe,
+			audit.TargetNotification,
+			nil,
+			"Client unregistered from Web Push notifications",
+			map[string]any{"endpoint": req.Endpoint},
+		)
+	}
 
 	return nil
 }
@@ -224,8 +220,7 @@ func (s *Service) Unsubscribe(
 func (s *Service) Broadcast(
 	ctx context.Context,
 	req BroadcastNotificationRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
+	actorID, actorEmail string,
 ) (*BroadcastNotificationResponse, error) {
 	iconURL := req.IconURL
 	if (iconURL == nil || *iconURL == "") {
@@ -293,24 +288,24 @@ func (s *Service) Broadcast(
 		}
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionNotificationBroadcast,
-		audit.TargetNotification,
-		&notifID,
-		fmt.Sprintf("Notification '%s' broadcast by %s (target: %s, recipients: %d, pushes: %d)",
-			req.Title, actorEmail, req.TargetType, len(recipientIDs), enqueuedCount),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{
-			"notification_id":  notifID,
-			"title":            req.Title,
-			"target_type":      req.TargetType,
-			"target_id":        req.TargetID,
-			"recipients_count": len(recipientIDs),
-			"enqueued_pushes":  enqueuedCount,
-		},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionNotificationBroadcast,
+			audit.TargetNotification,
+			&notifID,
+			fmt.Sprintf("Notification '%s' broadcast by %s (target: %s, recipients: %d, pushes: %d)",
+				req.Title, actorEmail, req.TargetType, len(recipientIDs), enqueuedCount),
+			map[string]any{
+				"notification_id":  notifID,
+				"title":            req.Title,
+				"target_type":      req.TargetType,
+				"target_id":        req.TargetID,
+				"recipients_count": len(recipientIDs),
+				"enqueued_pushes":  enqueuedCount,
+			},
+		)
+	}
 
 	return &BroadcastNotificationResponse{
 		NotificationID:  notifID,
@@ -338,33 +333,4 @@ func (s *Service) MarkAllAsRead(ctx context.Context, userID string) error {
 // GetAdminHistory returns sent notification history.
 func (s *Service) GetAdminHistory(ctx context.Context, page, limit int) (*AdminHistoryResponse, error) {
 	return s.repo.GetAdminHistory(ctx, page, limit)
-}
-
-func (s *Service) recordAudit(
-	ctx context.Context,
-	action, targetType string,
-	targetID *string,
-	desc string,
-	actorID, actorEmail, actorRole *string,
-	metadata map[string]any,
-	ip, ua *string,
-) {
-	if s.auditQueue == nil {
-		return
-	}
-	eventID := resolveEventID(ctx)
-	s.auditQueue.Record(ctx, audit.Event{
-		EventID:     &eventID,
-		ActorID:     actorID,
-		ActorEmail:  actorEmail,
-		ActorRole:   actorRole,
-		Action:      action,
-		TargetType:  targetType,
-		TargetID:    targetID,
-		Description: desc,
-		Metadata:    metadata,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Timestamp:   time.Now(),
-	})
 }

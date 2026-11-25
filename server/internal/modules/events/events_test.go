@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/users"
 	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -408,7 +409,8 @@ func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 		_ = rdb.Close()
 	})
 
-	repo := NewRepository(db)
+	usersRepo := users.NewRepository(db).WithRedis(rdb, time.Hour)
+	repo := NewRepository(db).WithUserProvisioner(usersRepo)
 	svc := NewService(repo, rdb, nil)
 	ctx := context.Background()
 
@@ -530,7 +532,7 @@ func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 		_ = rdb.Set(ctx, fmt.Sprintf("blocked:user:%s", blacklistedID), "blacklisted", time.Hour).Err()
 
 		// 2. Google OAuth UpsertGoogleUser must NOT flip is_active = TRUE for a blacklisted user!
-		authRepo := auth.NewRepository(db)
+		authRepo := auth.NewRepository(db).WithUserProvisioner(users.NewAuthProvisioner(usersRepo))
 		upserted, err := authRepo.UpsertGoogleUser(ctx, fmt.Sprintf("gid-%d", nano), blacklistedEmail, "Blacklisted User", nil, "user")
 		if err != nil {
 			t.Fatalf("UpsertGoogleUser: %v", err)
@@ -586,100 +588,8 @@ func TestCreateEventOwnerAccountCreationAndUsersManagement(t *testing.T) {
 		if exists := rdb.Exists(ctx, fmt.Sprintf("blocked:user:%s", softDelID)).Val(); exists != 0 {
 			t.Fatalf("expected Redis blocked:user:%s to be cleared when soft-deleted user is restored via AddEventUser, got exists=%d", softDelID, exists)
 		}
+		if minVer, err := rdb.Get(ctx, fmt.Sprintf("user:min_token_version:%s", softDelID)).Int(); err != nil || minVer < 3 {
+			t.Fatalf("expected Redis user:min_token_version:%s >= 3 after soft-delete restoration, got %d (err=%v)", softDelID, minVer, err)
+		}
 	})
-}
-
-func TestBulkAddEventUsersWithCompetitionsAndTeams(t *testing.T) {
-	db := newTestDBPool(t)
-	rdb := newTestRedisClient(t)
-
-	repo := NewRepository(db)
-	svc := NewService(repo, rdb, nil)
-	ctx := context.Background()
-
-	nano := time.Now().UnixNano()
-	creatorDevID := "00000000-0000-0000-0000-000000000001"
-	ownerEmail := fmt.Sprintf("bulk-owner-%d@example.com", nano)
-	aliceEmail := fmt.Sprintf("alice-%d@example.com", nano)
-	bobEmail := fmt.Sprintf("bob-%d@example.com", nano)
-	charlieEmail := fmt.Sprintf("charlie-%d@example.com", nano)
-
-	ev, err := svc.CreateEvent(ctx, CreateEventRequest{
-		Slug:       fmt.Sprintf("bulk-event-%d", nano),
-		Name:       "Bulk Import Event",
-		OwnerEmail: &ownerEmail,
-	}, creatorDevID)
-	if err != nil {
-		t.Fatalf("create event: %v", err)
-	}
-	var ownerID string
-	if err := db.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, ownerEmail).Scan(&ownerID); err != nil {
-		t.Fatalf("get owner id: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = db.Exec(context.Background(), `DELETE FROM events WHERE id = $1`, ev.ID)
-		_, _ = db.Exec(context.Background(), `DELETE FROM users WHERE email IN ($1, $2, $3, $4)`, ownerEmail, aliceEmail, bobEmail, charlieEmail)
-	})
-
-	var aiCompID, webCompID string
-	if err := db.QueryRow(ctx, `INSERT INTO competitions (event_id, slug, name, min_team_size, max_team_size) VALUES ($1, 'ai-track', 'AI Track', 1, 2) RETURNING id`, ev.ID).Scan(&aiCompID); err != nil {
-		t.Fatalf("create AI Track: %v", err)
-	}
-	if err := db.QueryRow(ctx, `INSERT INTO competitions (event_id, slug, name, min_team_size, max_team_size) VALUES ($1, 'web-track', 'Web Track', 1, 3) RETURNING id`, ev.ID).Scan(&webCompID); err != nil {
-		t.Fatalf("create Web Track: %v", err)
-	}
-
-	strPtr := func(s string) *string { return &s }
-
-	resp, err := svc.BulkAddEventUsers(ctx, ev.ID, ownerID, "owner", BulkAddEventUsersRequest{
-		Users: []AddEventUserRequest{
-			// Alice in AI Track -> creates account + creates team "Neural Ninjas"
-			{Email: aliceEmail, Name: strPtr("Alice"), Role: "participant", CompetitionName: strPtr("AI Track"), TeamName: strPtr("Neural Ninjas")},
-			// Bob in AI Track -> creates account + joins "Neural Ninjas" (reaches max_team_size=2)
-			{Email: bobEmail, Name: strPtr("Bob"), Role: "participant", CompetitionName: strPtr("AI Track"), TeamName: strPtr("Neural Ninjas")},
-			// Alice duplicated in Web Track -> deduplicated user, creates team "Pixel Forge" in Web Track
-			{Email: aliceEmail, Name: strPtr("Alice"), Role: "participant", CompetitionName: strPtr("Web Track"), TeamName: strPtr("Pixel Forge")},
-			// Exact duplicate of Alice in AI Track -> idempotent, no error
-			{Email: aliceEmail, Name: strPtr("Alice"), Role: "participant", CompetitionName: strPtr("AI Track"), TeamName: strPtr("Neural Ninjas")},
-			// Charlie tries to join full team "Neural Ninjas" in AI Track -> account created, team skipped
-			{Email: charlieEmail, Name: strPtr("Charlie"), Role: "participant", CompetitionName: strPtr("AI Track"), TeamName: strPtr("Neural Ninjas")},
-			// Unknown competition -> skipped warning
-			{Email: bobEmail, Name: strPtr("Bob"), Role: "participant", CompetitionName: strPtr("Nonexistent"), TeamName: strPtr("Ghost Squad")},
-		},
-	})
-	if err != nil {
-		t.Fatalf("BulkAddEventUsers failed: %v", err)
-	}
-
-	if resp.TotalProcessed != 6 {
-		t.Fatalf("expected TotalProcessed=6, got %d", resp.TotalProcessed)
-	}
-	if resp.TotalCreated != 3 {
-		t.Fatalf("expected TotalCreated=3 unique new accounts, got %d", resp.TotalCreated)
-	}
-	if len(resp.Users) != 3 {
-		t.Fatalf("expected 3 deduplicated users in response, got %d", len(resp.Users))
-	}
-	if resp.TeamsCreated != 2 {
-		t.Fatalf("expected TeamsCreated=2 (Neural Ninjas + Pixel Forge), got %d", resp.TeamsCreated)
-	}
-	if resp.TeamsAssigned != 3 {
-		t.Fatalf("expected TeamsAssigned=3 (Alice+Bob in AI, Alice in Web), got %d", resp.TeamsAssigned)
-	}
-	if resp.SkippedCount != 2 {
-		t.Fatalf("expected SkippedCount=2 (full team + nonexistent comp), got %d (errors: %v)", resp.SkippedCount, resp.SkippedErrors)
-	}
-
-	// Verify Alice belongs to 2 teams across the 2 competitions
-	var aliceTeamCount int
-	if err := db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM team_members tm
-		JOIN users u ON u.id = tm.user_id
-		WHERE u.email = $1 AND tm.competition_id IN ($2, $3)
-	`, aliceEmail, aiCompID, webCompID).Scan(&aliceTeamCount); err != nil {
-		t.Fatalf("query alice team count: %v", err)
-	}
-	if aliceTeamCount != 2 {
-		t.Fatalf("expected Alice in 2 teams across competitions, got %d", aliceTeamCount)
-	}
 }

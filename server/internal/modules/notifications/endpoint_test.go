@@ -228,7 +228,7 @@ func TestNotificationTargetingUserTeamCompetitionAndEvent(t *testing.T) {
 		Body:       "Hello u1",
 		TargetType: "user",
 		TargetID:   &u1,
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test")
+	}, adminID, "admin@example.com")
 	if err != nil || resUser.RecipientsCount != 1 {
 		t.Fatalf("expected 1 recipient for user target, got %+v (err: %v)", resUser, err)
 	}
@@ -239,7 +239,7 @@ func TestNotificationTargetingUserTeamCompetitionAndEvent(t *testing.T) {
 		Body:       "Hello Team A1",
 		TargetType: "team",
 		TargetID:   &teamA1,
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test")
+	}, adminID, "admin@example.com")
 	if err != nil || resTeam.RecipientsCount != 2 {
 		t.Fatalf("expected 2 recipients for team target, got %+v (err: %v)", resTeam, err)
 	}
@@ -250,7 +250,7 @@ func TestNotificationTargetingUserTeamCompetitionAndEvent(t *testing.T) {
 		Body:       "Hello Comp A",
 		TargetType: "competition",
 		TargetID:   &compAID,
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test")
+	}, adminID, "admin@example.com")
 	if err != nil || resComp.RecipientsCount != 2 {
 		t.Fatalf("expected 2 recipients for competition target, got %+v (err: %v)", resComp, err)
 	}
@@ -260,7 +260,7 @@ func TestNotificationTargetingUserTeamCompetitionAndEvent(t *testing.T) {
 		Title:      "Whole Event Notice",
 		Body:       "Hello Everyone",
 		TargetType: "event",
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test")
+	}, adminID, "admin@example.com")
 	if err != nil || resEvent.RecipientsCount != 4 {
 		t.Fatalf("expected 4 recipients for whole event target, got %+v (err: %v)", resEvent, err)
 	}

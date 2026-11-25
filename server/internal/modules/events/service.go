@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/logger"
 	"github.com/redis/go-redis/v9"
@@ -72,7 +71,6 @@ func (s *Service) CreateEvent(ctx context.Context, req CreateEventRequest, creat
 		if err != nil {
 			return nil, err
 		}
-		s.clearRestoredSoftDeleteBlock(ctx, resolvedID)
 		ownerUserID = resolvedID
 	}
 
@@ -98,12 +96,22 @@ func (s *Service) CreateEvent(ctx context.Context, req CreateEventRequest, creat
 		slog.String("owner_user_id", ownerUserID),
 	)
 
-	s.recordAudit(ctx, audit.ActionEventCreate, ev.ID, fmt.Sprintf("Created event %s (%s)", ev.Name, ev.Slug), &creatorUserID, map[string]any{
-		"slug":          ev.Slug,
-		"name":          ev.Name,
-		"logo_url":      ev.LogoURL,
-		"owner_user_id": ownerUserID,
-	})
+	if s.auditor != nil {
+		s.auditor.Record(ctx, audit.Event{
+			EventID:     &ev.ID,
+			ActorID:     &creatorUserID,
+			Action:      audit.ActionEventCreate,
+			TargetType:  audit.TargetEvent,
+			TargetID:    &ev.ID,
+			Description: fmt.Sprintf("Created event %s (%s)", ev.Name, ev.Slug),
+			Metadata: map[string]any{
+				"slug":          ev.Slug,
+				"name":          ev.Name,
+				"logo_url":      ev.LogoURL,
+				"owner_user_id": ownerUserID,
+			},
+		})
+	}
 
 	return ev, nil
 }
@@ -122,10 +130,12 @@ func (s *Service) DeleteEvent(ctx context.Context, eventID, actorID string) erro
 
 	logger.FromContext(ctx).Info("event deleted", slog.String("event_id", ev.ID), slog.String("slug", ev.Slug))
 
-	s.recordAudit(ctx, audit.ActionEventDelete, ev.ID, fmt.Sprintf("Deleted event %s (%s)", ev.Name, ev.Slug), &actorID, map[string]any{
-		"slug": ev.Slug,
-		"name": ev.Name,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventDelete, audit.TargetEvent, &ev.ID, fmt.Sprintf("Deleted event %s (%s)", ev.Name, ev.Slug), map[string]any{
+			"slug": ev.Slug,
+			"name": ev.Name,
+		})
+	}
 	return nil
 }
 
@@ -158,10 +168,12 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID string, req UpdateEve
 
 	logger.FromContext(ctx).Info("event updated", slog.String("event_id", ev.ID), slog.String("slug", ev.Slug))
 
-	s.recordAudit(ctx, audit.ActionEventUpdate, ev.ID, fmt.Sprintf("Updated event %s", ev.Slug), &actorID, map[string]any{
-		"name":     req.Name,
-		"logo_url": ev.LogoURL,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventUpdate, audit.TargetEvent, &ev.ID, fmt.Sprintf("Updated event %s", ev.Slug), map[string]any{
+			"name":     req.Name,
+			"logo_url": ev.LogoURL,
+		})
+	}
 
 	return ev, nil
 }
@@ -178,7 +190,6 @@ func (s *Service) TransferOwnership(ctx context.Context, eventID, currentOwnerID
 		if err != nil {
 			return err
 		}
-		s.clearRestoredSoftDeleteBlock(ctx, resolvedID)
 		newOwnerID = resolvedID
 	}
 	if newOwnerID == "" {
@@ -201,9 +212,11 @@ func (s *Service) TransferOwnership(ctx context.Context, eventID, currentOwnerID
 		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", newOwnerID), eventID).Err()
 	}
 
-	s.recordAudit(ctx, audit.ActionEventTransferOwnership, eventID, fmt.Sprintf("Transferred event ownership from %s to %s", currentOwnerID, newOwnerID), &currentOwnerID, map[string]any{
-		"new_owner_user_id": newOwnerID,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventTransferOwnership, audit.TargetEvent, &eventID, fmt.Sprintf("Transferred event ownership from %s to %s", currentOwnerID, newOwnerID), map[string]any{
+			"new_owner_user_id": newOwnerID,
+		})
+	}
 
 	return nil
 }
@@ -231,19 +244,20 @@ func (s *Service) AddEventUser(
 	if s.rdb != nil {
 		_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, detail.ID), role, 15*time.Minute).Err()
 		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", detail.ID), eventID).Err()
-		s.clearRestoredSoftDeleteBlock(ctx, detail.ID)
 	}
 
 	actionDesc := fmt.Sprintf("Added existing user %s to event as %s", req.Email, role)
 	if createdAccount {
 		actionDesc = fmt.Sprintf("Created background account and added user %s to event as %s", req.Email, role)
 	}
-	s.recordAudit(ctx, audit.ActionEventMemberAssign, eventID, actionDesc, &actorID, map[string]any{
-		"target_user_id":  detail.ID,
-		"target_email":    req.Email,
-		"role":            role,
-		"account_created": createdAccount,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventMemberAssign, audit.TargetEvent, &eventID, actionDesc, map[string]any{
+			"target_user_id":  detail.ID,
+			"target_email":    req.Email,
+			"role":            role,
+			"account_created": createdAccount,
+		})
+	}
 
 	return detail, createdAccount, nil
 }
@@ -342,7 +356,6 @@ func (s *Service) BulkAddEventUsers(
 				if s.rdb != nil {
 					_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, addedDetail.ID), role, 15*time.Minute).Err()
 					_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", addedDetail.ID), eventID).Err()
-					s.clearRestoredSoftDeleteBlock(ctx, addedDetail.ID)
 				}
 
 				detail = addedDetail
@@ -382,18 +395,20 @@ func (s *Service) BulkAddEventUsers(
 		}
 	}
 
-	s.recordAudit(ctx, audit.ActionEventMemberAssign, eventID,
-		fmt.Sprintf("Bulk added users: %d created, %d added, %d teams created, %d team assignments, %d skipped",
-			resp.TotalCreated, resp.TotalAdded, resp.TeamsCreated, resp.TeamsAssigned, resp.SkippedCount),
-		&actorID, map[string]any{
-			"total_processed": resp.TotalProcessed,
-			"total_created":   resp.TotalCreated,
-			"total_added":     resp.TotalAdded,
-			"teams_created":   resp.TeamsCreated,
-			"teams_assigned":  resp.TeamsAssigned,
-			"skipped_count":   resp.SkippedCount,
-		},
-	)
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventMemberAssign, audit.TargetEvent, &eventID,
+			fmt.Sprintf("Bulk added users: %d created, %d added, %d teams created, %d team assignments, %d skipped",
+				resp.TotalCreated, resp.TotalAdded, resp.TeamsCreated, resp.TeamsAssigned, resp.SkippedCount),
+			map[string]any{
+				"total_processed": resp.TotalProcessed,
+				"total_created":   resp.TotalCreated,
+				"total_added":     resp.TotalAdded,
+				"teams_created":   resp.TeamsCreated,
+				"teams_assigned":  resp.TeamsAssigned,
+				"skipped_count":   resp.SkippedCount,
+			},
+		)
+	}
 
 	return resp, nil
 }
@@ -432,10 +447,12 @@ func (s *Service) AssignOrUpdateMemberRole(ctx context.Context, eventID, actorID
 		_ = s.rdb.Del(ctx, fmt.Sprintf("event:%s:member:%s", eventID, targetUserID)).Err()
 	}
 
-	s.recordAudit(ctx, audit.ActionEventMemberRoleUpdate, eventID, fmt.Sprintf("Assigned role %s to user %s", newRole, targetUserID), &actorID, map[string]any{
-		"target_user_id": targetUserID,
-		"new_role":       newRole,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventMemberRoleUpdate, audit.TargetEvent, &eventID, fmt.Sprintf("Assigned role %s to user %s", newRole, targetUserID), map[string]any{
+			"target_user_id": targetUserID,
+			"new_role":       newRole,
+		})
+	}
 
 	return nil
 }
@@ -464,9 +481,11 @@ func (s *Service) RemoveMember(ctx context.Context, eventID, actorID, actorRole,
 		_ = s.rdb.SRem(ctx, fmt.Sprintf("user:%s:events", targetUserID), eventID).Err()
 	}
 
-	s.recordAudit(ctx, audit.ActionEventMemberRemove, eventID, fmt.Sprintf("Removed user %s from event", targetUserID), &actorID, map[string]any{
-		"target_user_id": targetUserID,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventMemberRemove, audit.TargetEvent, &eventID, fmt.Sprintf("Removed user %s from event", targetUserID), map[string]any{
+			"target_user_id": targetUserID,
+		})
+	}
 
 	return nil
 }
@@ -501,10 +520,12 @@ func (s *Service) BanMember(ctx context.Context, eventID, actorID, actorRole, ta
 	if reason != nil && *reason != "" {
 		desc += fmt.Sprintf(" (reason: %s)", *reason)
 	}
-	s.recordAudit(ctx, audit.ActionEventMemberBan, eventID, desc, &actorID, map[string]any{
-		"target_user_id": targetUserID,
-		"reason":         reason,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventMemberBan, audit.TargetEvent, &eventID, desc, map[string]any{
+			"target_user_id": targetUserID,
+			"reason":         reason,
+		})
+	}
 
 	return nil
 }
@@ -524,10 +545,12 @@ func (s *Service) UnbanMember(ctx context.Context, eventID, actorID, targetUserI
 		_ = s.rdb.Expire(ctx, userEventsKey, time.Hour).Err()
 	}
 
-	s.recordAudit(ctx, audit.ActionEventMemberUnban, eventID, fmt.Sprintf("Unbanned user %s in event", targetUserID), &actorID, map[string]any{
-		"target_user_id": targetUserID,
-		"restored_role":  restoredRole,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionEventMemberUnban, audit.TargetEvent, &eventID, fmt.Sprintf("Unbanned user %s in event", targetUserID), map[string]any{
+			"target_user_id": targetUserID,
+			"restored_role":  restoredRole,
+		})
+	}
 
 	return nil
 }
@@ -562,54 +585,4 @@ func (s *Service) ListEventUsers(ctx context.Context, eventID string, filter Eve
 // ListMembers lists event members.
 func (s *Service) ListMembers(ctx context.Context, eventID, roleFilter string) ([]MemberWithUser, error) {
 	return s.repo.ListMembers(ctx, eventID, roleFilter)
-}
-
-// clearRestoredSoftDeleteBlock removes the Redis "deleted" block key if a soft-deleted account was restored,
-// while preserving any "blacklisted" or "deactivated" Redis block keys.
-func (s *Service) clearRestoredSoftDeleteBlock(ctx context.Context, userID string) {
-	if s.rdb == nil || userID == "" {
-		return
-	}
-	blockedKey := fmt.Sprintf("blocked:user:%s", userID)
-	if val, err := s.rdb.Get(ctx, blockedKey).Result(); err == nil && val == "deleted" {
-		_ = s.rdb.Del(ctx, blockedKey).Err()
-	}
-}
-
-func (s *Service) recordAudit(ctx context.Context, action, eventID, description string, actorID *string, meta map[string]any) {
-	if s.auditor == nil {
-		return
-	}
-	var actorEmail, actorRole *string
-	if claims, ok := auth.GetUserClaims(ctx); ok && claims != nil {
-		if actorID == nil && claims.UserID != "" {
-			uid := claims.UserID
-			actorID = &uid
-		}
-		if claims.Email != "" {
-			email := claims.Email
-			actorEmail = &email
-		}
-		if claims.Role != "" {
-			role := claims.Role
-			actorRole = &role
-		}
-	}
-	if evCtx, ok := FromContext(ctx); ok && evCtx != nil && evCtx.Role != "" {
-		role := evCtx.Role
-		actorRole = &role
-	}
-
-	s.auditor.Record(ctx, audit.Event{
-		EventID:     &eventID,
-		ActorID:     actorID,
-		ActorEmail:  actorEmail,
-		ActorRole:   actorRole,
-		Action:      action,
-		TargetType:  audit.TargetEvent,
-		TargetID:    &eventID,
-		Description: description,
-		Metadata:    meta,
-		Timestamp:   time.Now(),
-	})
 }

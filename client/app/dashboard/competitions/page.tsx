@@ -10,7 +10,6 @@ import {
   Search,
   Trash2,
   Trophy,
-  Upload,
   X,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
@@ -38,7 +37,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { CompetitionBulkImportDialog } from "@/components/competitions/competition-dialog-bulk-import";
 
 function CompetitionsListSkeleton() {
   return (
@@ -122,17 +120,6 @@ export default function CompetitionsPage() {
   const [deletingCompetition, setDeletingCompetition] =
     useState<Competition | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  // Bulk import users to teams Dialog state
-  const [bulkImportOpen, setBulkImportOpen] = useState(false);
-  const [bulkImportCompSlug, setBulkImportCompSlug] = useState<string | null>(
-    null
-  );
-
-  const openBulkImportDialog = (compSlug?: string) => {
-    setBulkImportCompSlug(compSlug ?? activeCompetitionSlug ?? competitions[0]?.slug ?? null);
-    setBulkImportOpen(true);
-  };
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -379,18 +366,6 @@ export default function CompetitionsPage() {
             <span className="hidden sm:inline">Refresh</span>
           </Button>
 
-          {canManage && competitions.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => openBulkImportDialog()}
-              className="h-9 px-3 text-xs gap-1.5"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <span>Bulk import</span>
-            </Button>
-          )}
-
           {canManage && (
             <Button
               variant="primary"
@@ -541,16 +516,6 @@ export default function CompetitionsPage() {
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => e.stopPropagation()}
                     >
-                      <button
-                        type="button"
-                        aria-label={`Bulk import users into ${comp.name}`}
-                        title="Bulk import users & teams"
-                        onClick={() => openBulkImportDialog(comp.slug)}
-                        className="flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--ink-secondary)] hover:text-[var(--color-blue)] hover:bg-[var(--card-solid)] border border-transparent hover:border-[var(--card-line)] transition-colors cursor-pointer"
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                      </button>
-
                       <button
                         type="button"
                         aria-label={`Edit ${comp.name}`}
@@ -786,17 +751,6 @@ export default function CompetitionsPage() {
           </p>
         </div>
       </Dialog>
-      {/* Bulk Import Users to Teams Dialog */}
-      {canManage && eventSlug && (
-        <CompetitionBulkImportDialog
-          key={bulkImportCompSlug ?? "all"}
-          open={bulkImportOpen}
-          onClose={() => setBulkImportOpen(false)}
-          eventSlug={eventSlug}
-          competitions={competitions}
-          initialCompetitionSlug={bulkImportCompSlug}
-        />
-      )}
     </div>
   );
 }

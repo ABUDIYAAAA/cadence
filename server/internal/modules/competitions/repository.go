@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"devclubxnst.com/cadence/internal/modules/users"
+	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -15,12 +17,46 @@ var (
 	ErrSlugAlreadyExists   = errors.New("competition slug already in use in this event")
 )
 
+// TeamRosterManager encapsulates cross-module competition team eviction and bulk team assignment owned by teams.
+type TeamRosterManager interface {
+	EvictAndAuditCompetitionTeamTx(ctx context.Context, tx pgx.Tx, compID, userID string, auditor audit.Recorder) (func(), error)
+	AssignUserToNamedTeam(ctx context.Context, compID, actorID, userID, teamName string) (teamID, resolvedName string, teamCreated, newlyAssigned bool, err error)
+}
+
 type Repository struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	users   users.Provisioner
+	teams   TeamRosterManager
+	auditor audit.Recorder
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+	return &Repository{
+		db:    db,
+		users: users.NewRepository(db),
+	}
+}
+
+// WithUserProvisioner configures the users domain seam for account provisioning and Redis sync.
+func (r *Repository) WithUserProvisioner(provisioner users.Provisioner) *Repository {
+	if provisioner != nil {
+		r.users = provisioner
+	}
+	return r
+}
+
+// WithTeamRosterManager configures the teams domain seam for eviction and named team assignment.
+func (r *Repository) WithTeamRosterManager(manager TeamRosterManager) *Repository {
+	if manager != nil {
+		r.teams = manager
+	}
+	return r
+}
+
+// WithAuditor attaches an audit recorder for post-commit team eviction audits.
+func (r *Repository) WithAuditor(auditor audit.Recorder) *Repository {
+	r.auditor = auditor
+	return r
 }
 
 // CreateCompetition inserts a new competition encapsulated inside eventID.

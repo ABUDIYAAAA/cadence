@@ -8,6 +8,10 @@ import (
 	"log/slog"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/competitions"
+	"devclubxnst.com/cadence/internal/modules/events"
+	"devclubxnst.com/cadence/internal/ratelimit"
 	"devclubxnst.com/cadence/pkg/amqpqueue"
 )
 
@@ -68,7 +72,21 @@ func NewQueueWithBroker(broker amqpqueue.Broker, repo *Repository, l *slog.Logge
 	}
 }
 
+// RecordAction records a domain action, automatically resolving tenant scope, actor identity,
+// effective role, client IP, User-Agent, and DeviceID from ctx.
+func (q *Queue) RecordAction(ctx context.Context, action, targetType string, targetID *string, description string, metadata map[string]any) {
+	q.Record(ctx, Event{
+		Action:      action,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		Description: description,
+		Metadata:    metadata,
+	})
+}
+
 // Record captures an audit event asynchronously by publishing it to RabbitMQ.
+// Any unset actor, tenant, or transport metadata fields are enriched automatically from ctx
+// while preserving fields explicitly provided by the caller.
 // It returns immediately (<1ms) to eliminate latency in HTTP request handlers.
 func (q *Queue) Record(ctx context.Context, event Event) {
 	// A nil queue means RabbitMQ was unreachable at startup. Services hold it behind an interface,
@@ -76,6 +94,7 @@ func (q *Queue) Record(ctx context.Context, event Event) {
 	if q == nil || q.broker == nil {
 		return
 	}
+	event = enrichFromContext(ctx, event)
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}
@@ -101,6 +120,76 @@ func (q *Queue) Record(ctx context.Context, event Event) {
 	if err := q.broker.Publish(pubCtx, payload, amqpqueue.WithTimestamp(event.Timestamp)); err != nil {
 		q.logger.Error("Failed to publish audit event to RabbitMQ", slog.String("action", event.Action), slog.Any("error", err))
 	}
+}
+
+func isUnset(s *string) bool {
+	return s == nil || *s == ""
+}
+
+func strPtr(s string) *string {
+	v := s
+	return &v
+}
+
+// enrichFromContext fills unset tenant scope, actor identity, effective role, and HTTP
+// transport metadata on event from ctx without overwriting caller-supplied overrides.
+func enrichFromContext(ctx context.Context, event Event) Event {
+	if ctx == nil {
+		return event
+	}
+
+	if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil {
+		if isUnset(event.CompetitionID) && compCtx.CompetitionID != "" {
+			event.CompetitionID = strPtr(compCtx.CompetitionID)
+		}
+		if isUnset(event.EventID) && compCtx.EventID != "" {
+			event.EventID = strPtr(compCtx.EventID)
+		}
+	}
+	if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil {
+		if isUnset(event.EventID) && evCtx.EventID != "" {
+			event.EventID = strPtr(evCtx.EventID)
+		}
+	}
+
+	if claims, ok := auth.GetUserClaims(ctx); ok && claims != nil {
+		if isUnset(event.ActorID) && claims.UserID != "" {
+			event.ActorID = strPtr(claims.UserID)
+		}
+		if isUnset(event.ActorEmail) && claims.Email != "" {
+			event.ActorEmail = strPtr(claims.Email)
+		}
+	}
+	if isUnset(event.ActorRole) {
+		role := auth.GetEffectiveRole(ctx)
+		if role == "" {
+			if compCtx, ok := competitions.FromContext(ctx); ok && compCtx != nil && compCtx.Role != "" {
+				role = compCtx.Role
+			} else if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil && evCtx.Role != "" {
+				role = evCtx.Role
+			}
+		}
+		if role != "" {
+			event.ActorRole = strPtr(role)
+		}
+	}
+
+	if meta, ok := RequestMetaFromContext(ctx); ok {
+		if isUnset(event.IPAddress) && meta.IPAddress != "" {
+			event.IPAddress = strPtr(meta.IPAddress)
+		}
+		if isUnset(event.UserAgent) && meta.UserAgent != "" {
+			event.UserAgent = strPtr(meta.UserAgent)
+		}
+	}
+
+	if isUnset(event.DeviceID) {
+		if deviceID := ratelimit.GetDeviceID(ctx); deviceID != "" {
+			event.DeviceID = strPtr(deviceID)
+		}
+	}
+
+	return event
 }
 
 // StartConsumers launches background worker goroutines to persist audit logs into PostgreSQL.

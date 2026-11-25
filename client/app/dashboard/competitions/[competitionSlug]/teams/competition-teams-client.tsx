@@ -292,24 +292,24 @@ export default function CompetitionTeamsPage() {
 
       {canManage && <TeamSettingsCard canEditSize={isAdmin} />}
 
-      {/* Metrics Row (Canvas Level) */}
+      {/* Metrics Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[12px] p-4">
           <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Total squads</span>
+            <span>Total teams</span>
             <Users className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
           <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
             {teamsLoading ? <Skeleton className="h-7 w-12" /> : totalTeams}
           </div>
           <p className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
-            Registered event groups
+            Registered in competition
           </p>
         </div>
 
         <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[12px] p-4">
           <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Squads with lead</span>
+            <span>Teams with lead</span>
             <UserCheck className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
           <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
@@ -322,7 +322,7 @@ export default function CompetitionTeamsPage() {
 
         <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[12px] p-4">
           <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Rostered members</span>
+            <span>Members</span>
             <ShieldCheck className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
           <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
@@ -335,14 +335,14 @@ export default function CompetitionTeamsPage() {
 
         <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[12px] p-4">
           <div className="flex items-center justify-between text-xs text-[var(--ink-secondary)]">
-            <span>Avg squad size</span>
+            <span>Avg team size</span>
             <Hash className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
           <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
             {teamsLoading ? <Skeleton className="h-7 w-12" /> : avgMembers}
           </div>
           <p className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
-            Members per squad
+            Members per team
           </p>
         </div>
       </div>

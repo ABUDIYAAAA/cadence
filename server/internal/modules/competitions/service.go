@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"time"
 
-	"devclubxnst.com/cadence/internal/modules/auth"
-	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/logger"
 	"github.com/redis/go-redis/v9"
@@ -60,13 +57,24 @@ func (s *Service) CreateCompetition(ctx context.Context, eventID string, req Cre
 		slog.String("slug", comp.Slug),
 	)
 
-	s.recordAudit(ctx, audit.ActionCompetitionCreate, eventID, comp.ID, fmt.Sprintf("Created competition %s (%s) in event %s", comp.Name, comp.Slug, eventID), &actorID, map[string]any{
-		"event_id":      eventID,
-		"slug":          comp.Slug,
-		"name":          comp.Name,
-		"min_team_size": comp.MinTeamSize,
-		"max_team_size": comp.MaxTeamSize,
-	})
+	if s.auditor != nil {
+		s.auditor.Record(ctx, audit.Event{
+			EventID:       &eventID,
+			CompetitionID: &comp.ID,
+			ActorID:       &actorID,
+			Action:        audit.ActionCompetitionCreate,
+			TargetType:    audit.TargetCompetition,
+			TargetID:      &comp.ID,
+			Description:   fmt.Sprintf("Created competition %s (%s) in event %s", comp.Name, comp.Slug, eventID),
+			Metadata: map[string]any{
+				"event_id":      eventID,
+				"slug":          comp.Slug,
+				"name":          comp.Name,
+				"min_team_size": comp.MinTeamSize,
+				"max_team_size": comp.MaxTeamSize,
+			},
+		})
+	}
 
 	return comp, nil
 }
@@ -124,12 +132,14 @@ func (s *Service) UpdateCompetition(ctx context.Context, eventID, compID, oldSlu
 		slog.String("slug", comp.Slug),
 	)
 
-	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, comp.ID, fmt.Sprintf("Updated competition %s", comp.Slug), &actorID, map[string]any{
-		"slug":          comp.Slug,
-		"name":          comp.Name,
-		"min_team_size": comp.MinTeamSize,
-		"max_team_size": comp.MaxTeamSize,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionUpdate, audit.TargetCompetition, &comp.ID, fmt.Sprintf("Updated competition %s", comp.Slug), map[string]any{
+			"slug":          comp.Slug,
+			"name":          comp.Name,
+			"min_team_size": comp.MinTeamSize,
+			"max_team_size": comp.MaxTeamSize,
+		})
+	}
 
 	return comp, nil
 }
@@ -155,49 +165,12 @@ func (s *Service) DeleteCompetition(ctx context.Context, eventID, compID, actorI
 		slog.String("slug", comp.Slug),
 	)
 
-	s.recordAudit(ctx, audit.ActionCompetitionDelete, eventID, comp.ID, fmt.Sprintf("Deleted competition %s (%s)", comp.Name, comp.Slug), &actorID, map[string]any{
-		"slug": comp.Slug,
-		"name": comp.Name,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionDelete, audit.TargetCompetition, &comp.ID, fmt.Sprintf("Deleted competition %s (%s)", comp.Name, comp.Slug), map[string]any{
+			"slug": comp.Slug,
+			"name": comp.Name,
+		})
+	}
 
 	return nil
-}
-
-func (s *Service) recordAudit(ctx context.Context, action, eventID, compID, description string, actorID *string, meta map[string]any) {
-	if s.auditor == nil {
-		return
-	}
-	var actorEmail, actorRole *string
-	if claims, ok := auth.GetUserClaims(ctx); ok && claims != nil {
-		if actorID == nil && claims.UserID != "" {
-			uid := claims.UserID
-			actorID = &uid
-		}
-		if claims.Email != "" {
-			email := claims.Email
-			actorEmail = &email
-		}
-		if claims.Role != "" {
-			role := claims.Role
-			actorRole = &role
-		}
-	}
-	if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil && evCtx.Role != "" {
-		role := evCtx.Role
-		actorRole = &role
-	}
-
-	s.auditor.Record(ctx, audit.Event{
-		EventID:       &eventID,
-		CompetitionID: &compID,
-		ActorID:       actorID,
-		ActorEmail:    actorEmail,
-		ActorRole:     actorRole,
-		Action:        action,
-		TargetType:    audit.TargetCompetition,
-		TargetID:      &compID,
-		Description:   description,
-		Metadata:      meta,
-		Timestamp:     time.Now(),
-	})
 }

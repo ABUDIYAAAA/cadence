@@ -20,8 +20,7 @@ func NewHandler(service *Service) *Handler {
 
 // HandleCreateRound creates a judging round with criteria.
 func (h *Handler) HandleCreateRound(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -37,10 +36,7 @@ func (h *Handler) HandleCreateRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	roundID, err := h.service.CreateRound(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua)
+	roundID, err := h.service.CreateRound(r.Context(), req)
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
@@ -54,8 +50,7 @@ func (h *Handler) HandleCreateRound(w http.ResponseWriter, r *http.Request) {
 
 // HandleActivateRound transitions round status to active.
 func (h *Handler) HandleActivateRound(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -66,10 +61,7 @@ func (h *Handler) HandleActivateRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.ActivateRound(r.Context(), roundID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.ActivateRound(r.Context(), roundID); err != nil {
 		switch {
 		case errors.Is(err, ErrRoundNotFound):
 			utils.ErrorJSON(w, http.StatusNotFound, "judging round not found")
@@ -141,13 +133,12 @@ func roundLifecycleError(w http.ResponseWriter, err error, verb string) {
 
 // HandleEndRound closes an active round.
 func (h *Handler) HandleEndRound(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	roundID := chi.URLParam(r, "id")
-	if err := h.service.EndRound(r.Context(), roundID, r.URL.Query().Get("force") == "true", claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.EndRound(r.Context(), roundID, r.URL.Query().Get("force") == "true"); err != nil {
 		roundLifecycleError(w, err, "end")
 		return
 	}
@@ -156,13 +147,12 @@ func (h *Handler) HandleEndRound(w http.ResponseWriter, r *http.Request) {
 
 // HandleDeleteRound permanently deletes a round that is not active.
 func (h *Handler) HandleDeleteRound(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	roundID := chi.URLParam(r, "id")
-	if err := h.service.DeleteRound(r.Context(), roundID, r.URL.Query().Get("force") == "true", claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.DeleteRound(r.Context(), roundID, r.URL.Query().Get("force") == "true"); err != nil {
 		roundLifecycleError(w, err, "delete")
 		return
 	}
@@ -181,8 +171,7 @@ func (h *Handler) HandleGetRoundPanels(w http.ResponseWriter, r *http.Request) {
 
 // HandleImportTeamCriteria seeds a round's roster and per-team criteria from parsed CSV rows.
 func (h *Handler) HandleImportTeamCriteria(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -198,7 +187,7 @@ func (h *Handler) HandleImportTeamCriteria(w http.ResponseWriter, r *http.Reques
 	}
 
 	roundID := chi.URLParam(r, "id")
-	if err := h.service.ImportTeamCriteria(r.Context(), roundID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.ImportTeamCriteria(r.Context(), roundID, req); err != nil {
 		switch {
 		case errors.Is(err, ErrRoundNotFound):
 			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
@@ -229,8 +218,7 @@ func (h *Handler) HandleGetRoundTeams(w http.ResponseWriter, r *http.Request) {
 
 // HandleSetTeamCriterion sets a team's custom criterion and the marks awarded for it.
 func (h *Handler) HandleSetTeamCriterion(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -246,7 +234,7 @@ func (h *Handler) HandleSetTeamCriterion(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.service.SetTeamCriterion(r.Context(), roundID, teamID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.SetTeamCriterion(r.Context(), roundID, teamID, req); err != nil {
 		teamCriterionError(w, err)
 		return
 	}
@@ -255,14 +243,13 @@ func (h *Handler) HandleSetTeamCriterion(w http.ResponseWriter, r *http.Request)
 
 // HandleDeleteTeamCriterion removes a team's custom criterion.
 func (h *Handler) HandleDeleteTeamCriterion(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	roundID, teamID := chi.URLParam(r, "id"), chi.URLParam(r, "teamId")
 
-	if err := h.service.DeleteTeamCriterion(r.Context(), roundID, teamID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.DeleteTeamCriterion(r.Context(), roundID, teamID); err != nil {
 		teamCriterionError(w, err)
 		return
 	}
@@ -301,7 +288,7 @@ func (h *Handler) HandleUnlockScorecard(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	judges, reopened, err := h.service.UnlockScorecard(r.Context(), slotID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
+	judges, reopened, err := h.service.UnlockScorecard(r.Context(), slotID, req, claims.UserID, auth.GetEffectiveRole(r.Context()))
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrSlotNotFound):
@@ -348,8 +335,7 @@ func (h *Handler) HandleGetAssignedJudges(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) HandleCreatePanel(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -365,10 +351,7 @@ func (h *Handler) HandleCreatePanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	panelID, err := h.service.CreatePanel(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua)
+	panelID, err := h.service.CreatePanel(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, ErrJudgeAssigned) {
 			utils.ErrorJSON(w, http.StatusConflict, err.Error())
@@ -386,8 +369,7 @@ func (h *Handler) HandleCreatePanel(w http.ResponseWriter, r *http.Request) {
 
 // HandleConfigureSlots sets sequential team schedule in a panel.
 func (h *Handler) HandleConfigureSlots(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -409,10 +391,7 @@ func (h *Handler) HandleConfigureSlots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.ConfigureSlots(r.Context(), panelID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.ConfigureSlots(r.Context(), panelID, req); err != nil {
 		switch {
 		case errors.Is(err, ErrPanelNotFound):
 			utils.ErrorJSON(w, http.StatusNotFound, "judging panel not found")
@@ -456,7 +435,7 @@ func (h *Handler) HandleUpdateSlotLinks(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.service.UpdateSlotLinks(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), req.SubmissionLinks, r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.UpdateSlotLinks(r.Context(), slotID, claims.UserID, auth.GetEffectiveRole(r.Context()), req.SubmissionLinks); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
@@ -545,10 +524,7 @@ func (h *Handler) HandleStartSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.StartSlot(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.StartSlot(r.Context(), slotID, claims.UserID); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
@@ -593,7 +569,7 @@ func (h *Handler) HandlePauseTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slotID := chi.URLParam(r, "slotId")
-	if err := h.service.PauseTimer(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.PauseTimer(r.Context(), slotID, claims.UserID); err != nil {
 		timerActionError(w, err, "pause")
 		return
 	}
@@ -608,7 +584,7 @@ func (h *Handler) HandleResumeTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slotID := chi.URLParam(r, "slotId")
-	if err := h.service.ResumeTimer(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.ResumeTimer(r.Context(), slotID, claims.UserID); err != nil {
 		timerActionError(w, err, "resume")
 		return
 	}
@@ -634,7 +610,7 @@ func (h *Handler) HandleExtendTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.ExtendTimer(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), req.Seconds, r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.ExtendTimer(r.Context(), slotID, claims.UserID, req.Seconds); err != nil {
 		timerActionError(w, err, "extend")
 		return
 	}
@@ -703,10 +679,7 @@ func (h *Handler) HandleLockScores(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.LockScores(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.LockScores(r.Context(), slotID, claims.UserID); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
@@ -747,10 +720,7 @@ func (h *Handler) HandleCompleteSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.CompleteSlot(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.CompleteSlot(r.Context(), slotID, claims.UserID); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
@@ -854,8 +824,7 @@ func (h *Handler) HandleGetRoundAnalytics(w http.ResponseWriter, r *http.Request
 
 // HandleMoveSlot moves a team slot across panels or reorders inside a panel.
 func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -872,10 +841,7 @@ func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.MoveSlot(r.Context(), slotID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.MoveSlot(r.Context(), slotID, req); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
@@ -895,8 +861,7 @@ func (h *Handler) HandleMoveSlot(w http.ResponseWriter, r *http.Request) {
 
 // HandleUpdateRoundDuration changes a round's default time per team.
 func (h *Handler) HandleUpdateRoundDuration(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -912,7 +877,7 @@ func (h *Handler) HandleUpdateRoundDuration(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	reset, err := h.service.UpdateRoundDuration(r.Context(), roundID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
+	reset, err := h.service.UpdateRoundDuration(r.Context(), roundID, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrRoundNotFound):
@@ -933,8 +898,7 @@ func (h *Handler) HandleUpdateRoundDuration(w http.ResponseWriter, r *http.Reque
 
 // HandleSetPanelJudges replaces the judges seated in a room.
 func (h *Handler) HandleSetPanelJudges(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -955,7 +919,7 @@ func (h *Handler) HandleSetPanelJudges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.SetPanelJudges(r.Context(), panelID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.SetPanelJudges(r.Context(), panelID, req); err != nil {
 		switch {
 		case errors.Is(err, ErrPanelNotFound):
 			utils.ErrorJSON(w, http.StatusNotFound, err.Error())
@@ -974,8 +938,7 @@ func (h *Handler) HandleSetPanelJudges(w http.ResponseWriter, r *http.Request) {
 
 // HandleUpdateSlotTiming sets a single team's pitch length and/or pinned start time.
 func (h *Handler) HandleUpdateSlotTiming(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -996,7 +959,7 @@ func (h *Handler) HandleUpdateSlotTiming(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.service.UpdateSlotTiming(r.Context(), slotID, req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.UpdateSlotTiming(r.Context(), slotID, req); err != nil {
 		switch {
 		case errors.Is(err, ErrSlotNotFound):
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
@@ -1013,8 +976,7 @@ func (h *Handler) HandleUpdateSlotTiming(w http.ResponseWriter, r *http.Request)
 
 // HandleQueueSlot immediately stages a team slot into the room queue ('queued' status).
 func (h *Handler) HandleQueueSlot(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -1025,10 +987,7 @@ func (h *Handler) HandleQueueSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.QueueSlot(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.QueueSlot(r.Context(), slotID); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
@@ -1044,8 +1003,7 @@ func (h *Handler) HandleQueueSlot(w http.ResponseWriter, r *http.Request) {
 
 // HandleUnqueueSlot moves a team slot from 'queued' back to 'scheduled'.
 func (h *Handler) HandleUnqueueSlot(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -1056,10 +1014,7 @@ func (h *Handler) HandleUnqueueSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	if err := h.service.UnqueueSlot(r.Context(), slotID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua); err != nil {
+	if err := h.service.UnqueueSlot(r.Context(), slotID); err != nil {
 		if errors.Is(err, ErrSlotNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "judging slot not found")
 			return
@@ -1104,7 +1059,7 @@ func (h *Handler) HandleSetSubmissionGate(w http.ResponseWriter, r *http.Request
 	if req.RoundID != nil && *req.RoundID != "" {
 		roundID = *req.RoundID
 	}
-	gate, err := h.service.SetSubmissionGate(r.Context(), roundID, req.SessionID, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), r.RemoteAddr, r.UserAgent())
+	gate, err := h.service.SetSubmissionGate(r.Context(), roundID, req.SessionID, claims.UserID)
 	if err != nil {
 		if errors.Is(err, ErrGateSessionInvalid) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
@@ -1161,7 +1116,7 @@ func (h *Handler) HandleSetMySubmission(w http.ResponseWriter, r *http.Request) 
 		utils.ValidationErrorJSON(w, errs)
 		return
 	}
-	if err := h.service.SetMySubmission(r.Context(), claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), req, r.RemoteAddr, r.UserAgent()); err != nil {
+	if err := h.service.SetMySubmission(r.Context(), claims.UserID, req); err != nil {
 		switch {
 		case errors.Is(err, ErrNotPresent):
 			utils.ErrorJSON(w, http.StatusForbidden, err.Error())

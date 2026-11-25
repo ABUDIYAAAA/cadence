@@ -73,7 +73,7 @@ func TestUnlock_JudgeAndAdminFlows(t *testing.T) {
 		return n
 	}
 	unlock := func(slot, actor, role, target string) ([]string, bool, error) {
-		return svc.UnlockScorecard(ctx, slot, UnlockScorecardRequest{JudgeID: target}, actor, actor+"@x", role, "ip", "ua")
+		return svc.UnlockScorecard(ctx, slot, UnlockScorecardRequest{JudgeID: target}, actor, role)
 	}
 
 	if err := repo.StartSlot(ctx, s1); err != nil {

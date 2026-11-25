@@ -2,13 +2,12 @@ package events
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/users"
 	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,27 +22,38 @@ var (
 	ErrMemberNotFound         = errors.New("event member not found")
 )
 
-// TeamEvictor encapsulates team eviction within an event transaction and records any resulting team audit events after commit.
-type TeamEvictor interface {
+// TeamRosterManager encapsulates cross-module team eviction and bulk team assignment owned by the teams module.
+type TeamRosterManager interface {
 	EvictAndAuditEventTeamsTx(ctx context.Context, tx pgx.Tx, eventID, userID string, auditor audit.Recorder) (func(), error)
+	AssignUserToNamedTeam(ctx context.Context, compID, actorID, userID, teamName string) (teamID, resolvedName string, teamCreated, newlyAssigned bool, err error)
 }
 
 type Repository struct {
 	db      *pgxpool.Pool
-	teams   TeamEvictor
+	users   users.Provisioner
+	teams   TeamRosterManager
 	auditor audit.Recorder
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{
-		db: db,
+		db:    db,
+		users: users.NewRepository(db),
 	}
 }
 
-// WithTeamEvictor configures the teams domain seam used for transactional member eviction.
-func (r *Repository) WithTeamEvictor(evictor TeamEvictor) *Repository {
-	if evictor != nil {
-		r.teams = evictor
+// WithUserProvisioner configures the users domain seam used for account provisioning and Redis blocklist/token-version sync.
+func (r *Repository) WithUserProvisioner(provisioner users.Provisioner) *Repository {
+	if provisioner != nil {
+		r.users = provisioner
+	}
+	return r
+}
+
+// WithTeamRosterManager configures the teams domain seam used for transactional eviction and bulk team assignment.
+func (r *Repository) WithTeamRosterManager(manager TeamRosterManager) *Repository {
+	if manager != nil {
+		r.teams = manager
 	}
 	return r
 }
@@ -54,28 +64,6 @@ func (r *Repository) WithAuditor(auditor audit.Recorder) *Repository {
 	return r
 }
 
-// deriveNameFromEmail converts an email address into a human-friendly display name.
-func deriveNameFromEmail(email string) string {
-	parts := strings.Split(email, "@")
-	if len(parts) == 0 || parts[0] == "" {
-		return "Event Owner"
-	}
-	namePart := parts[0]
-	namePart = strings.ReplaceAll(namePart, ".", " ")
-	namePart = strings.ReplaceAll(namePart, "_", " ")
-	namePart = strings.ReplaceAll(namePart, "-", " ")
-	words := strings.Fields(namePart)
-	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
-		}
-	}
-	if len(words) == 0 {
-		return "Event Owner"
-	}
-	return strings.Join(words, " ")
-}
-
 // GetOrCreateUserByEmail retrieves an existing user's ID by email, or creates a new user account in the background if they don't exist.
 // Soft-deleted accounts (deleted_at IS NOT NULL) are reactivated; platform-blacklisted accounts (is_active = FALSE AND deleted_at IS NULL) remain inactive.
 func (r *Repository) GetOrCreateUserByEmail(ctx context.Context, email, name string) (string, error) {
@@ -83,36 +71,14 @@ func (r *Repository) GetOrCreateUserByEmail(ctx context.Context, email, name str
 	return id, err
 }
 
-// FindOrProvisionUserByEmail provisions or looks up a user by email, returning (id, restoredFromSoftDelete, tokenVersion, error).
-// A platform-blacklisted account (is_active = FALSE AND deleted_at IS NULL) is never un-blacklisted.
+// FindOrProvisionUserByEmail provisions or looks up a user by email via users.Provisioner,
+// returning (id, activeExisting, tokenVersion, error).
 func (r *Repository) FindOrProvisionUserByEmail(ctx context.Context, email, name string) (string, bool, int, error) {
-	email = strings.TrimSpace(strings.ToLower(email))
-	if email == "" {
-		return "", false, 0, errors.New("owner email cannot be empty")
-	}
-
-	if strings.TrimSpace(name) == "" {
-		name = deriveNameFromEmail(email)
-	}
-
-	query := `
-		INSERT INTO users (email, name, role, is_active)
-		VALUES ($1, $2, 'user', TRUE)
-		ON CONFLICT (email) DO UPDATE
-		SET is_active = CASE WHEN users.deleted_at IS NOT NULL THEN TRUE ELSE users.is_active END,
-		    token_version = CASE WHEN users.deleted_at IS NOT NULL THEN users.token_version + 1 ELSE users.token_version END,
-		    deleted_at = NULL,
-		    updated_at = CURRENT_TIMESTAMP
-		RETURNING id, (xmax <> 0 AND is_active = TRUE) AS active_existing, token_version;
-	`
-	var id string
-	var activeExisting bool
-	var tokenVersion int
-	err := r.db.QueryRow(ctx, query, email, name).Scan(&id, &activeExisting, &tokenVersion)
+	u, err := r.users.ProvisionByEmail(ctx, email, name, nil)
 	if err != nil {
 		return "", false, 0, fmt.Errorf("get or create owner account: %w", err)
 	}
-	return id, activeExisting, tokenVersion, nil
+	return u.ID, !u.Created && u.IsActive, u.TokenVersion, nil
 }
 
 // CreateEvent inserts a new event and binds the designated user as 'owner' within a single transaction.
@@ -391,10 +357,8 @@ func (r *Repository) AddEventUser(
 	}
 
 	userName := ""
-	if name != nil && strings.TrimSpace(*name) != "" {
+	if name != nil {
 		userName = strings.TrimSpace(*name)
-	} else {
-		userName = deriveNameFromEmail(email)
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -403,25 +367,13 @@ func (r *Repository) AddEventUser(
 	}
 	defer tx.Rollback(ctx)
 
-	// Step 1: Upsert user account in users table.
-	// Soft-deleted accounts (deleted_at IS NOT NULL) are restored to is_active = TRUE;
-	// platform-blacklisted accounts (is_active = FALSE AND deleted_at IS NULL) keep is_active = FALSE!
-	upsertUserQuery := `
-		INSERT INTO users (email, name, phone_number, role, is_active)
-		VALUES ($1, $2, $3, 'user', TRUE)
-		ON CONFLICT (email) DO UPDATE
-		SET is_active = CASE WHEN users.deleted_at IS NOT NULL THEN TRUE ELSE users.is_active END,
-		    token_version = CASE WHEN users.deleted_at IS NOT NULL THEN users.token_version + 1 ELSE users.token_version END,
-		    deleted_at = NULL,
-		    phone_number = COALESCE(users.phone_number, EXCLUDED.phone_number),
-		    updated_at = CURRENT_TIMESTAMP
-		RETURNING id, (xmax = 0) AS created
-	`
-	var targetUserID string
-	var createdAccount bool
-	if err := tx.QueryRow(ctx, upsertUserQuery, email, userName, phone).Scan(&targetUserID, &createdAccount); err != nil {
+	// Step 1: Provision or restore user account through users.Provisioner.
+	provisioned, err := r.users.ProvisionByEmailTx(ctx, tx, email, userName, phone)
+	if err != nil {
 		return nil, false, fmt.Errorf("upsert user: %w", err)
 	}
+	targetUserID := provisioned.ID
+	createdAccount := provisioned.Created
 
 	// Step 2: Check current membership status in this event
 	var existingRole string
@@ -501,6 +453,7 @@ func (r *Repository) AddEventUser(
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, fmt.Errorf("commit tx: %w", err)
 	}
+	r.users.SyncProvisionedUserRedis(ctx, provisioned)
 
 	return &detail, createdAccount, nil
 }
@@ -952,28 +905,8 @@ func (r *Repository) ListEventUsers(ctx context.Context, eventID string, filter 
 	return usersList, total, nil
 }
 
-const (
-	bulkJoinCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-	bulkJoinCodeLength   = 6
-	bulkJoinCodeRetries  = 8
-)
-
-func generateBulkJoinCode() (string, error) {
-	max := big.NewInt(int64(len(bulkJoinCodeAlphabet)))
-	b := make([]byte, bulkJoinCodeLength)
-	for i := range b {
-		n, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			return "", err
-		}
-		b[i] = bulkJoinCodeAlphabet[n.Int64()]
-	}
-	return string(b), nil
-}
-
-// AssignEventUserToCompetitionTeam resolves a competition by name or slug inside eventID,
-// finds or creates the named team inside that competition, and adds the participant to it.
-// Duplicate assignments to the same team are idempotent and return newlyAssigned=false.
+// AssignEventUserToCompetitionTeam resolves a competition by name or slug inside eventID
+// and delegates team creation/assignment to teams.RosterManager.
 func (r *Repository) AssignEventUserToCompetitionTeam(
 	ctx context.Context,
 	eventID, actorID, userID, userRole, competitionName, teamName string,
@@ -986,28 +919,21 @@ func (r *Repository) AssignEventUserToCompetitionTeam(
 	if teamQuery == "" {
 		return "", "", false, false, errors.New("team_name cannot be empty")
 	}
-	if len(teamQuery) < 2 || len(teamQuery) > 100 {
-		return "", "", false, false, errors.New("team_name must be between 2 and 100 characters")
-	}
 	if userRole != "participant" {
 		return "", "", false, false, errors.New("only participants can be assigned to a team")
 	}
-
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return "", "", false, false, fmt.Errorf("begin tx: %w", err)
+	if r.teams == nil {
+		return "", "", false, false, errors.New("team roster manager not configured")
 	}
-	defer tx.Rollback(ctx)
 
-	var compID, compName string
-	var compMaxSize int
-	err = tx.QueryRow(ctx, `
-		SELECT id, name, max_team_size
+	var compID string
+	err = r.db.QueryRow(ctx, `
+		SELECT id
 		FROM competitions
 		WHERE event_id = $1 AND (LOWER(name) = LOWER($2) OR LOWER(slug) = LOWER($2))
 		ORDER BY (LOWER(name) = LOWER($2)) DESC
 		LIMIT 1
-	`, eventID, compQuery).Scan(&compID, &compName, &compMaxSize)
+	`, eventID, compQuery).Scan(&compID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", false, false, fmt.Errorf("competition %q not found in this event", compQuery)
@@ -1015,89 +941,5 @@ func (r *Repository) AssignEventUserToCompetitionTeam(
 		return "", "", false, false, fmt.Errorf("lookup competition: %w", err)
 	}
 
-	// Check if user already belongs to a team in this competition.
-	var existingTeamID, existingTeamName string
-	err = tx.QueryRow(ctx, `
-		SELECT t.id, t.name
-		FROM team_members tm
-		JOIN teams t ON t.id = tm.team_id
-		WHERE tm.competition_id = $1 AND tm.user_id = $2
-	`, compID, userID).Scan(&existingTeamID, &existingTeamName)
-	if err == nil {
-		if strings.EqualFold(existingTeamName, teamQuery) {
-			return existingTeamID, existingTeamName, false, false, nil
-		}
-		return "", "", false, false, fmt.Errorf("already in team %q for competition %q", existingTeamName, compName)
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return "", "", false, false, fmt.Errorf("check existing team membership: %w", err)
-	}
-
-	// Find or create the target team in this competition.
-	var teamMaxOverride *int
-	var leaderID *string
-	err = tx.QueryRow(ctx, `
-		SELECT id, name, max_size, leader_id
-		FROM teams
-		WHERE competition_id = $1 AND LOWER(name) = LOWER($2)
-		FOR UPDATE
-	`, compID, teamQuery).Scan(&teamID, &resolvedTeamName, &teamMaxOverride, &leaderID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		var createErr error
-		for attempt := 0; attempt < bulkJoinCodeRetries; attempt++ {
-			code, genErr := generateBulkJoinCode()
-			if genErr != nil {
-				return "", "", false, false, fmt.Errorf("generate join code: %w", genErr)
-			}
-			createErr = tx.QueryRow(ctx, `
-				INSERT INTO teams (competition_id, name, join_code, leader_id, created_by)
-				VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid)
-				RETURNING id, name
-			`, compID, teamQuery, code, userID, actorID).Scan(&teamID, &resolvedTeamName)
-			if createErr == nil {
-				teamCreated = true
-				leaderID = &userID
-				break
-			}
-			if !strings.Contains(createErr.Error(), "teams_competition_id_join_code_key") {
-				return "", "", false, false, fmt.Errorf("create team %q: %w", teamQuery, createErr)
-			}
-		}
-		if createErr != nil {
-			return "", "", false, false, fmt.Errorf("create team %q: %w", teamQuery, createErr)
-		}
-	} else if err != nil {
-		return "", "", false, false, fmt.Errorf("lookup team %q: %w", teamQuery, err)
-	} else {
-		effectiveMax := compMaxSize
-		if teamMaxOverride != nil && *teamMaxOverride > 0 {
-			effectiveMax = *teamMaxOverride
-		}
-		var memberCount int
-		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM team_members WHERE team_id = $1`, teamID).Scan(&memberCount); err != nil {
-			return "", "", false, false, fmt.Errorf("count team members: %w", err)
-		}
-		if memberCount >= effectiveMax {
-			return "", "", false, false, fmt.Errorf("team %q in %q is full (max %d)", resolvedTeamName, compName, effectiveMax)
-		}
-	}
-
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO team_members (team_id, user_id, competition_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (competition_id, user_id) DO NOTHING
-	`, teamID, userID, compID)
-	if err != nil {
-		return "", "", false, false, fmt.Errorf("add team member: %w", err)
-	}
-	newlyAssigned = tag.RowsAffected() > 0
-
-	if leaderID == nil {
-		_, _ = tx.Exec(ctx, `UPDATE teams SET leader_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND leader_id IS NULL`, userID, teamID)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return "", "", false, false, fmt.Errorf("commit team assignment: %w", err)
-	}
-
-	return teamID, resolvedTeamName, teamCreated, newlyAssigned, nil
+	return r.teams.AssignUserToNamedTeam(ctx, compID, actorID, userID, teamQuery)
 }

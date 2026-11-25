@@ -3,6 +3,8 @@ package audit
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -161,9 +163,49 @@ type Event struct {
 	Timestamp     time.Time      `json:"timestamp"`
 }
 
+// RequestMeta holds HTTP transport metadata bound into context.Context by RequestMetaMiddleware
+// so audit.Recorder can resolve client IP and User-Agent without threading them through service methods.
+type RequestMeta struct {
+	IPAddress string
+	UserAgent string
+}
+
+type requestMetaKey struct{}
+
+// WithRequestMeta attaches HTTP request transport metadata to ctx.
+func WithRequestMeta(ctx context.Context, meta RequestMeta) context.Context {
+	return context.WithValue(ctx, requestMetaKey{}, meta)
+}
+
+// RequestMetaFromContext retrieves HTTP request transport metadata from ctx.
+func RequestMetaFromContext(ctx context.Context) (RequestMeta, bool) {
+	if ctx == nil {
+		return RequestMeta{}, false
+	}
+	meta, ok := ctx.Value(requestMetaKey{}).(RequestMeta)
+	return meta, ok
+}
+
+// RequestMetaMiddleware binds client IP and User-Agent into the request context.
+// Place after chi's middleware.RealIP so RemoteAddr reflects the resolved client address.
+func RequestMetaMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := strings.TrimSpace(r.RemoteAddr)
+		if host, _, err := net.SplitHostPort(ip); err == nil && host != "" {
+			ip = host
+		}
+		ctx := WithRequestMeta(r.Context(), RequestMeta{
+			IPAddress: ip,
+			UserAgent: r.UserAgent(),
+		})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // Recorder defines an interface for capturing audit events asynchronously.
 type Recorder interface {
 	Record(ctx context.Context, event Event)
+	RecordAction(ctx context.Context, action, targetType string, targetID *string, description string, metadata map[string]any)
 }
 
 // SanitizeEvent strips NUL bytes / invalid UTF-8 sequences, validates security-critical

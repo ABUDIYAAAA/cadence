@@ -97,7 +97,9 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 	if err != nil {
 		metrics.InstrumentAuthEvent("google_login", false)
 		logger.FromContext(ctx).Error("google oauth token exchange failed", slog.Any("error", err))
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, "Failed Google OAuth login: token exchange HTTP error", nil, nil, map[string]any{"error": err.Error()}, &deviceID, &sanitizedUA, &ip)
+		if s.auditor != nil {
+			s.auditor.RecordAction(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, "Failed Google OAuth login: token exchange HTTP error", map[string]any{"error": err.Error()})
+		}
 		return nil, "", "", fmt.Errorf("%w: %v", ErrOAuthExchangeFailed, err)
 	}
 	defer resp.Body.Close()
@@ -106,7 +108,9 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 		metrics.InstrumentAuthEvent("google_login", false)
 		body, _ := io.ReadAll(resp.Body)
 		logger.FromContext(ctx).Warn("google oauth token exchange non-200 status", slog.Int("status", resp.StatusCode))
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, fmt.Sprintf("Failed Google OAuth login: token endpoint returned status %d", resp.StatusCode), nil, nil, map[string]any{"status": resp.StatusCode}, &deviceID, &sanitizedUA, &ip)
+		if s.auditor != nil {
+			s.auditor.RecordAction(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, fmt.Sprintf("Failed Google OAuth login: token endpoint returned status %d", resp.StatusCode), map[string]any{"status": resp.StatusCode})
+		}
 		return nil, "", "", fmt.Errorf("%w: google returned status %d (%s)", ErrOAuthExchangeFailed, resp.StatusCode, string(body))
 	}
 
@@ -161,7 +165,16 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 	}
 
 	if !user.IsActive {
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: account %s is deactivated", user.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
+		if s.auditor != nil {
+			s.auditor.Record(ctx, audit.Event{
+				ActorID:     &user.ID,
+				ActorEmail:  &user.Email,
+				Action:      audit.ActionAuthLoginFailure,
+				TargetType:  audit.TargetAuth,
+				TargetID:    &user.ID,
+				Description: fmt.Sprintf("Failed login: account %s is deactivated", user.Email),
+			})
+		}
 		return nil, "", "", ErrInactiveUser
 	}
 
@@ -178,13 +191,22 @@ func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, user
 	evs, _ := s.repo.GetUserEvents(ctx, user.ID)
 
 	metrics.InstrumentAuthEvent("google_login", true)
-	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s authenticated via Google OAuth", user.Email), &user.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
+	if s.auditor != nil {
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     &user.ID,
+			ActorEmail:  &user.Email,
+			ActorRole:   &user.Role,
+			Action:      audit.ActionAuthLoginSuccess,
+			TargetType:  audit.TargetAuth,
+			TargetID:    &user.ID,
+			Description: fmt.Sprintf("User %s authenticated via Google OAuth", user.Email),
+		})
+	}
 
 	return toUserResponse(user, evs), accessToken, refreshToken, nil
 }
 
 func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, userAgent, ip string) (string, string, error) {
-	sanitizedUA := truncateUserAgent(userAgent)
 	tokenHash := utils.HashToken(rawRefreshToken)
 
 	session, err := s.repo.GetRefreshTokenByHash(ctx, tokenHash)
@@ -197,7 +219,16 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, u
 		metrics.InstrumentAuthEvent("refresh", false)
 		metrics.InstrumentSecurityThreat("device_hijack")
 		_ = s.repo.RevokeAllUserTokens(ctx, session.UserID)
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetSession, &session.UserID, "Device mismatch: refresh token used from unrecognized device", nil, nil, map[string]any{"expected_device": session.DeviceID, "actual_device": deviceID}, &deviceID, &sanitizedUA, &ip)
+		if s.auditor != nil {
+			s.auditor.Record(ctx, audit.Event{
+				ActorID:     &session.UserID,
+				Action:      audit.ActionAuthLoginFailure,
+				TargetType:  audit.TargetSession,
+				TargetID:    &session.UserID,
+				Description: "Device mismatch: refresh token used from unrecognized device",
+				Metadata:    map[string]any{"expected_device": session.DeviceID, "actual_device": deviceID},
+			})
+		}
 		return "", "", ErrTokenDeviceMismatch
 	}
 
@@ -205,7 +236,16 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, u
 		metrics.InstrumentAuthEvent("refresh", false)
 		metrics.InstrumentSecurityThreat("token_replay")
 		_ = s.repo.RevokeAllUserTokens(ctx, session.UserID)
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetSession, &session.UserID, "Token replay detected: revoked refresh token used again", nil, nil, map[string]any{"session_id": session.ID}, &deviceID, &sanitizedUA, &ip)
+		if s.auditor != nil {
+			s.auditor.Record(ctx, audit.Event{
+				ActorID:     &session.UserID,
+				Action:      audit.ActionAuthLoginFailure,
+				TargetType:  audit.TargetSession,
+				TargetID:    &session.UserID,
+				Description: "Token replay detected: revoked refresh token used again",
+				Metadata:    map[string]any{"session_id": session.ID},
+			})
+		}
 		return "", "", ErrTokenReplayDetect
 	}
 
@@ -247,8 +287,14 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, u
 func (s *Service) Logout(ctx context.Context, rawRefreshToken string) error {
 	tokenHash := utils.HashToken(rawRefreshToken)
 	session, _ := s.repo.GetRefreshTokenByHash(ctx, tokenHash)
-	if session != nil {
-		s.recordAudit(ctx, audit.ActionAuthLogout, audit.TargetSession, &session.UserID, "User logged out", nil, nil, nil, &session.DeviceID, session.UserAgent, session.IPAddress)
+	if session != nil && s.auditor != nil {
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     &session.UserID,
+			Action:      audit.ActionAuthLogout,
+			TargetType:  audit.TargetSession,
+			TargetID:    &session.UserID,
+			Description: "User logged out",
+		})
 	}
 	return s.repo.RevokeRefreshToken(ctx, tokenHash)
 }
@@ -298,34 +344,6 @@ func (s *Service) createSession(ctx context.Context, user *User, deviceID string
 	}
 
 	return accessToken, rawRefreshToken, nil
-}
-
-func (s *Service) recordAudit(
-	ctx context.Context,
-	action, targetType string,
-	targetID *string,
-	description string,
-	actorEmail, actorRole *string,
-	metadata map[string]any,
-	deviceID, userAgent, ip *string,
-) {
-	if s.auditor == nil {
-		return
-	}
-	s.auditor.Record(ctx, audit.Event{
-		ActorID:     targetID,
-		ActorEmail:  actorEmail,
-		ActorRole:   actorRole,
-		Action:      action,
-		TargetType:  targetType,
-		TargetID:    targetID,
-		Description: description,
-		Metadata:    metadata,
-		DeviceID:    deviceID,
-		UserAgent:   userAgent,
-		IPAddress:   ip,
-		Timestamp:   time.Now(),
-	})
 }
 
 func toUserResponse(u *User, evs []UserEventRole) *UserResponse {

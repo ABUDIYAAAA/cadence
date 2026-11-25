@@ -15,12 +15,27 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
+// UserProvisioner encapsulates account provisioning and role updates owned by the users module.
+type UserProvisioner interface {
+	UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultRole string) (*User, error)
+	SetRole(ctx context.Context, userID, role string) error
+}
+
 type Repository struct {
-	db *pgxpool.Pool
+	db          *pgxpool.Pool
+	provisioner UserProvisioner
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
+}
+
+// WithUserProvisioner configures the users domain seam for OAuth user provisioning and role updates.
+func (r *Repository) WithUserProvisioner(p UserProvisioner) *Repository {
+	if p != nil {
+		r.provisioner = p
+	}
+	return r
 }
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
@@ -86,35 +101,13 @@ func (r *Repository) GetUserByGoogleID(ctx context.Context, googleID string) (*U
 	return &u, nil
 }
 
-// UpsertGoogleUser creates or updates a user via Google OAuth identity.
+// UpsertGoogleUser delegates Google OAuth account provisioning to users.Provisioner.
 // Never overwrites is_active = FALSE (a blacklisted or soft-deleted user remains inactive until restored by an admin/dev).
 func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultRole string) (*User, error) {
-	if defaultRole == "" {
-		defaultRole = RoleUser
+	if r.provisioner == nil {
+		return nil, errors.New("user provisioner not configured")
 	}
-
-	query := `
-		INSERT INTO users (email, name, google_id, avatar_url, role, is_active)
-		VALUES (LOWER($1), $2, $3, $4, $5, TRUE)
-		ON CONFLICT (email) DO UPDATE
-		SET name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END,
-		    google_id = COALESCE(users.google_id, EXCLUDED.google_id),
-		    avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
-		    role = CASE WHEN users.role = 'dev' THEN 'dev' ELSE EXCLUDED.role END,
-		    updated_at = CURRENT_TIMESTAMP
-		RETURNING id, email, name, google_id, avatar_url, role, phone_number,
-		          is_active, token_version, created_at, updated_at
-	`
-	var u User
-	err := r.db.QueryRow(ctx, query, email, name, googleID, avatarURL, defaultRole).Scan(
-		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
-		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("upsert google user: %w", err)
-	}
-
-	return &u, nil
+	return r.provisioner.UpsertGoogleUser(ctx, googleID, email, name, avatarURL, defaultRole)
 }
 
 // GetUserEvents retrieves all non-banned events and associated roles for a user.
@@ -152,19 +145,10 @@ func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEv
 }
 
 func (r *Repository) SetRole(ctx context.Context, userID, role string) error {
-	query := `
-		UPDATE users
-		SET role = $1, token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $2
-	`
-	tag, err := r.db.Exec(ctx, query, role, userID)
-	if err != nil {
-		return fmt.Errorf("set user role: %w", err)
+	if r.provisioner == nil {
+		return errors.New("user provisioner not configured")
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrUserNotFound
-	}
-	return nil
+	return r.provisioner.SetRole(ctx, userID, role)
 }
 
 func (r *Repository) CreateRefreshToken(ctx context.Context, s *RefreshToken) error {

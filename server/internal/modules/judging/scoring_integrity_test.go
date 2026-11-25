@@ -481,10 +481,10 @@ func TestMultiTenantCompetitionIsolationAndSettings(t *testing.T) {
 	})
 
 	t.Run("event owner and dev can update slot links without 403 Forbidden", func(t *testing.T) {
-		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "owner@cadence.local", "owner", map[string]string{"github": "https://github.com/owner/repo"}, "127.0.0.1", "test"); err != nil {
+		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "owner", map[string]string{"github": "https://github.com/owner/repo"}); err != nil {
 			t.Fatalf("expected owner to update slot links, got: %v", err)
 		}
-		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "dev@cadence.local", "dev", map[string]string{"github": "https://github.com/dev/repo"}, "127.0.0.1", "test"); err != nil {
+		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "dev", map[string]string{"github": "https://github.com/dev/repo"}); err != nil {
 			t.Fatalf("expected dev to update slot links, got: %v", err)
 		}
 	})
@@ -583,6 +583,15 @@ func TestSubmissionSingleSourceOfTruthAndGateConsistency(t *testing.T) {
 	}, false); err != nil {
 		t.Fatalf("configure slots: %v", err)
 	}
+	// 1b. While the round is still a draft (not published), submissions must remain closed.
+	draftSub, err := svc.GetMySubmission(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetMySubmission (draft): %v", err)
+	}
+	if draftSub.CanSubmit {
+		t.Fatalf("expected CanSubmit=false while round is still draft, got true")
+	}
+
 	if err := repo.ActivateRound(ctxComp, roundID); err != nil {
 		t.Fatalf("activate round: %v", err)
 	}
@@ -641,12 +650,12 @@ func TestSubmissionSingleSourceOfTruthAndGateConsistency(t *testing.T) {
 	//    - GetJudgeSlotDetails
 	//    - GetVolunteerSchedule
 	//    - GetTeamStatusForUser
-	if err := svc.UpdateSlotLinks(ctxComp, slotID, judgeID, "admin@cadence.local", "admin", map[string]string{
+	if err := svc.UpdateSlotLinks(ctxComp, slotID, judgeID, "admin", map[string]string{
 		"project_name": "Unified Project",
 		"github":       "https://github.com/cadence/unified-repo",
 		"demo":         "https://demo.cadence.local",
 		"arbitrary":    "https://ignored.invalid",
-	}, "127.0.0.1", "test"); err != nil {
+	}); err != nil {
 		t.Fatalf("UpdateSlotLinks: %v", err)
 	}
 

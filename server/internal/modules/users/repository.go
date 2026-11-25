@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -22,15 +24,28 @@ type TeamEvictor interface {
 }
 
 type Repository struct {
-	db      *pgxpool.Pool
-	teams   TeamEvictor
-	auditor audit.Recorder
+	db       *pgxpool.Pool
+	rdb      *redis.Client
+	tokenTTL time.Duration
+	teams    TeamEvictor
+	auditor  audit.Recorder
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{
-		db: db,
+		db:       db,
+		tokenTTL: 24 * time.Hour,
 	}
+}
+
+// WithRedis configures the Redis client and access-token TTL used to synchronize
+// soft-delete blocklist clearing and monotonic min_token_version updates.
+func (r *Repository) WithRedis(rdb *redis.Client, accessExpiry time.Duration) *Repository {
+	r.rdb = rdb
+	if accessExpiry > 0 {
+		r.tokenTTL = accessExpiry * 2
+	}
+	return r
 }
 
 // WithTeamEvictor configures the teams domain seam used for transactional user eviction.

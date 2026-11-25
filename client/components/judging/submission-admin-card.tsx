@@ -38,6 +38,12 @@ export function SubmissionAdminCard() {
     return rounds[0]?.id ?? "";
   }, [selectedRoundId, rounds]);
 
+  const effectiveRound = useMemo(
+    () => rounds.find((r) => r.id === effectiveRoundId) ?? null,
+    [rounds, effectiveRoundId]
+  );
+  const isRoundActive = effectiveRound?.status === "active";
+
   const { data: gate } = useSubmissionGate(effectiveRoundId || null);
   const setGate = useSetSubmissionGate();
   const { data: sessions = [] } = useScanSessions();
@@ -92,7 +98,7 @@ export function SubmissionAdminCard() {
       toast.success(
         value
           ? "Submission gate updated for this round."
-          : "Gate cleared — submissions are open immediately to all teams."
+          : "Gate cleared — submissions open to all teams when the round is published."
       );
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, "Could not update the submission gate."));
@@ -137,7 +143,7 @@ export function SubmissionAdminCard() {
               onChange={(e) => changeGate(e.target.value)}
               disabled={setGate.isPending}
             >
-              <option value="">No gate — open to all teams immediately</option>
+              <option value="">No gate — opens when round is published</option>
               {eligibleSessions.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} ({s.kind === "check_in" ? "Entry check-in" : "Attendance"})
@@ -147,8 +153,12 @@ export function SubmissionAdminCard() {
           </div>
           <p className="text-[11px] text-[var(--ink-secondary)]">
             {gate?.session_id
-              ? "Only teams with at least one member scanned in this session can submit or edit their project links."
-              : "No gate selected — submissions are open immediately to all teams."}
+              ? isRoundActive
+                ? "Only teams with at least one member scanned in this session can submit or edit their project links."
+                : "Once this round is published, only teams with at least one member scanned in this session can submit or edit their project links."
+              : isRoundActive
+              ? "No gate selected — submissions are open to all teams while this round is active."
+              : "No gate selected — submissions will open to all teams when a round is published."}
           </p>
         </div>
 

@@ -144,6 +144,22 @@ func (m *MemoryBroker) handle(ctx context.Context, msg Delivery, handler Handler
 	}
 }
 
+// DrainQueue non-blockingly drains all currently queued (unconsumed) deliveries.
+func (m *MemoryBroker) DrainQueue() []Delivery {
+	var out []Delivery
+	for {
+		select {
+		case msg, ok := <-m.queue:
+			if !ok {
+				return out
+			}
+			out = append(out, msg)
+		default:
+			return out
+		}
+	}
+}
+
 // DeadLetters returns a snapshot of all messages routed to the DLQ or dropped.
 func (m *MemoryBroker) DeadLetters() []DeadLetter {
 	m.mu.Lock()

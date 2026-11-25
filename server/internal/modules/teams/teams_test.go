@@ -30,6 +30,16 @@ func (c *captureAuditRecorder) Record(_ context.Context, ev audit.Event) {
 	c.events = append(c.events, ev)
 }
 
+func (c *captureAuditRecorder) RecordAction(ctx context.Context, action, targetType string, targetID *string, description string, metadata map[string]any) {
+	c.Record(ctx, audit.Event{
+		Action:      action,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		Description: description,
+		Metadata:    metadata,
+	})
+}
+
 func (c *captureAuditRecorder) hasActionForTarget(action, targetID string) bool {
 	for _, ev := range c.events {
 		if ev.Action == action && ev.TargetID != nil && *ev.TargetID == targetID {
@@ -164,7 +174,7 @@ func TestTeamingWorkflow(t *testing.T) {
 	linkEventMember(t, pool, eventID, p3ID, "participant")
 
 	teamsRepo := NewRepository(pool)
-	eventsRepo := events.NewRepository(pool).WithTeamEvictor(teamsRepo)
+	eventsRepo := events.NewRepository(pool).WithTeamRosterManager(teamsRepo)
 	usersRepo := users.NewRepository(pool).WithTeamEvictor(teamsRepo)
 
 	// Step A: Participant 1 creates a team in Competition 1
@@ -621,7 +631,7 @@ func TestTeamOwnershipEvictionAuditAndCompetitionScopedLookup(t *testing.T) {
 
 	auditor := &captureAuditRecorder{}
 	teamsRepo := NewRepository(pool).WithAuditor(auditor)
-	eventsRepo := events.NewRepository(pool).WithTeamEvictor(teamsRepo)
+	eventsRepo := events.NewRepository(pool).WithTeamRosterManager(teamsRepo)
 	eventsService := events.NewService(eventsRepo, nil, auditor)
 	usersRepo := users.NewRepository(pool).WithTeamEvictor(teamsRepo)
 	usersService := users.NewService(usersRepo, nil, nil, auditor)

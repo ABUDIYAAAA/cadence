@@ -106,7 +106,7 @@ func TestTicketSettingsSanitizationAndExcludedDomains(t *testing.T) {
 		ExcludedDomains: []string{"@nst.rishihood.edu.in", "staff@internal.edu", "  INTERNAL.EDU "},
 		EmailSubject:    &subj,
 		EmailHTML:       &unsafeHTML,
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test-agent")
+	}, adminID, "admin@example.com")
 	if err != nil {
 		t.Fatalf("UpdateSettings failed: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *test
 	if _, err := svc.UpdateSettings(ctx, UpdateTicketSettingsRequest{
 		ExcludedDomains: []string{"@nst.rishihood.edu.in"},
 		EmailHTML:       &customHTML,
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test-agent"); err != nil {
+	}, adminID, "admin@example.com"); err != nil {
 		t.Fatalf("UpdateSettings failed: %v", err)
 	}
 
@@ -171,7 +171,7 @@ func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *test
 	bulkResp1, err := svc.BulkSendTickets(ctx, BulkSendTicketsRequest{
 		Role:           &partRole,
 		ExcludeDomains: []string{"@college.edu"},
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test-agent")
+	}, adminID, "admin@example.com")
 	if err != nil {
 		t.Fatalf("BulkSendTickets run 1 failed: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *test
 	bulkResp2, err := svc.BulkSendTickets(ctx, BulkSendTicketsRequest{
 		Role:           &partRole,
 		ExcludeDomains: []string{"@college.edu"},
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test-agent")
+	}, adminID, "admin@example.com")
 	if err != nil {
 		t.Fatalf("BulkSendTickets run 2 failed: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *test
 	bulkResp3, err := svc.BulkSendTickets(ctx, BulkSendTicketsRequest{
 		Role:           &partRole,
 		ExcludeDomains: []string{"@college.edu"},
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test-agent")
+	}, adminID, "admin@example.com")
 	if err != nil {
 		t.Fatalf("BulkSendTickets run 3 failed: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestBulkSendExcludedDomainsHardEmailTrackingAndLateJoinerVisibility(t *test
 		Role:           &partRole,
 		ExcludeDomains: []string{"@college.edu"},
 		ForceResend:    true,
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test-agent")
+	}, adminID, "admin@example.com")
 	if err != nil {
 		t.Fatalf("BulkSendTickets run 4 (ForceResend) failed: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 	svc := NewService(repo, cfg, nil, nil)
 
 	// Release tickets so participants have passes
-	if _, err := svc.ReleaseTickets(ctx, BulkSendTicketsRequest{}, ownerID, "owner@example.com", "owner", "127.0.0.1", "test"); err != nil {
+	if _, err := svc.ReleaseTickets(ctx, BulkSendTicketsRequest{}, ownerID, "owner@example.com"); err != nil {
 		t.Fatalf("ReleaseTickets: %v", err)
 	}
 	leaderTkt, err := svc.GetMyTicket(ctx, leaderID)
@@ -361,7 +361,7 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 	// 2. Volunteer scans leader into the default Check-In session -> marks only leader (per-member) and records volunteer attribution
 	checkInScanResp, rejection, err := svc.ScanInSession(
 		ctx, defaultCheckInSession.ID, leaderTkt.TicketCode,
-		volunteerID, "vol@example.com", "volunteer", "127.0.0.1", "scanner",
+		volunteerID, "vol@example.com",
 	)
 	if err != nil || rejection != nil {
 		t.Fatalf("default check-in scan failed: err=%v rejection=%+v", err, rejection)
@@ -381,7 +381,7 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 		Name:     "Team Pitch Check",
 		Kind:     KindAttendance,
 		MarkTeam: &markTeamTrue,
-	}, ownerID, "owner@example.com", "owner", "127.0.0.1", "test"); !errors.Is(err, ErrCompetitionRequiredForTeamScan) {
+	}, ownerID, "owner@example.com"); !errors.Is(err, ErrCompetitionRequiredForTeamScan) {
 		t.Fatalf("expected ErrCompetitionRequiredForTeamScan when mark_team=true without competition_id, got: %v", err)
 	}
 
@@ -392,7 +392,7 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 		Kind:          KindAttendance,
 		MarkTeam:      &markTeamFalse,
 		CompetitionID: &compAID,
-	}, ownerID, "owner@example.com", "owner", "127.0.0.1", "test")
+	}, ownerID, "owner@example.com")
 	if err != nil {
 		t.Fatalf("CreateSession per-member failed: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 	// Volunteer scans leader in Per-Member session -> only 1 person (the leader) is scanned
 	pmResp, _, err := svc.ScanInSession(
 		ctx, perMemberSess.ID, leaderTkt.TicketCode,
-		volunteerID, "vol@example.com", "volunteer", "127.0.0.1", "scanner",
+		volunteerID, "vol@example.com",
 	)
 	if err != nil {
 		t.Fatalf("per-member scan failed: %v", err)
@@ -418,7 +418,7 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 		Kind:          KindAttendance,
 		MarkTeam:      &markTeamTrue,
 		CompetitionID: &compAID,
-	}, ownerID, "owner@example.com", "owner", "127.0.0.1", "test")
+	}, ownerID, "owner@example.com")
 	if err != nil {
 		t.Fatalf("CreateSession full-team failed: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestDefaultCheckInAndCompetitionScanSessionsPerMemberAndFullTeam(t *testing
 	// Volunteer scans leader in Full-Team session -> leader + both teammates (3 total) are marked present with volunteer attribution!
 	ftResp, _, err := svc.ScanInSession(
 		ctx, teamSess.ID, leaderTkt.TicketCode,
-		volunteerID, "vol@example.com", "volunteer", "127.0.0.1", "scanner",
+		volunteerID, "vol@example.com",
 	)
 	if err != nil {
 		t.Fatalf("full-team scan failed: %v", err)
@@ -485,7 +485,7 @@ func TestCheckInCodeGenerationRotationAndDirectParticipantCheckIn(t *testing.T) 
 	svc := NewService(repo, cfg, nil, nil)
 
 	// 1. Admin generates a check-in code on the default check-in session (Day 1 code)
-	sess1, err := svc.GenerateSessionCheckInCode(ctx, "", nil, adminID, "admin@example.com", "admin", "127.0.0.1", "test")
+	sess1, err := svc.GenerateSessionCheckInCode(ctx, "", nil, "admin@example.com")
 	if err != nil {
 		t.Fatalf("GenerateSessionCheckInCode 1 failed: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestCheckInCodeGenerationRotationAndDirectParticipantCheckIn(t *testing.T) 
 	codeDay1 := *sess1.CheckInCode
 
 	// 2. Participant 1 enters the Day 1 check-in code directly (even before opening /tickets/me!)
-	scanResp1, rejection, err := svc.CheckInByCode(ctx, strings.ToLower(codeDay1), p1ID, "p1@example.com", "participant", "127.0.0.1", "browser")
+	scanResp1, rejection, err := svc.CheckInByCode(ctx, strings.ToLower(codeDay1), p1ID, "p1@example.com")
 	if err != nil || rejection != nil {
 		t.Fatalf("CheckInByCode with codeDay1 failed: err=%v rejection=%+v", err, rejection)
 	}
@@ -510,7 +510,7 @@ func TestCheckInCodeGenerationRotationAndDirectParticipantCheckIn(t *testing.T) 
 	}
 
 	// 3. Admin generates another code (rotates the code on the session)
-	sess2, err := svc.GenerateSessionCheckInCode(ctx, sess1.ID, nil, adminID, "admin@example.com", "admin", "127.0.0.1", "test")
+	sess2, err := svc.GenerateSessionCheckInCode(ctx, sess1.ID, nil, "admin@example.com")
 	if err != nil {
 		t.Fatalf("GenerateSessionCheckInCode 2 failed: %v", err)
 	}
@@ -520,12 +520,12 @@ func TestCheckInCodeGenerationRotationAndDirectParticipantCheckIn(t *testing.T) 
 	codeRotated := *sess2.CheckInCode
 
 	// 4. Old code (codeDay1) is now invalid when Participant 2 tries to use it!
-	if _, _, err := svc.CheckInByCode(ctx, codeDay1, p2ID, "p2@example.com", "participant", "127.0.0.1", "browser"); !errors.Is(err, ErrInvalidCheckInCode) {
+	if _, _, err := svc.CheckInByCode(ctx, codeDay1, p2ID, "p2@example.com"); !errors.Is(err, ErrInvalidCheckInCode) {
 		t.Fatalf("expected old code %s to fail with ErrInvalidCheckInCode after rotation, got %v", codeDay1, err)
 	}
 
 	// 5. Participant 2 uses the new code (codeRotated) and succeeds!
-	scanResp2, rejection, err := svc.CheckInByCode(ctx, codeRotated, p2ID, "p2@example.com", "participant", "127.0.0.1", "browser")
+	scanResp2, rejection, err := svc.CheckInByCode(ctx, codeRotated, p2ID, "p2@example.com")
 	if err != nil || rejection != nil {
 		t.Fatalf("CheckInByCode with rotated code failed: err=%v rejection=%+v", err, rejection)
 	}
@@ -538,12 +538,12 @@ func TestCheckInCodeGenerationRotationAndDirectParticipantCheckIn(t *testing.T) 
 		Name:         "Day 2 Attendance",
 		Kind:         KindAttendance,
 		GenerateCode: true,
-	}, adminID, "admin@example.com", "admin", "127.0.0.1", "test")
+	}, adminID, "admin@example.com")
 	if err != nil || day2Sess.CheckInCode == nil {
 		t.Fatalf("CreateSession Day 2 with GenerateCode=true failed: sess=%+v err=%v", day2Sess, err)
 	}
 
-	scanRespDay2, rejection, err := svc.CheckInByCode(ctx, *day2Sess.CheckInCode, p1ID, "p1@example.com", "participant", "127.0.0.1", "browser")
+	scanRespDay2, rejection, err := svc.CheckInByCode(ctx, *day2Sess.CheckInCode, p1ID, "p1@example.com")
 	if err != nil || rejection != nil {
 		t.Fatalf("Participant 1 Day 2 code check-in failed: err=%v rejection=%+v", err, rejection)
 	}

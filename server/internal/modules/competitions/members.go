@@ -2,12 +2,10 @@ package competitions
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,79 +24,6 @@ var (
 	ErrPermissionDenied  = errors.New("insufficient permissions for this member action")
 	ErrCannotModifyOwner = errors.New("cannot modify the event owner")
 )
-
-func deriveNameFromEmail(email string) string {
-	parts := strings.Split(email, "@")
-	if len(parts) > 0 && parts[0] != "" {
-		raw := strings.ReplaceAll(parts[0], ".", " ")
-		raw = strings.ReplaceAll(raw, "_", " ")
-		raw = strings.ReplaceAll(raw, "-", " ")
-		return strings.TrimSpace(raw)
-	}
-	return "Participant"
-}
-
-func generateTeamJoinCode() string {
-	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	b := make([]byte, 6)
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
-		if err != nil {
-			b[i] = chars[0]
-			continue
-		}
-		b[i] = chars[n.Int64()]
-	}
-	return string(b)
-}
-
-// evictFromCompetitionTeamTx removes a user from any team in compID within an open tx,
-// reassigning leadership or deleting the team if it becomes empty.
-func evictFromCompetitionTeamTx(ctx context.Context, tx pgx.Tx, compID, userID string) error {
-	var teamID string
-	var leaderID *string
-	err := tx.QueryRow(ctx, `
-		SELECT t.id, t.leader_id
-		FROM team_members tm
-		JOIN teams t ON t.id = tm.team_id
-		WHERE tm.competition_id = $1 AND tm.user_id = $2
-		FOR UPDATE OF t
-	`, compID, userID).Scan(&teamID, &leaderID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return fmt.Errorf("find competition team for eviction: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `DELETE FROM team_members WHERE competition_id = $1 AND user_id = $2`, compID, userID); err != nil {
-		return fmt.Errorf("delete team member: %w", err)
-	}
-
-	var nextLeaderID string
-	err = tx.QueryRow(ctx, `
-		SELECT user_id FROM team_members
-		WHERE team_id = $1
-		ORDER BY joined_at ASC
-		LIMIT 1
-	`, teamID).Scan(&nextLeaderID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if _, err := tx.Exec(ctx, `DELETE FROM teams WHERE id = $1`, teamID); err != nil {
-			return fmt.Errorf("delete empty team: %w", err)
-		}
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("find remaining team member: %w", err)
-	}
-
-	if leaderID != nil && *leaderID == userID {
-		if _, err := tx.Exec(ctx, `UPDATE teams SET leader_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, nextLeaderID, teamID); err != nil {
-			return fmt.Errorf("reassign team leader: %w", err)
-		}
-	}
-	return nil
-}
 
 // ListCompetitionUsers returns paginated members enrolled in compID with their team in this competition and event ticket check-in status.
 func (r *Repository) ListCompetitionUsers(ctx context.Context, eventID, compID string, filter events.EventUserFilter) (*events.EventUserListResponse, error) {
@@ -245,10 +170,8 @@ func (r *Repository) AddCompetitionUser(
 	}
 
 	userName := ""
-	if name != nil && strings.TrimSpace(*name) != "" {
+	if name != nil {
 		userName = strings.TrimSpace(*name)
-	} else {
-		userName = deriveNameFromEmail(email)
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -257,23 +180,13 @@ func (r *Repository) AddCompetitionUser(
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Upsert user account (restore soft-deleted accounts; preserve platform blacklist status)
-	var targetUserID string
-	var createdAccount bool
-	err = tx.QueryRow(ctx, `
-		INSERT INTO users (email, name, phone_number, role, is_active)
-		VALUES ($1, $2, $3, 'user', TRUE)
-		ON CONFLICT (email) DO UPDATE
-		SET is_active = CASE WHEN users.deleted_at IS NOT NULL THEN TRUE ELSE users.is_active END,
-		    token_version = CASE WHEN users.deleted_at IS NOT NULL THEN users.token_version + 1 ELSE users.token_version END,
-		    deleted_at = NULL,
-		    phone_number = COALESCE(users.phone_number, EXCLUDED.phone_number),
-		    updated_at = CURRENT_TIMESTAMP
-		RETURNING id, (xmax = 0) AS created
-	`, email, userName, phone).Scan(&targetUserID, &createdAccount)
+	// 1. Provision or restore user account through users.Provisioner.
+	provisioned, err := r.users.ProvisionByEmailTx(ctx, tx, email, userName, phone)
 	if err != nil {
 		return nil, false, fmt.Errorf("upsert user: %w", err)
 	}
+	targetUserID := provisioned.ID
+	createdAccount := provisioned.Created
 
 	// 2. Ensure parent event membership exists (do not downgrade existing event role)
 	var evBanned bool
@@ -359,80 +272,17 @@ func (r *Repository) AddCompetitionUser(
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, fmt.Errorf("commit tx: %w", err)
 	}
+	r.users.SyncProvisionedUserRedis(ctx, provisioned)
 	return &detail, createdAccount, nil
 }
 
-// AssignUserToTeamInCompetition finds or creates teamName inside compID and adds userID to it.
+// AssignUserToTeamInCompetition delegates named team formation/assignment inside compID to teams.RosterManager.
 func (r *Repository) AssignUserToTeamInCompetition(ctx context.Context, compID, actorID, userID, teamName string) (teamCreated bool, assigned bool, err error) {
-	teamName = strings.TrimSpace(teamName)
-	if teamName == "" {
-		return false, false, nil
+	if r.teams == nil {
+		return false, false, errors.New("team roster manager not configured")
 	}
-
-	var existingTeam string
-	err = r.db.QueryRow(ctx, `
-		SELECT t.name
-		FROM team_members tm
-		JOIN teams t ON t.id = tm.team_id
-		WHERE tm.competition_id = $1 AND tm.user_id = $2
-	`, compID, userID).Scan(&existingTeam)
-	if err == nil {
-		if strings.EqualFold(existingTeam, teamName) {
-			return false, false, nil
-		}
-		return false, false, fmt.Errorf("already in team %q", existingTeam)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return false, false, fmt.Errorf("check existing team: %w", err)
-	}
-
-	var maxSize int
-	if err := r.db.QueryRow(ctx, `SELECT max_team_size FROM competitions WHERE id = $1`, compID).Scan(&maxSize); err != nil {
-		return false, false, fmt.Errorf("load competition team size: %w", err)
-	}
-
-	var teamID string
-	err = r.db.QueryRow(ctx, `SELECT id FROM teams WHERE competition_id = $1 AND LOWER(name) = LOWER($2)`, compID, teamName).Scan(&teamID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		for range 5 {
-			code := generateTeamJoinCode()
-			createErr := r.db.QueryRow(ctx, `
-				INSERT INTO teams (competition_id, name, join_code, leader_id, created_by)
-				VALUES ($1, $2, $3, $4, $5)
-				RETURNING id
-			`, compID, teamName, code, userID, actorID).Scan(&teamID)
-			if createErr == nil {
-				teamCreated = true
-				break
-			}
-			if !strings.Contains(createErr.Error(), "teams_competition_id_join_code_key") {
-				return false, false, fmt.Errorf("create team: %w", createErr)
-			}
-		}
-		if teamID == "" {
-			return false, false, errors.New("failed to generate unique team join code")
-		}
-	} else if err != nil {
-		return false, false, fmt.Errorf("lookup team: %w", err)
-	}
-
-	var count int
-	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM team_members WHERE team_id = $1`, teamID).Scan(&count); err != nil {
-		return teamCreated, false, fmt.Errorf("count team members: %w", err)
-	}
-	if count >= maxSize {
-		return teamCreated, false, fmt.Errorf("team %q is full (max %d members)", teamName, maxSize)
-	}
-
-	tag, err := r.db.Exec(ctx, `
-		INSERT INTO team_members (team_id, user_id, competition_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (competition_id, user_id) DO NOTHING
-	`, teamID, userID, compID)
-	if err != nil {
-		return teamCreated, false, fmt.Errorf("add team member: %w", err)
-	}
-	return teamCreated, tag.RowsAffected() > 0, nil
+	_, _, teamCreated, assigned, err = r.teams.AssignUserToNamedTeam(ctx, compID, actorID, userID, teamName)
+	return teamCreated, assigned, err
 }
 
 // UpdateCompetitionMemberRole updates a member's role in compID.
@@ -490,13 +340,23 @@ func (r *Repository) RemoveCompetitionMember(ctx context.Context, compID, actorR
 	}
 	defer tx.Rollback(ctx)
 
-	if err := evictFromCompetitionTeamTx(ctx, tx, compID, targetUserID); err != nil {
-		return err
+	var auditEviction func()
+	if r.teams != nil {
+		auditEviction, err = r.teams.EvictAndAuditCompetitionTeamTx(ctx, tx, compID, targetUserID, r.auditor)
+		if err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM competition_members WHERE competition_id = $1 AND user_id = $2`, compID, targetUserID); err != nil {
 		return fmt.Errorf("delete competition member: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if auditEviction != nil {
+		auditEviction()
+	}
+	return nil
 }
 
 // BanCompetitionMember bans a member in compID and evicts them from any team in compID.
@@ -529,10 +389,20 @@ func (r *Repository) BanCompetitionMember(ctx context.Context, compID, actorRole
 	`, compID, targetUserID); err != nil {
 		return fmt.Errorf("ban competition member: %w", err)
 	}
-	if err := evictFromCompetitionTeamTx(ctx, tx, compID, targetUserID); err != nil {
+	var auditEviction func()
+	if r.teams != nil {
+		auditEviction, err = r.teams.EvictAndAuditCompetitionTeamTx(ctx, tx, compID, targetUserID, r.auditor)
+		if err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if auditEviction != nil {
+		auditEviction()
+	}
+	return nil
 }
 
 // UnbanCompetitionMember clears the ban flag on a competition member.
@@ -571,11 +441,13 @@ func (s *Service) AddCompetitionUser(ctx context.Context, eventID, compID, actor
 			)
 		}
 	}
-	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, compID, fmt.Sprintf("Added %s to competition as %s", detail.Email, detail.Role), &actorID, map[string]any{
-		"target_user_id":  detail.ID,
-		"role":            detail.Role,
-		"created_account": created,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionUpdate, audit.TargetCompetition, &compID, fmt.Sprintf("Added %s to competition as %s", detail.Email, detail.Role), map[string]any{
+			"target_user_id":  detail.ID,
+			"role":            detail.Role,
+			"created_account": created,
+		})
+	}
 	return detail, nil
 }
 
@@ -617,12 +489,14 @@ func (s *Service) BulkAddCompetitionUsers(ctx context.Context, eventID, compID, 
 		resp.Users = append(resp.Users, *detail)
 	}
 
-	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, compID, fmt.Sprintf("Bulk imported %d competition members", resp.TotalCreated+resp.TotalAdded), &actorID, map[string]any{
-		"total_processed": resp.TotalProcessed,
-		"total_created":   resp.TotalCreated,
-		"total_added":     resp.TotalAdded,
-		"skipped_count":   resp.SkippedCount,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionUpdate, audit.TargetCompetition, &compID, fmt.Sprintf("Bulk imported %d competition members", resp.TotalCreated+resp.TotalAdded), map[string]any{
+			"total_processed": resp.TotalProcessed,
+			"total_created":   resp.TotalCreated,
+			"total_added":     resp.TotalAdded,
+			"skipped_count":   resp.SkippedCount,
+		})
+	}
 	return resp, nil
 }
 
@@ -630,10 +504,12 @@ func (s *Service) UpdateCompetitionMemberRole(ctx context.Context, eventID, comp
 	if err := s.repo.UpdateCompetitionMemberRole(ctx, compID, actorRole, targetUserID, role); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, compID, fmt.Sprintf("Updated competition member role to %s", role), &actorID, map[string]any{
-		"target_user_id": targetUserID,
-		"role":           role,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionUpdate, audit.TargetCompetition, &compID, fmt.Sprintf("Updated competition member role to %s", role), map[string]any{
+			"target_user_id": targetUserID,
+			"role":           role,
+		})
+	}
 	return nil
 }
 
@@ -641,9 +517,11 @@ func (s *Service) RemoveCompetitionMember(ctx context.Context, eventID, compID, 
 	if err := s.repo.RemoveCompetitionMember(ctx, compID, actorRole, targetUserID); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, compID, "Removed member from competition", &actorID, map[string]any{
-		"target_user_id": targetUserID,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionUpdate, audit.TargetCompetition, &compID, "Removed member from competition", map[string]any{
+			"target_user_id": targetUserID,
+		})
+	}
 	return nil
 }
 
@@ -651,11 +529,13 @@ func (s *Service) BanCompetitionMember(ctx context.Context, eventID, compID, act
 	if err := s.repo.BanCompetitionMember(ctx, compID, actorRole, targetUserID); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, compID, "Banned member from competition", &actorID, map[string]any{
-		"target_user_id": targetUserID,
-		"reason":         reason,
-		"banned_at":      time.Now().UTC(),
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionUpdate, audit.TargetCompetition, &compID, "Banned member from competition", map[string]any{
+			"target_user_id": targetUserID,
+			"reason":         reason,
+			"banned_at":      time.Now().UTC(),
+		})
+	}
 	return nil
 }
 
@@ -663,9 +543,11 @@ func (s *Service) UnbanCompetitionMember(ctx context.Context, eventID, compID, a
 	if err := s.repo.UnbanCompetitionMember(ctx, compID, targetUserID); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, compID, "Unbanned member in competition", &actorID, map[string]any{
-		"target_user_id": targetUserID,
-	})
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionCompetitionUpdate, audit.TargetCompetition, &compID, "Unbanned member in competition", map[string]any{
+			"target_user_id": targetUserID,
+		})
+	}
 	return nil
 }
 

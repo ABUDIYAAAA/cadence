@@ -229,7 +229,7 @@ func (s *Service) GetSettings(ctx context.Context) (*TicketSettings, error) {
 	return &cur, nil
 }
 
-func (s *Service) UpdateSettings(ctx context.Context, req UpdateTicketSettingsRequest, actorID, actorEmail, actorRole, ip, ua string) (*TicketSettings, error) {
+func (s *Service) UpdateSettings(ctx context.Context, req UpdateTicketSettingsRequest, actorID, actorEmail string) (*TicketSettings, error) {
 	meta := map[string]any{}
 
 	// Merge InternalEmailDomains and ExcludedDomains if provided
@@ -280,10 +280,12 @@ func (s *Service) UpdateSettings(ctx context.Context, req UpdateTicketSettingsRe
 		return nil, err
 	}
 
-	s.recordAudit(ctx, audit.ActionTicketSettingsUpdate, audit.TargetTicket, nil,
-		fmt.Sprintf("%s updated ticket settings (excluded domains: [%s], tickets_released: %t)",
-			actorEmail, strings.Join(updated.InternalEmailDomains, ", "), updated.TicketsReleased),
-		&actorID, &actorEmail, &actorRole, meta, &ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketSettingsUpdate, audit.TargetTicket, nil,
+			fmt.Sprintf("%s updated ticket settings (excluded domains: [%s], tickets_released: %t)",
+				actorEmail, strings.Join(updated.InternalEmailDomains, ", "), updated.TicketsReleased),
+			meta)
+	}
 
 	return updated, nil
 }

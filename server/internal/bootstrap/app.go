@@ -113,6 +113,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Base middlewares with structured slog logging
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
+	router.Use(audit.RequestMetaMiddleware)
 	router.Use(logger.HTTPMiddleware(appLogger))
 	router.Use(middleware.Recoverer)
 
@@ -150,21 +151,21 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Stateless Redis-backed sliding window rate limiter
 	router.Use(ratelimit.RateLimitMiddleware(limiter, cfg, cookieManager))
 
-	// Auth module initialization with instant Redis blocklist verification and audit recording
-	authRepo := auth.NewRepository(dbPool)
-	authService := auth.NewService(authRepo, cfg, auditQueue)
-	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard, limiter)
-	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
-
-	// Teams module initialization
+	// Teams module initialization (owns all team roster mutations, evictions, and submissions)
 	teamsRepo := teams.NewRepository(dbPool).WithAuditor(auditQueue)
 	teamsService := teams.NewService(teamsRepo, auditQueue)
 	teamsHandler := teams.NewHandler(teamsService, limiter)
 
-	// Users module initialization (delegates team eviction to teamsRepo)
-	usersRepo := users.NewRepository(dbPool).WithTeamEvictor(teamsRepo).WithAuditor(auditQueue)
+	// Users module initialization (owns all account provisioning, Redis blocklist/token-version sync, and delegates team eviction to teamsRepo)
+	usersRepo := users.NewRepository(dbPool).WithRedis(redisClient, cfg.JWTAccessExpiry).WithTeamEvictor(teamsRepo).WithAuditor(auditQueue)
 	usersService := users.NewService(usersRepo, cfg, redisClient, auditQueue)
 	usersHandler := users.NewHandler(usersService)
+
+	// Auth module initialization with instant Redis blocklist verification, audit recording, and users.Provisioner
+	authRepo := auth.NewRepository(dbPool).WithUserProvisioner(users.NewAuthProvisioner(usersRepo))
+	authService := auth.NewService(authRepo, cfg, auditQueue)
+	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard, limiter)
+	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
 
 	// Audit module initialization
 	auditHandler := audit.NewHandler(auditRepo)
@@ -186,7 +187,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	ticketsHandler := tickets.NewHandler(ticketsService)
 
 	// Judging, Scoring & Queue Tracking module initialization
-	judgingRepo := judging.NewRepository(dbPool)
+	judgingRepo := judging.NewRepository(dbPool).WithTeamRosterManager(teamsRepo)
 	judgingService := judging.NewService(judgingRepo, auditQueue)
 	judgingHandler := judging.NewHandler(judgingService)
 
@@ -213,11 +214,11 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	}
 
 	// Events & Competitions multi-tenant modules initialization
-	eventsRepo := events.NewRepository(dbPool).WithTeamEvictor(teamsRepo).WithAuditor(auditQueue)
+	eventsRepo := events.NewRepository(dbPool).WithUserProvisioner(usersRepo).WithTeamRosterManager(teamsRepo).WithAuditor(auditQueue)
 	eventsService := events.NewService(eventsRepo, redisClient, auditQueue)
 	eventsHandler := events.NewHandler(eventsService)
 
-	competitionsRepo := competitions.NewRepository(dbPool)
+	competitionsRepo := competitions.NewRepository(dbPool).WithUserProvisioner(usersRepo).WithTeamRosterManager(teamsRepo).WithAuditor(auditQueue)
 	competitionsService := competitions.NewService(competitionsRepo, redisClient, auditQueue)
 	competitionsHandler := competitions.NewHandler(competitionsService)
 

@@ -51,10 +51,10 @@ export function TeamTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Team Name</TableHead>
-              <TableHead>Team Leader</TableHead>
+              <TableHead>Team</TableHead>
+              <TableHead>Leader</TableHead>
               {showCodes && <TableHead>Join Code</TableHead>}
-              <TableHead>Roster Size</TableHead>
+              <TableHead>Members</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Registered</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -129,14 +129,9 @@ export function TeamTable({
             <TableRow key={team.id} className="group">
               {/* Team Name */}
               <TableCell>
-                <div className="flex flex-col">
-                  <span className="font-semibold text-[var(--ink-primary)] text-sm">
-                    {team.name}
-                  </span>
-                  <span className="text-[10px] text-[var(--ink-tertiary)] font-mono">
-                    ID: {team.id.slice(0, 8)}...
-                  </span>
-                </div>
+                <span className="font-semibold text-[var(--ink-primary)] text-sm">
+                  {team.name}
+                </span>
               </TableCell>
 
               {/* Leader */}

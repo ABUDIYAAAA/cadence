@@ -46,9 +46,8 @@ func (h *Handler) HandleSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ua := r.UserAgent()
-	ip := r.RemoteAddr
 
-	if err := h.service.Subscribe(r.Context(), claims.UserID, req, &ua, ip); err != nil {
+	if err := h.service.Subscribe(r.Context(), claims.UserID, req, &ua); err != nil {
 		if errors.Is(err, ErrInvalidPushScheme) || errors.Is(err, ErrInvalidPushHost) ||
 			errors.Is(err, ErrPushCustomPort) || errors.Is(err, ErrPushPrivateNetwork) {
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
@@ -82,10 +81,7 @@ func (h *Handler) HandleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ua := r.UserAgent()
-	ip := r.RemoteAddr
-
-	if err := h.service.Unsubscribe(r.Context(), claims.UserID, req, &ua, ip); err != nil {
+	if err := h.service.Unsubscribe(r.Context(), claims.UserID, req); err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			utils.ErrorJSON(w, http.StatusNotFound, "push subscription not found")
 			return
@@ -181,10 +177,7 @@ func (h *Handler) HandleBroadcast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ua := r.UserAgent()
-	ip := r.RemoteAddr
-
-	resp, err := h.service.Broadcast(r.Context(), req, claims.UserID, claims.Email, auth.GetEffectiveRole(r.Context()), ip, ua)
+	resp, err := h.service.Broadcast(r.Context(), req, claims.UserID, claims.Email)
 	if err != nil {
 		utils.ErrorJSON(w, http.StatusBadRequest, "failed to broadcast notification: "+err.Error())
 		return

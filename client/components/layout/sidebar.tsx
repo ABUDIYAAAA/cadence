@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
 	Users,
 	LayoutDashboard,
@@ -20,6 +20,7 @@ import {
 	ChevronUp,
 	LogOut,
 	Settings,
+	Shield,
 	Trophy,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
@@ -208,8 +209,10 @@ function UserChip({
 	onOpenChange?: (open: boolean) => void;
 	onNavigate?: () => void;
 }) {
-	const { isAdmin, logout } = useAuth();
-	const { eventSlug } = useTenant();
+	const pathname = usePathname();
+	const router = useRouter();
+	const { isAdmin, isDev, logout } = useAuth();
+	const { eventSlug, clearEvent } = useTenant();
 	const { isSupported, isSubscribed, enablePush, disablePush } =
 		useNotificationsContext();
 	const toast = useToast();
@@ -269,43 +272,58 @@ function UserChip({
 	const showAvatarImage = Boolean(
 		avatarUrl && failedAvatarUrl !== avatarUrl,
 	);
+	const showPlatformDashboard =
+		isDev && (pathname !== '/dashboard/dev' || Boolean(eventSlug));
 	const showEventSettings = Boolean(eventSlug && isAdmin);
+	const hasTopActions = showPlatformDashboard || showEventSettings;
 	const showPushAlerts = Boolean(isSupported && eventSlug);
 
 	return (
 		<div ref={containerRef} className='relative'>
 			{menuOpen && (
 				<div className='absolute bottom-full left-0 right-0 mb-2 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 p-1.5 text-[var(--ink-primary)] font-sans'>
-					<div className='space-y-0.5'>
-						<Link
-							href='/events'
-							onClick={() => {
-								setMenuOpen(false);
-								onNavigate?.();
-							}}
-							className='flex items-center gap-2 px-2.5 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]'>
-							<Calendar className='h-3.5 w-3.5 text-[var(--ink-secondary)] shrink-0' />
-							<span className='truncate'>Switch event</span>
-						</Link>
-						{showEventSettings && (
-							<button
-								type='button'
-								onClick={() => {
-									setMenuOpen(false);
-									onNavigate?.();
-									window.dispatchEvent(
-										new CustomEvent('cadence:open-event-settings'),
-									);
-								}}
-								className='w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)] cursor-pointer'>
-								<Settings className='h-3.5 w-3.5 text-[var(--ink-secondary)] shrink-0' />
-								<span className='truncate'>Event settings</span>
-							</button>
-						)}
-					</div>
+					{hasTopActions && (
+						<div className='space-y-0.5'>
+							{showPlatformDashboard && (
+								<button
+									type='button'
+									onClick={() => {
+										clearEvent();
+										setMenuOpen(false);
+										onNavigate?.();
+										router.push('/dashboard/dev');
+									}}
+									className='w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)] cursor-pointer'>
+									<Shield className='h-3.5 w-3.5 text-[var(--ink-secondary)] shrink-0' />
+									<span className='truncate'>Platform dashboard</span>
+								</button>
+							)}
+							{showEventSettings && (
+								<button
+									type='button'
+									onClick={() => {
+										setMenuOpen(false);
+										onNavigate?.();
+										window.dispatchEvent(
+											new CustomEvent('cadence:open-event-settings'),
+										);
+									}}
+									className='w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)] cursor-pointer'>
+									<Settings className='h-3.5 w-3.5 text-[var(--ink-secondary)] shrink-0' />
+									<span className='truncate'>Event settings</span>
+								</button>
+							)}
+						</div>
+					)}
 
 					{showPushAlerts && (
-						<div className='mt-1 pt-1.5 pb-1 px-2.5 border-t border-[var(--card-line)] flex items-center justify-between gap-2 text-xs'>
+						<div
+							className={cn(
+								'pb-1 px-2.5 flex items-center justify-between gap-2 text-xs',
+								hasTopActions
+									? 'mt-1 pt-1.5 border-t border-[var(--card-line)]'
+									: 'pt-1',
+							)}>
 							<span className='flex items-center gap-1.5 text-[var(--ink-secondary)] min-w-0'>
 								<Bell className='h-3.5 w-3.5 shrink-0' />
 								<span className='truncate'>Push alerts</span>
@@ -321,7 +339,12 @@ function UserChip({
 						</div>
 					)}
 
-					<div className='pt-1 border-t border-[var(--card-line)] mt-1'>
+					<div
+						className={cn(
+							hasTopActions || showPushAlerts
+								? 'pt-1 border-t border-[var(--card-line)] mt-1'
+								: '',
+						)}>
 						<button
 							type='button'
 							onClick={handleLogout}

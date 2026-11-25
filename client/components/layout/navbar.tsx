@@ -13,6 +13,9 @@ import {
   Calendar,
   Settings,
   Crown,
+  Check,
+  ChevronDown,
+  Shield,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useAuth } from "@/providers/auth-provider";
@@ -21,6 +24,7 @@ import { useToast } from "@/providers/toast-provider";
 import { useNotificationsContext } from "@/providers/notification-provider";
 import {
   useEventDetail,
+  useEvents,
   useTransferEventOwnership,
   useUpdateEvent,
 } from "@/hooks/use-events";
@@ -51,7 +55,9 @@ export function Navbar() {
   const {
     eventSlug,
     activeEvent,
+    events,
     competitions,
+    selectEvent,
     selectCompetition,
     clearEvent,
   } = useTenant();
@@ -62,12 +68,16 @@ export function Navbar() {
   const { data: eventDetail } = useEventDetail(eventSlug, {
     enabled: isAuthenticated && Boolean(eventSlug),
   });
+  const { data: allEvents = [] } = useEvents({
+    enabled: isAuthenticated && isDev,
+  });
 
   const updateEvent = useUpdateEvent(eventSlug || "");
   const transferOwnership = useTransferEventOwnership(eventSlug || "");
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [eventSwitcherOpen, setEventSwitcherOpen] = useState(false);
   const [isDark, setIsDark] = useState(false);
 
   // Event Settings / Ownership Transfer Dialog state
@@ -80,6 +90,7 @@ export function Navbar() {
   const [eventError, setEventError] = useState<string | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const eventSwitcherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const isDarkMode = document.documentElement.classList.contains("dark");
@@ -115,15 +126,22 @@ export function Navbar() {
       ) {
         setDropdownOpen(false);
       }
+      if (
+        eventSwitcherRef.current &&
+        !eventSwitcherRef.current.contains(event.target as Node)
+      ) {
+        setEventSwitcherOpen(false);
+      }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setDropdownOpen(false);
+        setEventSwitcherOpen(false);
       }
     };
 
-    if (dropdownOpen) {
+    if (dropdownOpen || eventSwitcherOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("keydown", handleKeyDown);
     }
@@ -132,7 +150,7 @@ export function Navbar() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [dropdownOpen]);
+  }, [dropdownOpen, eventSwitcherOpen]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -235,11 +253,28 @@ export function Navbar() {
     (pathname === "/events" && (isDev || Boolean(eventSlug)));
   const displayEventName =
     eventDetail?.name || activeEvent?.event_name || eventSlug;
+  const switcherEvents = isDev
+    ? allEvents.map((e) => ({ slug: e.slug, name: e.name }))
+    : events.map((e) => ({ slug: e.event_slug, name: e.event_name }));
+  const canSwitchEvents = switcherEvents.length > 1;
   const competitionContext = getCompetitionRouteContext(pathname);
   const currentCompetitionName = competitionContext
     ? competitions.find((c) => c.slug === competitionContext.competitionSlug)
         ?.name ?? competitionContext.competitionSlug
     : null;
+
+  const handleSelectEvent = (nextSlug: string) => {
+    setEventSwitcherOpen(false);
+    if (nextSlug === eventSlug) return;
+    selectEvent(nextSlug);
+    if (
+      competitionContext ||
+      pathname === "/events" ||
+      pathname === "/dashboard/dev"
+    ) {
+      router.push(getAuthenticatedHomeRoute(user, nextSlug));
+    }
+  };
 
   return (
     <>
@@ -273,10 +308,66 @@ export function Navbar() {
             </Link>
 
             {isAuthenticated && hasSidebar && eventSlug && (
-              <div className="hidden sm:flex items-center gap-1.5 min-w-0 pl-2 border-l border-[var(--card-line)]">
-                <span className="text-xs font-medium text-[var(--ink-secondary)] truncate max-w-[160px]">
-                  {displayEventName}
-                </span>
+              <div className="flex items-center gap-1.5 min-w-0 pl-2 border-l border-[var(--card-line)]">
+                {canSwitchEvents ? (
+                  <div className="relative" ref={eventSwitcherRef}>
+                    <button
+                      type="button"
+                      onClick={() => setEventSwitcherOpen((prev) => !prev)}
+                      aria-haspopup="listbox"
+                      aria-expanded={eventSwitcherOpen}
+                      aria-label="Switch event"
+                      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-[6px] text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer max-w-[180px]"
+                    >
+                      <span className="truncate">{displayEventName}</span>
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] transition-transform duration-150 ${
+                          eventSwitcherOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {eventSwitcherOpen && (
+                      <div
+                        role="listbox"
+                        aria-label="Available events"
+                        className="absolute left-0 mt-1.5 w-60 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 p-1.5 max-h-72 overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-150"
+                      >
+                        <div className="px-2.5 py-1 text-[11px] font-medium text-[var(--ink-tertiary)]">
+                          Switch event
+                        </div>
+                        <div className="space-y-0.5">
+                          {switcherEvents.map((ev) => {
+                            const active = ev.slug === eventSlug;
+                            return (
+                              <button
+                                key={ev.slug}
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                onClick={() => handleSelectEvent(ev.slug)}
+                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 text-xs rounded-[8px] text-left transition-colors cursor-pointer ${
+                                  active
+                                    ? "bg-[var(--card-solid-subtle)] font-semibold text-[var(--ink-primary)]"
+                                    : "text-[var(--ink-secondary)] hover:bg-[var(--card-solid-subtle)] hover:text-[var(--ink-primary)]"
+                                }`}
+                              >
+                                <span className="truncate">{ev.name}</span>
+                                {active && (
+                                  <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs font-medium text-[var(--ink-secondary)] truncate max-w-[160px]">
+                    {displayEventName}
+                  </span>
+                )}
                 {competitionContext && (
                   <>
                     <span className="text-xs text-[var(--ink-tertiary)]">/</span>
@@ -385,6 +476,20 @@ export function Navbar() {
                             <LayoutDashboard className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
                             <span>Dashboard</span>
                           </Link>
+                        )}
+                        {isDev && pathname !== "/dashboard/dev" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              clearEvent();
+                              setDropdownOpen(false);
+                              router.push("/dashboard/dev");
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)] cursor-pointer"
+                          >
+                            <Shield className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                            <span>Platform dashboard</span>
+                          </button>
                         )}
                         {showSwitchEvent && (
                           <Link

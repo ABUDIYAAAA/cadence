@@ -9,7 +9,7 @@ import {
   AlertTriangle,
   XCircle,
   QrCode,
-  RotateCcw,
+  X,
 } from "lucide-react";
 import { useCheckIn, useSessionScan } from "@/hooks/use-tickets";
 import {
@@ -53,11 +53,42 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
   const [lastSuccess, setLastSuccess] = useState<CheckInResponse | null>(null);
   const [lastDuplicate, setLastDuplicate] = useState<DuplicateCheckInResponse | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [scanSeq, setScanSeq] = useState(0);
+  const [showOverlay, setShowOverlay] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const isProcessingRef = useRef(false);
+  const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerOverlay = useCallback(() => {
+    setScanSeq((n) => n + 1);
+    setShowOverlay(true);
+    if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+    overlayTimerRef.current = setTimeout(() => {
+      setShowOverlay(false);
+    }, 2500);
+  }, []);
+
+  const dismissResult = useCallback(() => {
+    if (overlayTimerRef.current) {
+      clearTimeout(overlayTimerRef.current);
+      overlayTimerRef.current = null;
+    }
+    setShowOverlay(false);
+    setLastSuccess(null);
+    setLastDuplicate(null);
+    setLastError(null);
+    setLastTeam(null);
+    isProcessingRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+    };
+  }, []);
 
   const processTicketCode = useCallback(async (rawCode: string) => {
     const code = rawCode.trim();
@@ -85,6 +116,7 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
         onScanSuccess?.(res);
       }
       setTicketInput("");
+      triggerOverlay();
     } catch (err: unknown) {
       if (err && typeof err === "object") {
         const errorObj = err as { status?: number; error?: string; body?: Record<string, unknown> };
@@ -106,6 +138,7 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
             checked_in_by_name: body.scanned_by_name || body.checked_in_by_name,
             attendee,
           });
+          triggerOverlay();
           return;
         }
 
@@ -115,8 +148,9 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
       } else {
         setLastError("Scan failed. Please verify the ticket code.");
       }
+      triggerOverlay();
     }
-  }, [checkInMutation, sessionScanMutation, onScanSuccess, session]);
+  }, [checkInMutation, sessionScanMutation, onScanSuccess, session, triggerOverlay]);
 
   // Stop camera stream cleanly
   const stopCamera = useCallback(() => {
@@ -144,12 +178,12 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
 
       let stream: MediaStream | null = null;
       try {
-        // Prefer the back camera
+        // Prefer the back camera at 720p for crisp scanning on larger viewports
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 640 },
-            height: { ideal: 480 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
         });
       } catch {
@@ -327,19 +361,21 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
 
       {/* Camera Viewport */}
       {mode === "camera" && isStarting && (
-        <div className="aspect-video max-w-lg mx-auto rounded-[24px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] flex items-center justify-center text-xs text-[var(--ink-secondary)]">
+        <div className="aspect-[4/3] sm:aspect-video w-full max-w-3xl mx-auto rounded-[20px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] flex items-center justify-center text-sm text-[var(--ink-secondary)]">
           Starting camera... allow access if your browser asks.
         </div>
       )}
 
       {mode === "camera" && isCameraActive && (
         <div
-          className={`relative rounded-[24px] bg-[#10141A] aspect-video max-w-lg mx-auto flex items-center justify-center overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(16,20,26,0.25)] ${
+          className={`relative rounded-[20px] bg-[#10141A] aspect-[4/3] sm:aspect-video w-full max-w-3xl mx-auto flex items-center justify-center overflow-hidden transition-[box-shadow] duration-200 shadow-[0_12px_32px_rgba(16,20,26,0.28)] ${
             lastSuccess
-              ? "ring-4 ring-[#83A2DB]"
+              ? "ring-4 ring-[var(--color-emerald)]"
               : lastDuplicate
-              ? "ring-4 ring-[#CE6969]"
-              : ""
+              ? "ring-4 ring-[var(--color-amber)]"
+              : lastError
+              ? "ring-4 ring-[var(--color-coral)]"
+              : "ring-1 ring-[var(--card-border)]"
           }`}
         >
           <video
@@ -363,22 +399,90 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
           <canvas ref={canvasRef} className="hidden" />
 
           {/* Viewfinder Target Overlay */}
-          <div className="absolute inset-0 m-6 pointer-events-none flex flex-col items-center justify-between p-2">
-            <span className="text-[10px] text-white/90 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full uppercase tracking-widest font-semibold">
+          <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-between p-4 sm:p-5">
+            <span className="text-[11px] text-white/95 bg-black/65 backdrop-blur-md px-3.5 py-1 rounded-full uppercase tracking-wider font-semibold">
               Point at attendee QR pass
             </span>
-            <div className="w-48 h-48 border-2 border-dashed border-white/60 rounded-[20px] flex items-center justify-center">
-              <div className="w-full border-t border-[#83A2DB] animate-pulse" />
+
+            {/* Corner-bracket reticle sized for comfortable framing */}
+            <div className="relative w-52 h-52 sm:w-64 sm:h-64 flex items-center justify-center">
+              <span className="absolute top-0 left-0 h-7 w-7 border-t-[3px] border-l-[3px] border-white/90 rounded-tl-[12px]" />
+              <span className="absolute top-0 right-0 h-7 w-7 border-t-[3px] border-r-[3px] border-white/90 rounded-tr-[12px]" />
+              <span className="absolute bottom-0 left-0 h-7 w-7 border-b-[3px] border-l-[3px] border-white/90 rounded-bl-[12px]" />
+              <span className="absolute bottom-0 right-0 h-7 w-7 border-b-[3px] border-r-[3px] border-white/90 rounded-br-[12px]" />
+              {!showOverlay && (
+                <div className="w-[88%] border-t-2 border-[var(--color-blue)]/80 animate-pulse motion-reduce:animate-none" />
+              )}
             </div>
-            <span className="text-[10px] text-white/70 bg-black/50 backdrop-blur-md px-2.5 py-0.5 rounded-full">
-              Auto-detecting...
+
+            <span className="text-[11px] text-white/85 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full font-medium">
+              {isPending ? "Verifying pass..." : "Ready · auto-detecting"}
             </span>
           </div>
+
+          {/* High-contrast in-viewport acknowledgement stamp during scan cooldown */}
+          {showOverlay && (lastSuccess || lastDuplicate || lastError) && (
+            <button
+              key={scanSeq}
+              type="button"
+              onClick={() => {
+                setShowOverlay(false);
+                isProcessingRef.current = false;
+              }}
+              aria-label="Dismiss scan overlay and scan next"
+              className={`absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6 text-center backdrop-blur-[3px] animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none cursor-pointer ${
+                lastSuccess
+                  ? "bg-emerald-950/80 text-white"
+                  : lastDuplicate
+                  ? "bg-amber-950/82 text-white"
+                  : "bg-red-950/82 text-white"
+              }`}
+            >
+              <div
+                className={`grid h-16 w-16 place-items-center rounded-full shadow-lg ${
+                  lastSuccess
+                    ? "bg-[var(--color-emerald)] text-white"
+                    : lastDuplicate
+                    ? "bg-[var(--color-amber)] text-white"
+                    : "bg-[var(--color-coral)] text-white"
+                }`}
+              >
+                {lastSuccess ? (
+                  <CheckCircle2 className="h-9 w-9" />
+                ) : lastDuplicate ? (
+                  <AlertTriangle className="h-9 w-9" />
+                ) : (
+                  <XCircle className="h-9 w-9" />
+                )}
+              </div>
+
+              <div className="space-y-1 max-w-md">
+                <p className="text-lg sm:text-xl font-bold tracking-tight">
+                  {lastSuccess
+                    ? copy.approved
+                    : lastDuplicate
+                    ? "Already Scanned"
+                    : "Scan Rejected"}
+                </p>
+                <p className="text-sm sm:text-base font-medium text-white/90">
+                  {lastSuccess
+                    ? lastSuccess.attendee.name
+                    : lastDuplicate
+                    ? lastDuplicate.attendee.name
+                    : lastError}
+                </p>
+              </div>
+
+              <span className="text-[11px] font-medium text-white/70 bg-black/30 px-3 py-1 rounded-full">
+                Tap to scan next immediately
+              </span>
+            </button>
+          )}
         </div>
       )}
 
       {mode === "camera" && cameraError && (
-        <div className="p-3.5 rounded-[14px] border border-[#CE6969]/30 bg-[var(--color-coral-dim)] text-xs text-[var(--color-coral)] space-y-2.5">
+        <div className="max-w-3xl mx-auto p-3.5 rounded-[14px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] text-xs text-[var(--color-coral)] space-y-2.5">
           <p>Camera unavailable: {cameraError}</p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" type="button" onClick={retryCamera} className="h-8 text-xs">
@@ -406,7 +510,7 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
 
       {/* Manual entry (also receives USB handheld scanners, which type the code and press Enter) */}
       {mode === "manual" && (
-        <form onSubmit={handleManualSubmit} className="flex gap-2 max-w-xl">
+        <form onSubmit={handleManualSubmit} className="flex gap-2 max-w-3xl mx-auto">
           <Input
             placeholder="Paste or scan ticket code (e.g. cadence:tkt:...)"
             value={ticketInput}
@@ -428,47 +532,65 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
         </form>
       )}
 
-      {/* Verification Feedback Banner */}
+      {/* Prominent Scan Acknowledgement Card */}
       {lastSuccess && (
-        <div className="rounded-[18px] border border-[var(--color-blue-border)] bg-[var(--color-blue-dim)] p-4.5 space-y-3">
-          <div className="flex items-center gap-2 text-[var(--color-blue)]">
-            <CheckCircle2 className="h-5 w-5 shrink-0" />
-            <span className="font-bold uppercase tracking-wider text-xs">
-              {copy.approved}
-            </span>
+        <div
+          key={`ok-${scanSeq}`}
+          role="status"
+          aria-live="assertive"
+          className="max-w-3xl mx-auto rounded-[16px] border-2 border-[var(--color-emerald)] bg-[var(--color-emerald-dim)] p-4 sm:p-5 space-y-3.5 animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[var(--color-emerald)] text-white">
+                <CheckCircle2 className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm sm:text-base font-bold text-[var(--color-emerald)] leading-tight">
+                  {copy.approved}
+                </p>
+                <p className="text-base sm:text-lg font-bold text-[var(--ink-primary)] truncate mt-0.5">
+                  {lastSuccess.attendee.name}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={dismissResult}
+              aria-label="Dismiss scan result"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            <div>
-              <span className="text-[var(--ink-secondary)]">Attendee: </span>
-              <strong className="text-[var(--ink-primary)]">{lastSuccess.attendee.name}</strong>
-            </div>
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-2 pt-3 border-t border-[var(--color-emerald-border)] text-xs">
+            <div className="min-w-0">
               <span className="text-[var(--ink-secondary)]">Email: </span>
-              <span className="font-mono text-[var(--ink-primary)]">{lastSuccess.attendee.email}</span>
+              <span className="font-mono text-[var(--ink-primary)] break-all">{lastSuccess.attendee.email}</span>
             </div>
             <div>
-              <span className="text-[var(--ink-secondary)]">System Role: </span>
+              <span className="text-[var(--ink-secondary)]">Role: </span>
               <span className="uppercase font-semibold text-[var(--ink-primary)]">{lastSuccess.attendee.role}</span>
             </div>
             <div>
               <span className="text-[var(--ink-secondary)]">Squad: </span>
               <span className="text-[var(--ink-primary)] font-medium">{lastSuccess.attendee.team_name || "— No Team"}</span>
             </div>
-            <div className="sm:col-span-2 text-[10px] text-[var(--ink-tertiary)] font-mono pt-2 border-t border-[var(--card-line)]">
-              Ticket Code: {lastSuccess.ticket_code} • {session ? "Scanned" : "Checked In"}:{" "}
+            <div className="sm:col-span-3 text-[11px] text-[var(--ink-secondary)] font-mono pt-1">
+              {lastSuccess.ticket_code} · {session ? "Scanned" : "Checked in"} at{" "}
               {new Date(lastSuccess.checked_in_at).toLocaleTimeString()}
             </div>
           </div>
 
           {lastTeam && (
-            <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 space-y-1.5 text-xs">
+            <div className="pt-3 border-t border-[var(--color-emerald-border)] space-y-1 text-xs">
               <div className="text-[var(--ink-primary)]">
                 Team <strong>{lastTeam.team_name}</strong>: {lastTeam.marked + 1} marked present
                 {lastTeam.already_scanned > 0 && ` (${lastTeam.already_scanned} already scanned)`}
               </div>
               {lastTeam.skipped.length > 0 && (
-                <div className="text-[var(--color-coral)]">
+                <div className="text-[var(--color-coral)] font-medium">
                   Not marked:{" "}
                   {lastTeam.skipped
                     .map((m) => `${m.name} (${m.reason === "not_checked_in" ? "not checked in" : "no pass"})`)
@@ -482,45 +604,83 @@ export function TicketScanner({ onScanSuccess, session }: TicketScannerProps) {
 
       {/* Duplicate Warning Conflict */}
       {lastDuplicate && (
-        <div className="rounded-[18px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] p-4.5 space-y-3">
-          <div className="flex items-center gap-2 text-[var(--color-coral)]">
-            <AlertTriangle className="h-5 w-5 shrink-0" />
-            <span className="font-bold uppercase tracking-wider text-xs">
-              Duplicate Scan Detected: Already Scanned!
-            </span>
+        <div
+          key={`dup-${scanSeq}`}
+          role="status"
+          aria-live="assertive"
+          className="max-w-3xl mx-auto rounded-[16px] border-2 border-[var(--color-amber)] bg-[var(--color-amber-dim)] p-4 sm:p-5 space-y-3 animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[var(--color-amber)] text-white">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm sm:text-base font-bold text-[var(--color-amber)] leading-tight">
+                  Duplicate Scan · Already Scanned
+                </p>
+                <p className="text-base sm:text-lg font-bold text-[var(--ink-primary)] truncate mt-0.5">
+                  {lastDuplicate.attendee.name}
+                  {lastDuplicate.attendee.email ? (
+                    <span className="ml-2 text-xs font-mono font-normal text-[var(--ink-secondary)]">
+                      {lastDuplicate.attendee.email}
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={dismissResult}
+              aria-label="Dismiss duplicate warning"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5 space-y-1.5 text-xs">
-            <p className="text-[var(--color-coral)]">
-              This ticket was already scanned on{" "}
-              <strong className="text-[var(--ink-primary)]">{new Date(lastDuplicate.checked_in_at).toLocaleString()}</strong>
-              {lastDuplicate.checked_in_by_name && (
-                <> by volunteer: <strong className="text-[var(--ink-primary)]">{lastDuplicate.checked_in_by_name}</strong></>
-              )}.
-            </p>
-            <div className="pt-1 text-[var(--ink-primary)]">
-              <span className="text-[var(--ink-secondary)]">Registered to: </span>
-              <strong>{lastDuplicate.attendee.name}</strong> ({lastDuplicate.attendee.email})
-            </div>
-          </div>
+          <p className="pt-3 border-t border-[var(--color-amber-border)] text-xs sm:text-sm text-[var(--ink-primary)]">
+            Previously scanned on{" "}
+            <strong>{new Date(lastDuplicate.checked_in_at).toLocaleString()}</strong>
+            {lastDuplicate.checked_in_by_name && (
+              <>
+                {" "}by <strong>{lastDuplicate.checked_in_by_name}</strong>
+              </>
+            )}
+            .
+          </p>
         </div>
       )}
 
-      {/* Invalid Ticket Error */}
+      {/* Invalid / Rejected Ticket Error */}
       {lastError && (
-        <div className="rounded-[16px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] p-3.5 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2 text-[var(--color-coral)]">
-            <XCircle className="h-4 w-4 shrink-0" />
-            <span className="font-semibold">{lastError}</span>
+        <div
+          key={`err-${scanSeq}`}
+          role="alert"
+          aria-live="assertive"
+          className="max-w-3xl mx-auto rounded-[16px] border-2 border-[var(--color-coral)] bg-[var(--color-coral-dim)] p-4 sm:p-5 flex items-start justify-between gap-3 animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[var(--color-coral)] text-white">
+              <XCircle className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm sm:text-base font-bold text-[var(--color-coral)] leading-tight">
+                Scan Rejected
+              </p>
+              <p className="text-sm font-medium text-[var(--ink-primary)] mt-0.5">
+                {lastError}
+              </p>
+            </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setLastError(null)}
-            className="h-7 w-7 p-0 rounded-full"
+          <button
+            type="button"
+            onClick={dismissResult}
+            aria-label="Dismiss scan error"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
           >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </Button>
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
     </div>

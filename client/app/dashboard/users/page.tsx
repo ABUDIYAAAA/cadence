@@ -66,11 +66,8 @@ export default function UsersPage() {
   } = useAuth();
   const { eventSlug, competitions } = useTenant();
 
-  const [selectedMode, setMode] = useState<"event" | "platform">(() =>
-    !eventSlug ? "platform" : "event"
-  );
   const mode: "event" | "platform" =
-    isDev && !eventSlug ? "platform" : selectedMode;
+    isDev && !eventSlug ? "platform" : "event";
 
   const [filters, setFilters] = useState<UserFilter>({
     page: 1,
@@ -170,21 +167,6 @@ export default function UsersPage() {
       </div>
     );
   }
-
-  const handleModeChange = (nextMode: "event" | "platform") => {
-    setMode(nextMode);
-    setFilters({
-      page: 1,
-      limit: 25,
-      search: "",
-      role: undefined,
-      no_team: undefined,
-      competition_id: undefined,
-      is_active: undefined,
-      is_banned: undefined,
-      deleted: undefined,
-    });
-  };
 
   const handleCreateUser = async (data: CreateUserRequest) => {
     try {
@@ -365,36 +347,8 @@ export default function UsersPage() {
           </p>
         </div>
 
-        {/* Action Toolbar + Dev Mode Switcher */}
+        {/* Action Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
-          {isDev && (
-            <div className="inline-flex rounded-lg border border-[var(--card-line)] p-1 bg-[var(--card-solid-subtle)] gap-1">
-              <button
-                type="button"
-                onClick={() => handleModeChange("event")}
-                disabled={!eventSlug}
-                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                  mode === "event"
-                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
-                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
-                }`}
-              >
-                Event members
-              </button>
-              <button
-                type="button"
-                onClick={() => handleModeChange("platform")}
-                className={`px-3 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer ${
-                  mode === "platform"
-                    ? "bg-[var(--card-solid)] text-[var(--ink-primary)] shadow-xs border border-[var(--card-line)] font-semibold"
-                    : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-medium"
-                }`}
-              >
-                Platform (Dev)
-              </button>
-            </div>
-          )}
-
           <Button
             variant="outline"
             size="sm"

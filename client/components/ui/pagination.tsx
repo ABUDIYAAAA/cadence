@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "./button";
+import { Select } from "./select";
 import { cn } from "@/lib/utils";
 
 export interface PaginationProps {
@@ -47,16 +48,20 @@ export function Pagination({
         {onLimitChange && limit && (
           <div className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)]">
             <span>Rows:</span>
-            <select
-              value={limit}
-              onChange={(e) => onLimitChange(Number(e.target.value))}
-              className="h-8 rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] px-2 text-xs text-[var(--ink-primary)] focus:border-[var(--color-blue)] focus:outline-none cursor-pointer"
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
+            <div className="w-[72px]">
+              <Select
+                aria-label="Rows per page"
+                value={String(limit)}
+                onChange={(e) => onLimitChange(Number(e.target.value))}
+                className="h-8 rounded-[10px] px-2.5 text-xs"
+                options={[
+                  { value: "10", label: "10" },
+                  { value: "20", label: "20" },
+                  { value: "50", label: "50" },
+                  { value: "100", label: "100" },
+                ]}
+              />
+            </div>
           </div>
         )}
 

@@ -2,6 +2,7 @@
 
 import React from "react";
 import { UserDetailResponse } from "@/types/users";
+import { getUserTableColumnVisibility } from "@/lib/competition-utils";
 import { Dialog } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ export function UserDetailDialog({
   const isRestricted =
     mode === "event" ? Boolean(user.is_banned) : !user.is_active;
   const isOwnerRow = mode === "event" && user.role === "owner";
+  const { showTeam } = getUserTableColumnVisibility(mode);
 
   return (
     <Dialog
@@ -163,23 +165,25 @@ export function UserDetailDialog({
             </span>
           </div>
 
-          <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
-            <span className="text-[var(--ink-secondary)]">Assigned Team</span>
-            <span className="text-[var(--ink-primary)]">
-              {user.team_name ? (
-                <>
-                  <strong className="text-[var(--ink-primary)]">
-                    {user.team_name}
-                  </strong>
-                  {user.is_leader && " (Leader)"}
-                </>
-              ) : (
-                <span className="text-[var(--ink-tertiary)]">
-                  — Unassigned
-                </span>
-              )}
-            </span>
-          </div>
+          {showTeam && (
+            <div className="flex justify-between p-3 bg-[var(--card-solid-subtle)]">
+              <span className="text-[var(--ink-secondary)]">Assigned Team</span>
+              <span className="text-[var(--ink-primary)]">
+                {user.team_name ? (
+                  <>
+                    <strong className="text-[var(--ink-primary)]">
+                      {user.team_name}
+                    </strong>
+                    {user.is_leader && " (Leader)"}
+                  </>
+                ) : (
+                  <span className="text-[var(--ink-tertiary)]">
+                    — Unassigned
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
 
           <div className="flex justify-between p-3">
             <span className="text-[var(--ink-secondary)]">Created At</span>

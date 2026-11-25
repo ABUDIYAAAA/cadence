@@ -27,7 +27,6 @@ import {
   RoundSummary,
   SubmitScoresRequest,
   TeamStatusResponse,
-  UpdateSlotLinksRequest,
   VolunteerPanelSchedule,
 } from "@/types/judging";
 import { MessageResponse } from "@/types/auth";
@@ -36,17 +35,6 @@ export const judgingService = {
   // Participant
   async getMyTeamStatus(): Promise<TeamStatusResponse> {
     const { data } = await apiClient.get<TeamStatusResponse>("/judging/teams/my-status");
-    return data;
-  },
-
-  async updateSlotLinks(
-    slotId: string,
-    payload: UpdateSlotLinksRequest
-  ): Promise<MessageResponse> {
-    const { data } = await apiClient.patch<MessageResponse>(
-      `/judging/slots/${slotId}/links`,
-      payload
-    );
     return data;
   },
 

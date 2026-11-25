@@ -21,7 +21,6 @@ export interface UserResponse {
   google_id?: string | null;
   avatar_url?: string | null;
   role: UserRole;
-  team_id?: string | null;
   events?: UserEventRole[];
   created_at: string;
 }

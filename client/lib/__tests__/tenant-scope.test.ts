@@ -6,6 +6,8 @@ import {
   setTenantScope,
   clearTenantScope,
   normalizeEventUsersPage,
+  isScopeReady,
+  buildScopedQueryKey,
 } from "../tenant-scope.ts";
 import {
   isValidCompetitionSlug,
@@ -13,6 +15,7 @@ import {
   resolveNextActiveCompetitionSlug,
   encodeTeamAssignmentFilter,
   parseTeamAssignmentFilter,
+  resolveEventUserFilters,
 } from "../competition-utils.ts";
 
 describe("Seam 1: Competition Slug Validation & Tenant Scope Resolution", () => {
@@ -239,5 +242,131 @@ describe("Seam 1: Competition Slug Validation & Tenant Scope Resolution", () => 
       no_team: true,
       competition_id: "comp-uuid-1",
     });
+    assert.equal(
+      encodeTeamAssignmentFilter({ competition_id: "comp-uuid-2" }),
+      "competition:comp-uuid-2"
+    );
+    assert.deepEqual(parseTeamAssignmentFilter("competition:comp-uuid-2"), {
+      no_team: undefined,
+      competition_id: "comp-uuid-2",
+    });
+  });
+
+  it("checks scope readiness for event-scoped and competition-scoped modules", () => {
+    assert.equal(
+      isScopeReady("event", { eventSlug: null, competitionSlug: null }),
+      false
+    );
+    assert.equal(
+      isScopeReady("event", { eventSlug: "devclub-2026", competitionSlug: null }),
+      true
+    );
+    assert.equal(
+      isScopeReady("competition", {
+        eventSlug: "devclub-2026",
+        competitionSlug: null,
+      }),
+      false
+    );
+    assert.equal(
+      isScopeReady("competition", {
+        eventSlug: null,
+        competitionSlug: "hack-track",
+      }),
+      false
+    );
+    assert.equal(
+      isScopeReady("competition", {
+        eventSlug: "devclub-2026",
+        competitionSlug: "hack-track",
+      }),
+      true
+    );
+  });
+
+  it("builds isolated React Query keys for event-scoped and competition-scoped hooks", () => {
+    const scopeA = { eventSlug: "fest-26", competitionSlug: "ai-cup" };
+    const scopeB = { eventSlug: "fest-26", competitionSlug: "robotics-cup" };
+
+    const judgingKeyA = buildScopedQueryKey(
+      "judging",
+      "competition",
+      scopeA,
+      "rounds"
+    );
+    const judgingKeyB = buildScopedQueryKey(
+      "judging",
+      "competition",
+      scopeB,
+      "rounds"
+    );
+    assert.deepEqual(judgingKeyA, ["judging", "fest-26", "ai-cup", "rounds"]);
+    assert.deepEqual(judgingKeyB, [
+      "judging",
+      "fest-26",
+      "robotics-cup",
+      "rounds",
+    ]);
+    assert.notDeepEqual(judgingKeyA, judgingKeyB);
+
+    const ticketsKey = buildScopedQueryKey(
+      "tickets",
+      "event",
+      scopeA,
+      "sessions",
+      "report",
+      "s-1"
+    );
+    assert.deepEqual(ticketsKey, [
+      "tickets",
+      "fest-26",
+      "sessions",
+      "report",
+      "s-1",
+    ]);
+  });
+
+  it("resolves effective event user filters with active competition fallback unless unassigned:any is selected", () => {
+    // Default (All team states): passes activeCompetitionId so lateral join shows active competition's team
+    assert.deepEqual(
+      resolveEventUserFilters(
+        { page: 1, limit: 25, search: "alice" },
+        "comp-active-1"
+      ),
+      {
+        page: 1,
+        limit: 25,
+        search: "alice",
+        competition_id: "comp-active-1",
+      }
+    );
+
+    // Explicit competition unassigned filter: preserves explicit competition_id
+    assert.deepEqual(
+      resolveEventUserFilters(
+        { page: 1, limit: 25, no_team: true, competition_id: "comp-other-2" },
+        "comp-active-1"
+      ),
+      {
+        page: 1,
+        limit: 25,
+        no_team: true,
+        competition_id: "comp-other-2",
+      }
+    );
+
+    // Unassigned in ANY competition (no_team: true, competition_id: undefined): must NOT inject activeCompetitionId
+    assert.deepEqual(
+      resolveEventUserFilters(
+        { page: 1, limit: 25, no_team: true, competition_id: undefined },
+        "comp-active-1"
+      ),
+      {
+        page: 1,
+        limit: 25,
+        no_team: true,
+        competition_id: undefined,
+      }
+    );
   });
 });

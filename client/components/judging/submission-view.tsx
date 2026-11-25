@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Edit2, ExternalLink, Layers } from "lucide-react";
 import { useMySubmission, useUpdateMySubmission } from "@/hooks/use-judging";
+import { resolveSubmissionViewState } from "@/lib/judging-utils";
 import { useToast } from "@/providers/toast-provider";
 import { apiErrorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,13 +27,14 @@ export function SubmissionView() {
   const [links, setLinks] = useState<Record<string, string>>({});
 
   if (isLoading) return <SkeletonCard />;
-  // Only teams cleared by the attendance gate see the form; everyone else sees nothing.
-  if (!data || !data.has_team || !data.can_submit) return null;
+  const viewState = resolveSubmissionViewState(data);
+  if (!data || !viewState.visible) return null;
 
   const saved = FIELDS.filter((f) => data.links[f.key]);
-  const blocked = !data.can_submit;
+  const { blocked, canEdit, blockedReason } = viewState;
 
   const openEditor = () => {
+    if (!canEdit) return;
     setProject(data.project_name || "");
     setLinks({ ...data.links });
     setOpen(true);
@@ -63,7 +65,7 @@ export function SubmissionView() {
 
       {blocked && (
         <p className="text-xs rounded-[10px] border border-[var(--color-coral-border)] bg-[var(--color-coral-dim)] p-3 text-[var(--ink-primary)]">
-          {data.submit_blocked_reason || "Submissions are closed for your team."}
+          {blockedReason}
         </p>
       )}
 

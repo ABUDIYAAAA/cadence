@@ -1,3 +1,5 @@
+import type { UserFilter } from "../types/users.ts";
+
 const COMPETITION_SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export function isValidCompetitionSlug(slug: string): boolean {
@@ -72,11 +74,16 @@ export function encodeTeamAssignmentFilter(filters: {
   no_team?: boolean;
   competition_id?: string;
 }): string {
-  if (!filters.no_team) return "";
-  if (filters.competition_id) {
-    return `unassigned:${filters.competition_id}`;
+  if (filters.no_team) {
+    if (filters.competition_id) {
+      return `unassigned:${filters.competition_id}`;
+    }
+    return "unassigned:any";
   }
-  return "unassigned:any";
+  if (filters.competition_id) {
+    return `competition:${filters.competition_id}`;
+  }
+  return "";
 }
 
 export function parseTeamAssignmentFilter(value: string): {
@@ -92,5 +99,46 @@ export function parseTeamAssignmentFilter(value: string): {
       return { no_team: true, competition_id: compId };
     }
   }
+  if (value.startsWith("competition:")) {
+    const compId = value.slice("competition:".length).trim();
+    if (compId) {
+      return { no_team: undefined, competition_id: compId };
+    }
+  }
   return { no_team: undefined, competition_id: undefined };
+}
+
+export function getUserTableColumnVisibility(mode: "event" | "platform"): {
+  showTeam: boolean;
+  showCheckIn: boolean;
+} {
+  const isEvent = mode === "event";
+  return {
+    showTeam: isEvent,
+    showCheckIn: isEvent,
+  };
+}
+
+/**
+ * Injects the active competition ID into event user list filters when no
+ * explicit competition filter or "unassigned in any competition" (`no_team: true`
+ * with `competition_id: undefined`) filter is selected.
+ */
+export function resolveEventUserFilters<T extends UserFilter>(
+  filters: T,
+  activeCompetitionId?: string | null
+): T {
+  if (filters.competition_id) {
+    return filters;
+  }
+  if (filters.no_team) {
+    return filters;
+  }
+  if (activeCompetitionId) {
+    return {
+      ...filters,
+      competition_id: activeCompetitionId,
+    };
+  }
+  return filters;
 }

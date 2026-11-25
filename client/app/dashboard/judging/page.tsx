@@ -3,19 +3,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-	Award,
 	Plus,
 	RefreshCw,
 	Search,
-	Filter,
-	CheckCircle2,
-	Clock,
-	Layers,
-	DoorOpen,
-	UserCheck,
-	CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
+import { useTenant } from '@/providers/tenant-provider';
 import { useToast } from '@/providers/toast-provider';
 import {
 	useJudgingRounds,
@@ -38,6 +31,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { Alert } from '@/components/ui/alert';
 import { apiErrorMessage } from '@/lib/utils';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import {
@@ -55,6 +49,7 @@ import {
 	VolunteerScheduleView,
 	ParticipantJudgingStatusView,
 	JudgeEvaluationView,
+	SubmissionAdminCard,
 } from '@/components/judging';
 
 type JudgingTab = 'rounds' | 'volunteer_monitor' | 'leaderboard' | 'analytics';
@@ -70,17 +65,18 @@ export default function JudgingPage() {
 		isParticipant,
 		isLoading: authLoading,
 	} = useAuth();
+	const { competitionSlug, isLoadingCompetitions } = useTenant();
 
 	// Admins manage rounds and monitor; judges only see their scoring screen (handled below).
 	const [activeTab, setActiveTab] = useState<JudgingTab>('rounds');
 
-	// Queries & Mutations
+	// Queries & Mutations (only admins need the rounds management directory)
 	const {
 		data: rounds = [],
 		isLoading: roundsLoading,
 		isFetching,
 		refetch,
-	} = useJudgingRounds();
+	} = useJudgingRounds({ enabled: isAdmin });
 
 	const activateRoundMutation = useActivateRound();
 	const endRoundMutation = useEndRound();
@@ -153,11 +149,21 @@ export default function JudgingPage() {
 		}
 	}, [authLoading, user, router]);
 
-	if (authLoading || !user) {
+	if (authLoading || !user || isLoadingCompetitions) {
 		return (
 			<div className='font-mono space-y-4'>
 				<SkeletonCard />
 				<SkeletonCard />
+			</div>
+		);
+	}
+
+	if (!competitionSlug) {
+		return (
+			<div className='font-sans space-y-4'>
+				<Alert variant='info' title='No competition active'>
+					This event does not have a competition yet. Judging rounds, panels, and submissions are scoped to a competition.
+				</Alert>
 			</div>
 		);
 	}
@@ -417,6 +423,8 @@ export default function JudgingPage() {
 			{/* TAB 4: ROUNDS MANAGEMENT & CONFIGURATION */}
 			{activeTab === 'rounds' && (
 				<>
+					{isAdmin && <SubmissionAdminCard />}
+
 					{/* Action Toolbar */}
 					<div className='flex items-center justify-between gap-4'>
 						<div className='text-sm font-semibold text-[var(--ink-primary)]'>

@@ -27,6 +27,7 @@ import {
   ImportTeamCriteriaRequest,
   SlotAssignment,
 } from "@/types/judging";
+import { buildSlotAssignments } from "@/lib/judging-utils";
 import { TeamCriteriaPicker, TeamCriteriaPickerState } from "./team-criteria-picker";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -597,13 +598,11 @@ export function RoundCreateDialog({
             name: p.name.trim(),
             room: p.room.trim(),
             judge_ids: p.judge_ids,
-            slots: p.assigned_team_ids
-              .filter((teamId) => !rosterIds || rosterIds.has(teamId))
-              .map((teamId, seq) => ({
-              team_id: teamId,
-              sequence_order: seq + 1,
-              submission_links: {},
-            })),
+            slots: buildSlotAssignments(
+              p.assigned_team_ids.filter(
+                (teamId) => !rosterIds || rosterIds.has(teamId)
+              )
+            ),
           }))
         : [];
 

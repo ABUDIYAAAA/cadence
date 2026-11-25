@@ -8,6 +8,8 @@ import {
   useUpdateSlotTiming,
   useSetPanelJudges,
   useAssignedJudges,
+  useQueueSlot,
+  useUnqueueSlot,
 } from "@/hooks/use-judging";
 import { useUsers } from "@/hooks/use-users";
 import { Input } from "@/components/ui/input";
@@ -231,6 +233,8 @@ export function RoundTeamReassignDialog({
 }: RoundTeamReassignDialogProps) {
   const { data: panels, isLoading } = useRoundPanels(open ? round?.id : undefined);
   const moveSlot = useMoveSlot();
+  const queueSlot = useQueueSlot();
+  const unqueueSlot = useUnqueueSlot();
   const [pickedRoomId, setPickedRoomId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [timingSlotId, setTimingSlotId] = useState<string | null>(null);
@@ -252,6 +256,19 @@ export function RoundTeamReassignDialog({
       await moveSlot.mutateAsync({ slotId, payload });
     } catch (err: unknown) {
       setError(apiErrorMessage(err, "Failed to move team"));
+    }
+  };
+
+  const handleToggleQueue = async (slot: RoundPanelSlot) => {
+    setError(null);
+    try {
+      if (slot.status === "queued") {
+        await unqueueSlot.mutateAsync(slot.slot_id);
+      } else {
+        await queueSlot.mutateAsync(slot.slot_id);
+      }
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, "Failed to update on-deck queue status"));
     }
   };
 
@@ -417,6 +434,19 @@ export function RoundTeamReassignDialog({
                       {slot.status === "in_progress" && <Badge variant="coral" size="sm">Presenting</Badge>}
                       {slot.status === "completed" && <Badge variant="subtle" size="sm">Done</Badge>}
                       {slot.status === "queued" && <Badge variant="blue" size="sm">On deck</Badge>}
+
+                      {round.status === "active" && movable && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          type="button"
+                          disabled={queueSlot.isPending || unqueueSlot.isPending}
+                          onClick={() => handleToggleQueue(slot)}
+                          className="h-7 shrink-0 px-2 text-[11px]"
+                        >
+                          {slot.status === "queued" ? "Unqueue" : "Stage on deck"}
+                        </Button>
+                      )}
 
                       {movable && (
                         <>

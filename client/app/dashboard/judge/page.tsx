@@ -7,17 +7,11 @@ import {
   Award,
   Layers,
   ArrowRight,
-  Clock,
   CheckCircle2,
-  Lock,
-  DoorOpen,
-  Play,
-  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
 import { useJudgePanels } from "@/hooks/use-judging";
-import { useTeams } from "@/hooks/use-teams";
 import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -39,8 +33,6 @@ export default function JudgeDashboardPage() {
 
   const { data: rawPanels, isLoading: panelsLoading } = useJudgePanels();
   const panels = Array.isArray(rawPanels) ? rawPanels : [];
-
-  const { data: teamsData, isLoading: teamsLoading } = useTeams({ page: 1, limit: 1 });
 
   if (isLoading || !isJudge) {
     return <SkeletonCard />;
@@ -203,7 +195,6 @@ export default function JudgeDashboardPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {panels.map((panel) => {
-              const panelDone = panel.total_slots > 0 && panel.completed_slots === panel.total_slots;
               const pct = panel.total_slots > 0 ? Math.round((panel.completed_slots / panel.total_slots) * 100) : 0;
 
               return (

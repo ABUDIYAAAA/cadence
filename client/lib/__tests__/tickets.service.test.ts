@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createTicketsService } from "../../services/tickets.service.ts";
+import {
+  normalizeCheckInCode,
+  validateCustomCheckInCode,
+  buildCreateScanSessionPayload,
+} from "../tickets-utils.ts";
 
 describe("Seam 3: ticketsService scan sessions, check-in codes, and ticket settings", () => {
   it("creates a competition-linked scan session with mark_team and initial check-in code generation", async () => {
@@ -151,5 +156,112 @@ describe("Seam 3: ticketsService scan sessions, check-in codes, and ticket setti
         tickets_released: true,
       },
     });
+  });
+
+  it("supports default entry check-in code endpoints and single ticket send with force_resend", async () => {
+    const calls: Array<{ method: string; url: string; body?: unknown }> = [];
+    const service = createTicketsService({
+      get: async () => ({ data: {} as never }),
+      post: async <T>(url: string, body?: unknown) => {
+        calls.push({ method: "POST", url, body });
+        return {
+          data: {
+            id: "sess-default",
+            is_default: true,
+            checkin_code: "ENTRY26",
+            user_id: "u-1",
+            ticket_code: "cadence:tkt:123",
+          } as unknown as T,
+        };
+      },
+      patch: async () => ({ data: {} as never }),
+      put: async () => ({ data: {} as never }),
+      delete: async <T>(url: string) => {
+        calls.push({ method: "DELETE", url });
+        return {
+          data: {
+            id: "sess-default",
+            is_default: true,
+            checkin_code: null,
+          } as unknown as T,
+        };
+      },
+    });
+
+    await service.generateDefaultCheckInCode("entry26");
+    assert.deepEqual(calls[0], {
+      method: "POST",
+      url: "/tickets/checkin-code",
+      body: { code: "ENTRY26" },
+    });
+
+    await service.clearDefaultCheckInCode();
+    assert.deepEqual(calls[1], {
+      method: "DELETE",
+      url: "/tickets/checkin-code",
+    });
+
+    await service.sendSingle("u-1", { force_resend: true });
+    assert.deepEqual(calls[2], {
+      method: "POST",
+      url: "/tickets/users/u-1/send",
+      body: { force_resend: true },
+    });
+  });
+
+  it("normalizes and validates custom check-in codes (2-32 chars, uppercase) and builds create-session payloads", () => {
+    assert.equal(normalizeCheckInCode("  night1  "), "NIGHT1");
+    assert.equal(validateCustomCheckInCode(""), null); // blank = random code
+    assert.equal(validateCustomCheckInCode("NIGHT1"), null);
+    assert.equal(validateCustomCheckInCode("A".repeat(32)), null);
+    assert.equal(
+      validateCustomCheckInCode("A"),
+      "Custom check-in code must be between 2 and 32 characters."
+    );
+    assert.equal(
+      validateCustomCheckInCode("A".repeat(33)),
+      "Custom check-in code must be between 2 and 32 characters."
+    );
+
+    // Build create session payload with custom check-in code
+    assert.deepEqual(
+      buildCreateScanSessionPayload({
+        name: "  Night 1 Attendance  ",
+        kind: "attendance",
+        markTeam: true,
+        competitionId: "comp-1",
+        enableCode: true,
+        customCode: "  night1  ",
+      }),
+      {
+        payload: {
+          name: "Night 1 Attendance",
+          kind: "attendance",
+          mark_team: true,
+          competition_id: "comp-1",
+          generate_code: true,
+          checkin_code: "NIGHT1",
+        },
+      }
+    );
+
+    // Build create session payload with random check-in code (blank customCode)
+    assert.deepEqual(
+      buildCreateScanSessionPayload({
+        name: "Final Exit",
+        kind: "exit",
+        markTeam: false,
+        competitionId: "",
+        enableCode: true,
+        customCode: "   ",
+      }),
+      {
+        payload: {
+          name: "Final Exit",
+          kind: "exit",
+          generate_code: true,
+        },
+      }
+    );
   });
 });

@@ -142,10 +142,16 @@ export function UserFilters({
                 No team (any competition)
               </option>
               {competitions.map((comp) => (
-                <option key={comp.id} value={`unassigned:${comp.id}`}>
+                <option key={`unassigned:${comp.id}`} value={`unassigned:${comp.id}`}>
                   No team in {comp.name}
                 </option>
               ))}
+              {competitions.length > 1 &&
+                competitions.map((comp) => (
+                  <option key={`competition:${comp.id}`} value={`competition:${comp.id}`}>
+                    Show team in {comp.name}
+                  </option>
+                ))}
             </Select>
           </div>
         )}

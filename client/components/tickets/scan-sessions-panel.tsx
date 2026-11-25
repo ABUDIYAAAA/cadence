@@ -23,6 +23,11 @@ import {
 } from "@/hooks/use-tickets";
 import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
+import {
+  buildCreateScanSessionPayload,
+  normalizeCheckInCode,
+  validateCustomCheckInCode,
+} from "@/lib/tickets-utils";
 import { apiErrorMessage } from "@/lib/utils";
 import { downloadCsv, slugify, toCsv } from "@/lib/csv";
 import type { ScanKind, ScanSession } from "@/types/tickets";
@@ -351,6 +356,10 @@ export function ScanSessionsPanel() {
   const [selectedCompetitionId, setSelectedCompetitionId] =
     useState<string>("");
   const [generateInitialCode, setGenerateInitialCode] = useState(false);
+  const [initialCustomCode, setInitialCustomCode] = useState("");
+  const [editingCodeSession, setEditingCodeSession] =
+    useState<ScanSession | null>(null);
+  const [customCodeDraft, setCustomCodeDraft] = useState("");
   const [reportFor, setReportFor] = useState<ScanSession | null>(null);
   const [codeBusySessionId, setCodeBusySessionId] = useState<string | null>(
     null
@@ -363,27 +372,23 @@ export function ScanSessionsPanel() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (kind === "attendance" && markTeam && !effectiveCompetitionId) {
-      toast.error(
-        "Select a competition when team-leader scanning is enabled.",
-        "Competition required"
-      );
+    const built = buildCreateScanSessionPayload({
+      name,
+      kind,
+      markTeam,
+      competitionId: effectiveCompetitionId,
+      enableCode: generateInitialCode,
+      customCode: initialCustomCode,
+    });
+    if (built.error !== undefined) {
+      toast.error(built.error, "Invalid session configuration");
       return;
     }
 
     try {
-      const created = await create.mutateAsync({
-        name: name.trim(),
-        kind,
-        ...(kind === "attendance"
-          ? {
-              mark_team: markTeam,
-              competition_id: effectiveCompetitionId || undefined,
-            }
-          : {}),
-        ...(generateInitialCode ? { generate_code: true } : {}),
-      });
+      const created = await create.mutateAsync(built.payload);
       setName("");
+      setInitialCustomCode("");
       toast.success(
         created.checkin_code
           ? `Session created with check-in code ${created.checkin_code}.`
@@ -403,13 +408,27 @@ export function ScanSessionsPanel() {
     }
   };
 
-  const handleGenerateOrRotateCode = async (s: ScanSession) => {
+  const handleGenerateOrRotateCode = async (
+    s: ScanSession,
+    customCode?: string
+  ) => {
+    const codeErr = validateCustomCheckInCode(customCode);
+    if (codeErr) {
+      toast.error(codeErr, "Invalid code");
+      return;
+    }
     setCodeBusySessionId(s.id);
     try {
-      const updated = await generateCode.mutateAsync({ sessionId: s.id });
+      const normalized = normalizeCheckInCode(customCode);
+      const updated = await generateCode.mutateAsync({
+        sessionId: s.id,
+        code: normalized || undefined,
+      });
+      setEditingCodeSession(null);
+      setCustomCodeDraft("");
       toast.success(
         `Active check-in code for "${s.name}": ${updated.checkin_code}`,
-        s.checkin_code ? "Code rotated" : "Code generated"
+        s.checkin_code ? "Code updated" : "Code generated"
       );
     } catch (err: unknown) {
       toast.error(
@@ -537,8 +556,22 @@ export function ScanSessionsPanel() {
               onChange={(e) => setGenerateInitialCode(e.target.checked)}
               className="accent-[var(--color-blue)] h-4 w-4 rounded"
             />
-            <span>Generate rotatable self-check-in code</span>
+            <span>Enable rotatable self-check-in code</span>
           </label>
+
+          {generateInitialCode && (
+            <div className="w-56">
+              <Input
+                placeholder="Custom code (blank = random)"
+                value={initialCustomCode}
+                maxLength={32}
+                onChange={(e) =>
+                  setInitialCustomCode(e.target.value.toUpperCase())
+                }
+                className="h-8 text-xs font-mono uppercase tracking-wider"
+              />
+            </div>
+          )}
         </div>
 
         <p className="text-[11px] text-[var(--ink-tertiary)]">
@@ -624,7 +657,7 @@ export function ScanSessionsPanel() {
                             type="button"
                             disabled={isCodeBusy}
                             onClick={() => handleGenerateOrRotateCode(s)}
-                            title="Rotate check-in code (invalidates old code)"
+                            title="Rotate to new random code (invalidates old code)"
                             aria-label={`Rotate check-in code for ${s.name}`}
                             className="p-1 rounded-[5px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] disabled:opacity-50 cursor-pointer"
                           >
@@ -633,6 +666,19 @@ export function ScanSessionsPanel() {
                                 isCodeBusy ? "animate-spin" : ""
                               }`}
                             />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isCodeBusy}
+                            onClick={() => {
+                              setEditingCodeSession(s);
+                              setCustomCodeDraft(s.checkin_code || "");
+                            }}
+                            title="Set custom check-in code"
+                            aria-label={`Set custom check-in code for ${s.name}`}
+                            className="p-1 rounded-[5px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] disabled:opacity-50 cursor-pointer"
+                          >
+                            <KeyRound className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
@@ -646,16 +692,30 @@ export function ScanSessionsPanel() {
                           </button>
                         </div>
                       ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={isCodeBusy}
-                          onClick={() => handleGenerateOrRotateCode(s)}
-                          className="h-7 px-2.5 text-[11px] gap-1"
-                        >
-                          <KeyRound className="h-3 w-3" />
-                          <span>Generate code</span>
-                        </Button>
+                        <div className="inline-flex items-center gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isCodeBusy}
+                            onClick={() => handleGenerateOrRotateCode(s)}
+                            className="h-7 px-2.5 text-[11px] gap-1"
+                          >
+                            <KeyRound className="h-3 w-3" />
+                            <span>Random code</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isCodeBusy}
+                            onClick={() => {
+                              setEditingCodeSession(s);
+                              setCustomCodeDraft("");
+                            }}
+                            className="h-7 px-2 text-[11px]"
+                          >
+                            Custom…
+                          </Button>
+                        </div>
                       )}
                     </TableCell>
 
@@ -706,6 +766,57 @@ export function ScanSessionsPanel() {
         session={reportFor}
         onClose={() => setReportFor(null)}
       />
+
+      <Dialog
+        open={Boolean(editingCodeSession)}
+        onClose={() => {
+          setEditingCodeSession(null);
+          setCustomCodeDraft("");
+        }}
+        title={
+          editingCodeSession
+            ? `Check-in code for ${editingCodeSession.name}`
+            : "Set check-in code"
+        }
+        description="Set a custom 2–32 character code (or leave blank to generate a random 6-character code). Setting a new code immediately invalidates any previous code on this session."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingCodeSession(null);
+                setCustomCodeDraft("");
+              }}
+              disabled={generateCode.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              isLoading={generateCode.isPending}
+              onClick={() =>
+                editingCodeSession &&
+                handleGenerateOrRotateCode(editingCodeSession, customCodeDraft)
+              }
+            >
+              {customCodeDraft.trim() ? "Save custom code" : "Generate random code"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3 font-sans text-xs">
+          <Input
+            label="Self check-in code"
+            placeholder="e.g. NIGHT1 or MAINDOOR (leave blank for random)"
+            value={customCodeDraft}
+            maxLength={32}
+            onChange={(e) => setCustomCodeDraft(e.target.value.toUpperCase())}
+            className="font-mono uppercase tracking-wider text-xs"
+          />
+        </div>
+      </Dialog>
     </div>
   );
 }

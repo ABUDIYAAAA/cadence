@@ -3,6 +3,7 @@
 import React from "react";
 import { Eye, Globe, Smartphone } from "lucide-react";
 import { AuditLogResponse } from "@/types/audit";
+import { getAuditActionBadgeVariant } from "@/lib/audit-registry";
 import {
   Table,
   TableBody,
@@ -50,16 +51,6 @@ export function AuditTable({ logs, isLoading, onView }: AuditTableProps) {
     );
   }
 
-  const getActionBadgeVariant = (action: string) => {
-    if (action.includes("delete") || action.includes("failure") || action.includes("failed") || action.includes("duplicate") || action.includes("rejected")) {
-      return "coral";
-    }
-    if (action.includes("create") || action.includes("success") || action.includes("activate")) {
-      return "blue";
-    }
-    return "subtle";
-  };
-
   return (
     <div className="w-full overflow-x-auto font-sans">
       <Table>
@@ -95,7 +86,7 @@ export function AuditTable({ logs, isLoading, onView }: AuditTableProps) {
 
                 {/* Action */}
                 <TableCell className="whitespace-nowrap">
-                  <Badge variant={getActionBadgeVariant(log.action)} size="sm">
+                  <Badge variant={getAuditActionBadgeVariant(log.action)} size="sm">
                     {log.action}
                   </Badge>
                 </TableCell>

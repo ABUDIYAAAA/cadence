@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { UserDetailResponse } from "@/types/users";
+import { getUserTableColumnVisibility } from "@/lib/competition-utils";
 import {
   Table,
   TableBody,
@@ -124,6 +125,8 @@ export function UserTable({
     }
   };
 
+  const { showTeam, showCheckIn } = getUserTableColumnVisibility(mode);
+
   return (
     <div className="w-full font-sans">
       <Table>
@@ -131,8 +134,8 @@ export function UserTable({
           <TableRow>
             <TableHead>{mode === "event" ? "Member" : "User"}</TableHead>
             <TableHead>Role</TableHead>
-            <TableHead>Team</TableHead>
-            <TableHead>Check-in</TableHead>
+            {showTeam && <TableHead>Team</TableHead>}
+            {showCheckIn && <TableHead>Check-in</TableHead>}
             <TableHead>Status</TableHead>
             <TableHead>Created</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -157,7 +160,7 @@ export function UserTable({
                           dev
                         </Badge>
                       )}
-                      {user.is_leader && (
+                      {showTeam && user.is_leader && (
                         <Badge variant="amber" size="sm" className="gap-1">
                           <Crown className="h-2.5 w-2.5" />
                           Lead
@@ -183,32 +186,36 @@ export function UserTable({
                 </TableCell>
 
                 {/* Team */}
-                <TableCell className="text-xs">
-                  {user.team_name ? (
-                    <span className="font-medium text-[var(--ink-primary)]">
-                      {user.team_name}
-                    </span>
-                  ) : (
-                    <span className="text-[var(--ink-tertiary)]">
-                      Unassigned
-                    </span>
-                  )}
-                </TableCell>
+                {showTeam && (
+                  <TableCell className="text-xs">
+                    {user.team_name ? (
+                      <span className="font-medium text-[var(--ink-primary)]">
+                        {user.team_name}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--ink-tertiary)]">
+                        Unassigned
+                      </span>
+                    )}
+                  </TableCell>
+                )}
 
                 {/* Check-in status */}
-                <TableCell className="text-xs">
-                  {user.checkin_status === "checked_in" ? (
-                    <Badge variant="emerald" size="sm">
-                      Checked in
-                    </Badge>
-                  ) : user.checkin_status === "not_checked_in" ? (
-                    <Badge variant="subtle" size="sm">
-                      Ticket issued
-                    </Badge>
-                  ) : (
-                    <span className="text-[var(--ink-tertiary)]">No ticket</span>
-                  )}
-                </TableCell>
+                {showCheckIn && (
+                  <TableCell className="text-xs">
+                    {user.checkin_status === "checked_in" ? (
+                      <Badge variant="emerald" size="sm">
+                        Checked in
+                      </Badge>
+                    ) : user.checkin_status === "not_checked_in" ? (
+                      <Badge variant="subtle" size="sm">
+                        Ticket issued
+                      </Badge>
+                    ) : (
+                      <span className="text-[var(--ink-tertiary)]">No ticket</span>
+                    )}
+                  </TableCell>
+                )}
 
                 {/* Status */}
                 <TableCell>

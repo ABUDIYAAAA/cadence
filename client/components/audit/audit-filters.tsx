@@ -5,108 +5,37 @@ import { Search, X, RotateCcw, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import {
+  AUDIT_ACTION_OPTIONS,
+  AUDIT_TARGET_TYPE_OPTIONS,
+  hasActiveAuditFilters,
+} from "@/lib/audit-registry";
+import type { Competition } from "@/types/competitions";
 import { AuditLogFilter } from "@/types/audit";
 
 interface AuditFiltersProps {
   filters: AuditLogFilter;
+  competitions?: ReadonlyArray<Competition>;
   onChange: (filters: AuditLogFilter) => void;
   onReset: () => void;
 }
 
-const ACTION_OPTIONS = [
-  { value: "", label: "All Actions" },
-  // Auth
-  { value: "auth.login_success", label: "[Auth] Login Success" },
-  { value: "auth.login_failure", label: "[Auth] Login Failure" },
-  { value: "auth.logout", label: "[Auth] Logout" },
-  { value: "auth.password_setup", label: "[Auth] Password Setup" },
-  { value: "auth.password_forgot", label: "[Auth] Password Reset Requested" },
-  { value: "auth.password_reset", label: "[Auth] Password Reset" },
-  // User
-  { value: "user.create", label: "[User] Account Created" },
-  { value: "user.bulk_import", label: "[User] Bulk Imported" },
-  { value: "user.update", label: "[User] Record Updated" },
-  { value: "user.delete", label: "[User] Account Deleted" },
-  { value: "user.send_invite", label: "[User] Invite Dispatched" },
-  { value: "user.reset_trigger", label: "[User] Reset Triggered" },
-  // Team
-  { value: "team.create", label: "[Team] Team Created" },
-  { value: "team.update", label: "[Team] Team Updated" },
-  { value: "team.delete", label: "[Team] Team Deleted" },
-  { value: "team.add_member", label: "[Team] Member Added" },
-  { value: "team.remove_member", label: "[Team] Member Removed" },
-  { value: "team.join", label: "[Team] Member Joined" },
-  { value: "team.leave", label: "[Team] Member Left" },
-  { value: "team.kick", label: "[Team] Member Kicked" },
-  { value: "team.freeze", label: "[Team] Team Frozen" },
-  { value: "team.unfreeze", label: "[Team] Team Unfrozen" },
-  { value: "team.freeze_all", label: "[Team] All Teams Frozen" },
-  { value: "team.unfreeze_all", label: "[Team] All Teams Unfrozen" },
-  { value: "team.regenerate_code", label: "[Team] Join Code Regenerated" },
-  { value: "team.settings_update", label: "[Team] Settings Updated" },
-  // Ticket
-  { value: "ticket.issued", label: "[Ticket] Pass Emailed" },
-  { value: "ticket.released", label: "[Ticket] Passes Released" },
-  { value: "ticket.check_in", label: "[Ticket] Check-In Recorded" },
-  { value: "ticket.duplicate_scan", label: "[Ticket] Duplicate Scan" },
-  { value: "ticket.scan_rejected", label: "[Ticket] Scan Refused" },
-  { value: "ticket.session_create", label: "[Ticket] Scan Session Created" },
-  { value: "ticket.session_toggle", label: "[Ticket] Scan Session Opened/Closed" },
-  { value: "ticket.session_scan", label: "[Ticket] Attendance/Exit Scan" },
-  { value: "ticket.settings_update", label: "[Ticket] Internal Domains Changed" },
-  // Judging
-  { value: "judging.round_create", label: "[Judging] Round Created" },
-  { value: "judging.round_activate", label: "[Judging] Round Activated" },
-  { value: "judging.round_end", label: "[Judging] Round Ended" },
-  { value: "judging.round_delete", label: "[Judging] Round Deleted" },
-  { value: "judging.panel_create", label: "[Judging] Panel Created" },
-  { value: "judging.slots_configure", label: "[Judging] Slots Configured" },
-  { value: "judging.slot_start", label: "[Judging] Slot Started" },
-  { value: "judging.timer_pause", label: "[Judging] Timer Paused" },
-  { value: "judging.timer_resume", label: "[Judging] Timer Resumed" },
-  { value: "judging.timer_extend", label: "[Judging] Timer Extended" },
-  { value: "judging.score_lock", label: "[Judging] Score Locked" },
-  { value: "judging.slot_complete", label: "[Judging] Slot Completed" },
-  { value: "judging.slot_move", label: "[Judging] Slot Moved" },
-  { value: "judging.slot_queue", label: "[Judging] Slot Queued" },
-  { value: "judging.slot_unqueue", label: "[Judging] Slot Unqueued" },
-  { value: "judging.slot_links_update", label: "[Judging] Submission Links Updated" },
-  // Notification
-  { value: "notification.broadcast", label: "[Notification] Broadcast Sent" },
-  { value: "notification.subscribe", label: "[Notification] Push Subscribed" },
-  { value: "notification.unsubscribe", label: "[Notification] Push Unsubscribed" },
-  // System
-  { value: "system.backup_failed", label: "[System] Backup Failed" },
-  { value: "system.backup_recovered", label: "[System] Backup Recovered" },
-];
-
-const TARGET_TYPE_OPTIONS = [
-  { value: "", label: "All Target Types" },
-  { value: "user", label: "User" },
-  { value: "team", label: "Team" },
-  { value: "ticket", label: "Ticket" },
-  { value: "scan_session", label: "Scan Session" },
-  { value: "session", label: "Session" },
-  { value: "auth", label: "Auth" },
-  { value: "judging_round", label: "Judging Round" },
-  { value: "judging_slot", label: "Judging Slot" },
-  { value: "judging_panel", label: "Judging Panel" },
-  { value: "notification", label: "Notification" },
-  { value: "system", label: "System" },
-];
-
-export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) {
-  const hasActiveFilters = Boolean(
-    filters.search ||
-      filters.action ||
-      filters.target_type ||
-      filters.from_date ||
-      filters.to_date
-  );
+export function AuditFilters({
+  filters,
+  competitions = [],
+  onChange,
+  onReset,
+}: AuditFiltersProps) {
+  const hasActiveFilters = hasActiveAuditFilters(filters);
+  const showCompetitionFilter = competitions.length > 0;
 
   return (
     <div className="space-y-3 font-sans">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div
+        className={`grid grid-cols-1 sm:grid-cols-2 ${
+          showCompetitionFilter ? "lg:grid-cols-6" : "lg:grid-cols-5"
+        } gap-3`}
+      >
         {/* Search */}
         <div className="relative lg:col-span-2">
           <Input
@@ -123,15 +52,42 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
               onClick={() => onChange({ ...filters, search: "", page: 1 })}
               className="absolute right-2.5 top-2.5 text-[var(--ink-tertiary)] hover:text-[var(--ink-primary)] cursor-pointer"
               type="button"
+              aria-label="Clear search"
             >
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
 
+        {/* Competition Dropdown (when inside an event with competitions) */}
+        {showCompetitionFilter && (
+          <div>
+            <Select
+              aria-label="Filter by competition"
+              value={filters.competition_id || ""}
+              onChange={(e) =>
+                onChange({
+                  ...filters,
+                  competition_id: e.target.value || undefined,
+                  page: 1,
+                })
+              }
+              className="text-xs"
+            >
+              <option value="">All Competitions</option>
+              {competitions.map((comp) => (
+                <option key={comp.id} value={comp.id}>
+                  {comp.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+
         {/* Action Dropdown */}
         <div>
           <Select
+            aria-label="Filter by action"
             value={filters.action || ""}
             onChange={(e) =>
               onChange({
@@ -142,7 +98,7 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
             }
             className="text-xs"
           >
-            {ACTION_OPTIONS.map((opt) => (
+            {AUDIT_ACTION_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
@@ -153,6 +109,7 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
         {/* Target Type Dropdown */}
         <div>
           <Select
+            aria-label="Filter by target type"
             value={filters.target_type || ""}
             onChange={(e) =>
               onChange({
@@ -163,7 +120,7 @@ export function AuditFilters({ filters, onChange, onReset }: AuditFiltersProps) 
             }
             className="text-xs"
           >
-            {TARGET_TYPE_OPTIONS.map((opt) => (
+            {AUDIT_TARGET_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>

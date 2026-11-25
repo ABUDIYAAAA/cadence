@@ -6,6 +6,7 @@ import { useTeams } from "@/hooks/use-teams";
 import { useRoundPanels, useRoundTeams, useSetTeamCriterion } from "@/hooks/use-judging";
 import { TeamResponse } from "@/types/teams";
 import { Input } from "@/components/ui/input";
+import { buildSlotAssignments } from "@/lib/judging-utils";
 import { apiErrorMessage } from "@/lib/utils";
 import {
   MarksValue,
@@ -115,11 +116,7 @@ export function RoundSlotsConfigDialog({
         await setCriterion.mutateAsync({ roundId: round.id, teamId, payload: parsed.payload });
       }
 
-      const slots = slottedTeamIds.map((teamId, index) => ({
-        team_id: teamId,
-        sequence_order: index + 1,
-        submission_links: {},
-      }));
+      const slots = buildSlotAssignments(slottedTeamIds);
 
       await onSubmit(panelId.trim(), { slots, append: true });
       setSlottedTeamIds([]);

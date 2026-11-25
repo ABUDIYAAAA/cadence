@@ -1,4 +1,5 @@
 import { apiClient } from "../lib/api-client.ts";
+import { normalizeCheckInCode } from "../lib/tickets-utils.ts";
 import type {
   AnalyticsResponse,
   BulkSendTicketsRequest,
@@ -113,7 +114,7 @@ export function createTicketsService(client: TicketsHttpClient = apiClient) {
       sessionId: string,
       customCode?: string
     ): Promise<ScanSession> {
-      const trimmed = customCode?.trim();
+      const trimmed = normalizeCheckInCode(customCode);
       const { data } = await client.post<ScanSession>(
         `/tickets/sessions/${encodeURIComponent(sessionId)}/code`,
         trimmed ? { code: trimmed } : {}
@@ -124,6 +125,24 @@ export function createTicketsService(client: TicketsHttpClient = apiClient) {
     async clearSessionCode(sessionId: string): Promise<ScanSession> {
       const { data } = await client.delete<ScanSession>(
         `/tickets/sessions/${encodeURIComponent(sessionId)}/code`
+      );
+      return data;
+    },
+
+    async generateDefaultCheckInCode(
+      customCode?: string
+    ): Promise<ScanSession> {
+      const trimmed = normalizeCheckInCode(customCode);
+      const { data } = await client.post<ScanSession>(
+        "/tickets/checkin-code",
+        trimmed ? { code: trimmed } : {}
+      );
+      return data;
+    },
+
+    async clearDefaultCheckInCode(): Promise<ScanSession> {
+      const { data } = await client.delete<ScanSession>(
+        "/tickets/checkin-code"
       );
       return data;
     },

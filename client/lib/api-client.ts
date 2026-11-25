@@ -2,24 +2,29 @@ import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestCo
 import type { ApiError } from "../types/api.ts";
 import { getQueryClient } from "./query-client.ts";
 import {
+  buildScopedQueryKey,
   clearTenantScope,
   getSavedCompetitionForEvent,
   getTenantScope,
+  isScopeReady,
   resolveScopedPath,
   setTenantScope,
   subscribeTenantScope,
+  type ScopeLevel,
   type TenantScope,
 } from "./tenant-scope.ts";
 
 export {
+  buildScopedQueryKey,
   clearTenantScope,
   getSavedCompetitionForEvent,
   getTenantScope,
+  isScopeReady,
   resolveScopedPath,
   setTenantScope,
   subscribeTenantScope,
 };
-export type { TenantScope };
+export type { ScopeLevel, TenantScope };
 
 const rawBaseUrl =
   process.env.NEXT_PUBLIC_API_URL_V2 ||

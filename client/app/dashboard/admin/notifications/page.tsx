@@ -7,6 +7,7 @@ import {
   Search,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
+import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
 import {
   useBroadcastNotification,
@@ -15,6 +16,13 @@ import {
 import { useTeams } from "@/hooks/use-teams";
 import { useScanSessions } from "@/hooks/use-tickets";
 import { useUsers } from "@/hooks/use-users";
+import {
+  BROADCAST_ROLE_OPTIONS,
+  BROADCAST_TARGET_MODES,
+  BroadcastTargetMode,
+  buildBroadcastRequest,
+  formatBroadcastTargetSummary,
+} from "@/lib/notifications-utils";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +38,12 @@ import { ApiError } from "@/types/api";
 
 export default function AdminNotificationsPage() {
   const { user, isAdmin, isLoading: authLoading } = useAuth();
+  const {
+    competitions,
+    competitionSlug,
+    activeCompetition,
+    selectCompetition,
+  } = useTenant();
   const toast = useToast();
 
   const [page, setPage] = useState(1);
@@ -38,7 +52,7 @@ export default function AdminNotificationsPage() {
   // Form State
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [targetType, setTargetType] = useState<"broadcast" | "role" | "team" | "user" | "attendance">("broadcast");
+  const [targetType, setTargetType] = useState<BroadcastTargetMode>("broadcast");
   const [attendanceMode, setAttendanceMode] = useState<"present" | "absent">("present");
   const [targetId, setTargetId] = useState("");
   const [roleSelection, setRoleSelection] = useState("participant");
@@ -73,6 +87,12 @@ export default function AdminNotificationsPage() {
   });
   const users = useMemo(() => usersData?.data || [], [usersData?.data]);
 
+  // Currently selected competition object
+  const selectedCompetition = useMemo(
+    () => competitions.find((c) => c.id === targetId || c.slug === targetId),
+    [competitions, targetId]
+  );
+
   // Currently selected team object
   const selectedTeam = useMemo(
     () => teams.find((t) => t.id === targetId),
@@ -97,39 +117,28 @@ export default function AdminNotificationsPage() {
     );
   }
 
-  const effectiveTargetId =
-    targetType === "role"
-      ? roleSelection
-      : targetType === "broadcast"
-      ? undefined
-      : targetId.trim() || undefined;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
-    if (!title.trim()) {
-      setFormError("Title is required.");
-      return;
-    }
-    if (!body.trim()) {
-      setFormError("Message body is required.");
-      return;
-    }
-    if ((targetType === "team" || targetType === "user" || targetType === "attendance") && !targetId.trim()) {
-      setFormError(`Please select ${targetType === "attendance" ? "an attendance session" : `a ${targetType}`} from the list.`);
+    const built = buildBroadcastRequest({
+      title,
+      body,
+      targetMode: targetType,
+      targetId,
+      roleSelection,
+      attendanceMode,
+      actionUrl,
+      iconUrl,
+    });
+
+    if (built.error !== undefined) {
+      setFormError(built.error);
       return;
     }
 
     try {
-      const resp = await broadcastMutation.mutateAsync({
-        title: title.trim(),
-        body: body.trim(),
-        target_type: targetType === "attendance" ? `attendance_${attendanceMode}` : targetType,
-        target_id: effectiveTargetId,
-        action_url: actionUrl.trim() || undefined,
-        icon_url: iconUrl.trim() || undefined,
-      });
+      const resp = await broadcastMutation.mutateAsync(built.payload);
 
       toast.success(
         `Sent to ${resp.recipients_count} recipient(s). ${resp.enqueued_pushes} push notification(s) enqueued.`,
@@ -207,22 +216,18 @@ export default function AdminNotificationsPage() {
                       <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
                         Recipients
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 p-1 rounded-[8px] bg-[var(--card-solid-subtle)]">
-                        {[
-                          { id: "broadcast", label: "Everyone" },
-                          { id: "role", label: "By role" },
-                          { id: "team", label: "By team" },
-                          { id: "user", label: "Specific user" },
-                          { id: "attendance", label: "By attendance" },
-                        ].map((item) => (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 p-1 rounded-[8px] bg-[var(--card-solid-subtle)]">
+                        {BROADCAST_TARGET_MODES.map((item) => (
                           <button
                             key={item.id}
                             type="button"
                             onClick={() => {
-                              setTargetType(
-                                item.id as "broadcast" | "role" | "team" | "user" | "attendance"
-                              );
-                              setTargetId("");
+                              setTargetType(item.id);
+                              if (item.id === "competition" && activeCompetition) {
+                                setTargetId(activeCompetition.id);
+                              } else {
+                                setTargetId("");
+                              }
                             }}
                             className={`px-2.5 py-1.5 text-xs rounded-[6px] transition-colors cursor-pointer text-center ${
                               targetType === item.id
@@ -235,6 +240,33 @@ export default function AdminNotificationsPage() {
                         ))}
                       </div>
                     </div>
+
+                    {/* TARGET TYPE: COMPETITION */}
+                    {targetType === "competition" && (
+                      <div className="space-y-1.5">
+                        <Select
+                          label="Select competition"
+                          value={targetId}
+                          onChange={(e) => setTargetId(e.target.value)}
+                          disabled={competitions.length === 0}
+                        >
+                          <option value="">
+                            {competitions.length === 0
+                              ? "No competitions created yet"
+                              : "— Choose a competition —"}
+                          </option>
+                          {competitions.map((comp) => (
+                            <option key={comp.id} value={comp.id}>
+                              {comp.name} ({comp.slug})
+                            </option>
+                          ))}
+                        </Select>
+                        <p className="text-[11px] text-[var(--ink-secondary)]">
+                          Delivered to all active team members participating in{" "}
+                          <strong>{selectedCompetition?.name || "the selected competition"}</strong>.
+                        </p>
+                      </div>
+                    )}
 
                     {/* TARGET TYPE: ATTENDANCE GROUP */}
                     {targetType === "attendance" && (
@@ -284,20 +316,37 @@ export default function AdminNotificationsPage() {
                           value={roleSelection}
                           onChange={(e) => setRoleSelection(e.target.value)}
                         >
-                          <option value="participant">Participant (hackers and attendees)</option>
-                          <option value="judge">Judge (evaluators)</option>
-                          <option value="volunteer">Volunteer (staff and coordinators)</option>
-                          <option value="admin">Administrator</option>
+                          {BROADCAST_ROLE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
                         </Select>
                         <p className="text-[11px] text-[var(--ink-secondary)]">
-                          Delivered to active accounts with the <strong>{roleSelection}</strong> role.
+                          Delivered to active accounts with the <strong>{roleSelection}</strong> role in this event.
                         </p>
                       </div>
                     )}
 
                     {/* TARGET TYPE: TEAM DROPDOWN */}
                     {targetType === "team" && (
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
+                        {competitions.length > 1 && !isManualTeamId && (
+                          <Select
+                            label="Competition track"
+                            value={competitionSlug ?? ""}
+                            onChange={(e) => {
+                              selectCompetition(e.target.value || null);
+                              setTargetId("");
+                            }}
+                          >
+                            {competitions.map((comp) => (
+                              <option key={comp.id} value={comp.slug}>
+                                {comp.name}
+                              </option>
+                            ))}
+                          </Select>
+                        )}
                         <div className="flex items-center justify-between">
                           <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
                             Squad
@@ -518,15 +567,16 @@ export default function AdminNotificationsPage() {
                     <div className="flex justify-between items-center py-1 border-b border-[var(--card-line)]">
                       <span className="text-[var(--ink-secondary)]">Recipients</span>
                       <span className="font-medium text-[var(--ink-primary)]">
-                        {targetType === "broadcast"
-                          ? "Everyone"
-                          : targetType === "role"
-                          ? `Role: ${roleSelection}`
-                          : targetType === "attendance"
-                          ? `Attendance (${attendanceMode}): ${attendanceSessions.find((x) => x.id === targetId)?.name || "Not selected"}`
-                          : targetType === "team"
-                          ? `Squad: ${selectedTeam?.name || targetId || "Not selected"}`
-                          : `User: ${selectedUser?.name || targetId || "Not selected"}`}
+                        {formatBroadcastTargetSummary({
+                          targetMode: targetType,
+                          roleSelection,
+                          attendanceMode,
+                          competitionName: selectedCompetition?.name,
+                          teamName: selectedTeam?.name,
+                          userName: selectedUser?.name,
+                          sessionName: attendanceSessions.find((x) => x.id === targetId)?.name,
+                          targetId,
+                        })}
                       </span>
                     </div>
                     <div className="flex justify-between items-center py-1">

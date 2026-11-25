@@ -55,15 +55,16 @@ export default function TicketsPage() {
   const [isBulkSendOpen, setIsBulkSendOpen] = useState(false);
   const [actionInProgressId, setActionInProgressId] = useState<string | null>(null);
 
-  // Queries & Mutations
+  // Queries & Mutations (gated by role so participants never hit staff-only /users or /tickets/analytics)
+  const canViewRoster = isAdmin || isVolunteer;
   const {
     data: usersResponse,
     isLoading: usersLoading,
     isFetching: usersFetching,
     refetch: refetchUsers,
-  } = useUsers(userFilters);
+  } = useUsers(userFilters, { enabled: canViewRoster });
 
-  const { data: analyticsData } = useTicketAnalytics();
+  const { data: analyticsData } = useTicketAnalytics({ enabled: canViewRoster });
 
   const bulkSendMutation = useBulkSendTickets();
   const releaseMutation = useReleaseTickets();
@@ -148,11 +149,14 @@ export default function TicketsPage() {
     }
   };
 
-  // Single send handler
+  // Single send handler (always sets force_resend: true so clicking Send QR re-dispatches even if previously emailed)
   const handleSendSingleTicket = async (targetUser: UserDetailResponse) => {
     setActionInProgressId(targetUser.id);
     try {
-      await sendSingleMutation.mutateAsync(targetUser.id);
+      await sendSingleMutation.mutateAsync({
+        userId: targetUser.id,
+        payload: { force_resend: true },
+      });
       toast.success(
         `QR entry pass generated and emailed to ${targetUser.email}`,
         "QR pass dispatched"

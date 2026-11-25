@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getTenantScope } from "@/lib/api-client";
+import { resolveEventUserFilters } from "@/lib/competition-utils";
+import { useTenant } from "@/providers/tenant-provider";
 import { usersService } from "@/services/users.service";
 import {
   BulkCreateUsersRequest,
@@ -17,10 +18,16 @@ export function useUsers(
   filters?: UserFilter,
   options?: { enabled?: boolean }
 ) {
-  const { eventSlug } = getTenantScope();
+  const { eventSlug, activeCompetition } = useTenant();
+  const effectiveFilters = filters
+    ? resolveEventUserFilters(filters, activeCompetition?.id)
+    : activeCompetition?.id
+    ? ({ competition_id: activeCompetition.id } as UserFilter)
+    : undefined;
+
   return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "list", eventSlug, filters],
-    queryFn: () => usersService.list(filters),
+    queryKey: [...USERS_QUERY_KEY, "list", eventSlug, effectiveFilters],
+    queryFn: () => usersService.list(effectiveFilters),
     enabled: options?.enabled ?? true,
   });
 }
@@ -38,15 +45,20 @@ export function usePlatformUsers(
 
 /** Fetches every user in the active scope by walking all pages (the API caps page size at 100). */
 export function useAllUsers(options?: { enabled?: boolean }) {
-  const { eventSlug } = getTenantScope();
+  const { eventSlug, activeCompetition } = useTenant();
+  const competitionId = activeCompetition?.id;
   return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "all", eventSlug],
+    queryKey: [...USERS_QUERY_KEY, "all", eventSlug, competitionId],
     queryFn: async () => {
       const all: UserDetailResponse[] = [];
       let page = 1;
       let totalPages = 1;
       do {
-        const res = await usersService.list({ page, limit: 100 });
+        const res = await usersService.list({
+          page,
+          limit: 100,
+          competition_id: competitionId,
+        });
         all.push(...res.data);
         totalPages = res.total_pages;
         page++;

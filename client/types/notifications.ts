@@ -12,12 +12,21 @@ export interface UnsubscribeRequest {
   endpoint: string;
 }
 
+export type BroadcastTargetType =
+  | "broadcast"
+  | "competition"
+  | "team"
+  | "role"
+  | "user"
+  | "attendance_present"
+  | "attendance_absent";
+
 export interface BroadcastNotificationRequest {
   title: string;
   body: string;
   action_url?: string;
   icon_url?: string;
-  target_type: "broadcast" | "team" | "role" | "user" | "attendance_present" | "attendance_absent";
+  target_type: BroadcastTargetType;
   target_id?: string;
 }
 

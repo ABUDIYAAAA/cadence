@@ -46,6 +46,9 @@ export function Navbar() {
   const {
     eventSlug,
     activeEvent,
+    competitions,
+    competitionSlug,
+    selectCompetition,
     clearEvent,
   } = useTenant();
   const { isSupported, isSubscribed, enablePush, disablePush } =
@@ -256,6 +259,35 @@ export function Navbar() {
                 </span>
               </span>
             </Link>
+
+            {isAuthenticated && isDashboard && eventSlug && (
+              <div className="hidden sm:flex items-center gap-1.5 min-w-0 pl-2 border-l border-[var(--card-line)]">
+                <Link
+                  href="/events"
+                  title="Switch event"
+                  className="text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] truncate max-w-[160px] transition-colors"
+                >
+                  {displayEventName}
+                </Link>
+                {competitions.length > 1 && (
+                  <>
+                    <span className="text-xs text-[var(--ink-tertiary)]">/</span>
+                    <select
+                      aria-label="Active competition"
+                      value={competitionSlug ?? ""}
+                      onChange={(e) => selectCompetition(e.target.value || null)}
+                      className="h-7 rounded-[6px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] px-2 text-xs font-semibold text-[var(--ink-primary)] focus:outline-none focus:border-[var(--color-blue)] cursor-pointer max-w-[180px] truncate"
+                    >
+                      {competitions.map((comp) => (
+                        <option key={comp.id} value={comp.slug}>
+                          {comp.name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right Section: Theme Switcher, Notification Bell & User Avatar */}

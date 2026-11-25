@@ -12,6 +12,31 @@ export interface TenantScope {
   competitionSlug: string | null;
 }
 
+export type ScopeLevel = "event" | "competition";
+
+export function isScopeReady(
+  level: ScopeLevel,
+  scope: TenantScope = currentScope
+): boolean {
+  if (!scope.eventSlug) return false;
+  if (level === "competition") {
+    return Boolean(scope.competitionSlug);
+  }
+  return true;
+}
+
+export function buildScopedQueryKey<const TParts extends readonly unknown[]>(
+  moduleKey: string,
+  level: ScopeLevel,
+  scope: TenantScope,
+  ...parts: TParts
+): readonly [string, ...unknown[]] {
+  if (level === "competition") {
+    return [moduleKey, scope.eventSlug, scope.competitionSlug, ...parts];
+  }
+  return [moduleKey, scope.eventSlug, ...parts];
+}
+
 const EVENT_STORAGE_KEY = "cadence_active_event_slug";
 const COMPETITION_STORAGE_KEY_PREFIX = "cadence_active_competition_slug:";
 

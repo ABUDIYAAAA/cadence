@@ -8,6 +8,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
+import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
 import { useAuditLogs, useExportAuditLogs } from "@/hooks/use-audit";
 import { AuditLogFilter, AuditLogResponse } from "@/types/audit";
@@ -26,12 +27,14 @@ export default function AuditLogsPage() {
   const router = useRouter();
   const toast = useToast();
   const { user, isAdmin, isLoading: authLoading } = useAuth();
+  const { competitions } = useTenant();
 
   // Filters state
   const [filters, setFilters] = useState<AuditLogFilter>({
     page: 1,
     limit: 20,
     search: "",
+    competition_id: undefined,
     action: undefined,
     target_type: undefined,
     from_date: undefined,
@@ -173,12 +176,14 @@ export default function AuditLogsPage() {
       <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
         <AuditFilters
           filters={filters}
+          competitions={competitions}
           onChange={(newFilters) => setFilters(newFilters)}
           onReset={() =>
             setFilters({
               page: 1,
               limit: filters.limit,
               search: "",
+              competition_id: undefined,
               action: undefined,
               target_type: undefined,
               from_date: undefined,

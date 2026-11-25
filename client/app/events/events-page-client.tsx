@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { LogoUploadField } from "@/components/events/logo-upload-field";
+import { TransferOwnershipDialog } from "@/components/events/transfer-ownership-dialog";
 
 interface DisplayEventRow {
   id: string;
@@ -169,6 +170,8 @@ export default function EventsSelectionPage() {
   const [deletingEvent, setDeletingEvent] = useState<DisplayEventRow | null>(
     null
   );
+  const [transferringEvent, setTransferringEvent] =
+    useState<DisplayEventRow | null>(null);
 
   const rows = useMemo<DisplayEventRow[]>(() => {
     const bySlug = new Map(allEvents.map((e) => [e.slug, e]));
@@ -557,6 +560,18 @@ export default function EventsSelectionPage() {
                             <ArrowRight className="h-3 w-3 text-[var(--ink-tertiary)] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-[var(--ink-primary)]" />
                           </Button>
 
+                          {(isDev || item.role === "owner") && (
+                            <button
+                              type="button"
+                              aria-label={`Transfer ownership of ${item.name}`}
+                              title="Transfer ownership"
+                              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-[var(--ink-tertiary)] hover:text-[var(--color-amber)] hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer"
+                              onClick={() => setTransferringEvent(item)}
+                            >
+                              <Crown className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+
                           {isDev && (
                             <button
                               type="button"
@@ -716,6 +731,15 @@ export default function EventsSelectionPage() {
           This action is permanent and cannot be undone.
         </p>
       </Dialog>
+
+      {transferringEvent && (
+        <TransferOwnershipDialog
+          open={Boolean(transferringEvent)}
+          onClose={() => setTransferringEvent(null)}
+          eventSlug={transferringEvent.slug}
+          eventName={transferringEvent.name}
+        />
+      )}
     </div>
   );
 }

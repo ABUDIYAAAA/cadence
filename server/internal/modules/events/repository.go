@@ -260,56 +260,63 @@ func (r *Repository) UpdateEvent(ctx context.Context, id string, name, descripti
 	return &ev, nil
 }
 
-// TransferOwnership transfers ownership of an event from currentOwnerID to newOwnerID.
-// The previous owner is demoted to 'admin', and the new owner is assigned 'owner'.
+// TransferOwnership transfers ownership of an event to newOwnerID and returns the previous owner's user ID.
+// When isDev is false, actorID must be the event's current owner. When isDev is true, any platform dev
+// can transfer ownership on behalf of the current owner.
+// The previous owner (if any) is demoted to 'admin', and the new owner is assigned 'owner'.
 // Enforces that newOwnerID cannot own any other event.
-func (r *Repository) TransferOwnership(ctx context.Context, eventID, currentOwnerID, newOwnerID string) error {
-	if currentOwnerID == newOwnerID {
-		return nil
-	}
-
+func (r *Repository) TransferOwnership(ctx context.Context, eventID, actorID, newOwnerID string, isDev bool) (string, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
+		return "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	var currentRole string
-	err = tx.QueryRow(ctx, `SELECT role::text FROM user_events WHERE event_id = $1 AND user_id = $2 FOR UPDATE`, eventID, currentOwnerID).Scan(&currentRole)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrMemberNotFound
-		}
-		return fmt.Errorf("verify owner: %w", err)
+	var actualOwnerID string
+	err = tx.QueryRow(ctx, `SELECT user_id::text FROM user_events WHERE event_id = $1 AND role = 'owner' FOR UPDATE`, eventID).Scan(&actualOwnerID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("lookup current owner: %w", err)
 	}
-	if currentRole != "owner" {
-		return errors.New("only the current owner can transfer ownership")
+
+	if !isDev {
+		if actualOwnerID == "" {
+			return "", ErrMemberNotFound
+		}
+		if actualOwnerID != actorID {
+			return "", errors.New("only the current owner can transfer ownership")
+		}
+	}
+
+	if actualOwnerID != "" && actualOwnerID == newOwnerID {
+		return actualOwnerID, nil
 	}
 
 	// Verify newOwnerID does not own any other event
 	var otherEventID string
 	err = tx.QueryRow(ctx, `SELECT event_id FROM user_events WHERE user_id = $1 AND role = 'owner' AND event_id != $2 LIMIT 1`, newOwnerID, eventID).Scan(&otherEventID)
 	if err == nil {
-		return ErrTargetAlreadyOwnsEvent
+		return "", ErrTargetAlreadyOwnsEvent
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("check target user ownership: %w", err)
+		return "", fmt.Errorf("check target user ownership: %w", err)
 	}
 
 	// Verify target user exists and is active
 	var targetUserExists bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)`, newOwnerID).Scan(&targetUserExists)
 	if err != nil || !targetUserExists {
-		return errors.New("target user does not exist")
+		return "", errors.New("target user does not exist")
 	}
 
 	// Demote current owner to admin
-	demoteQuery := `
-		UPDATE user_events
-		SET role = 'admin', updated_at = CURRENT_TIMESTAMP
-		WHERE event_id = $1 AND user_id = $2
-	`
-	if _, err := tx.Exec(ctx, demoteQuery, eventID, currentOwnerID); err != nil {
-		return fmt.Errorf("demote current owner: %w", err)
+	if actualOwnerID != "" {
+		demoteQuery := `
+			UPDATE user_events
+			SET role = 'admin', updated_at = CURRENT_TIMESTAMP
+			WHERE event_id = $1 AND user_id = $2
+		`
+		if _, err := tx.Exec(ctx, demoteQuery, eventID, actualOwnerID); err != nil {
+			return "", fmt.Errorf("demote current owner: %w", err)
+		}
 	}
 
 	// Promote new owner
@@ -317,16 +324,19 @@ func (r *Repository) TransferOwnership(ctx context.Context, eventID, currentOwne
 		INSERT INTO user_events (event_id, user_id, role)
 		VALUES ($1, $2, 'owner')
 		ON CONFLICT (event_id, user_id)
-		DO UPDATE SET role = 'owner', updated_at = CURRENT_TIMESTAMP
+		DO UPDATE SET role = 'owner', is_banned = FALSE, banned_at = NULL, updated_at = CURRENT_TIMESTAMP
 	`
 	if _, err := tx.Exec(ctx, promoteQuery, eventID, newOwnerID); err != nil {
 		if strings.Contains(err.Error(), "idx_user_events_unique_owner") {
-			return ErrTargetAlreadyOwnsEvent
+			return "", ErrTargetAlreadyOwnsEvent
 		}
-		return fmt.Errorf("promote new owner: %w", err)
+		return "", fmt.Errorf("promote new owner: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return actualOwnerID, nil
 }
 
 // AddEventUser inserts or links a user to an event by email.

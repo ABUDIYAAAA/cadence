@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Crown,
   UserPlus,
   Upload,
   RefreshCw,
@@ -52,6 +53,7 @@ import {
   UserDeleteDialog,
   UserDetailDialog,
 } from "@/components/users";
+import { TransferOwnershipDialog } from "@/components/events/transfer-ownership-dialog";
 
 export default function UsersPage() {
   const router = useRouter();
@@ -114,6 +116,7 @@ export default function UsersPage() {
   // Dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isBulkCreateOpen, setIsBulkCreateOpen] = useState(false);
+  const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserDetailResponse | null>(
     null
   );
@@ -363,6 +366,18 @@ export default function UsersPage() {
             <span className="hidden sm:inline">Refresh</span>
           </Button>
 
+          {mode === "event" && (isOwner || isDev) && eventSlug && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsTransferOpen(true)}
+              className="h-9 px-3 text-xs gap-1.5"
+            >
+              <Crown className="h-3.5 w-3.5" />
+              <span>Transfer ownership</span>
+            </Button>
+          )}
+
           {isAdmin && (
             <>
               <Button
@@ -560,6 +575,14 @@ export default function UsersPage() {
         actionInProgress={Boolean(actionInProgressId)}
         canManage={isAdmin}
       />
+
+      {mode === "event" && (isOwner || isDev) && eventSlug && (
+        <TransferOwnershipDialog
+          open={isTransferOpen}
+          onClose={() => setIsTransferOpen(false)}
+          eventSlug={eventSlug}
+        />
+      )}
     </div>
   );
 }

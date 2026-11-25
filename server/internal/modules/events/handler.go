@@ -202,7 +202,10 @@ func (h *Handler) HandleTransferOwnership(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err := h.service.TransferOwnership(r.Context(), evCtx.EventID, evCtx.UserID, req)
+	claims, _ := auth.GetUserClaims(r.Context())
+	isDev := claims != nil && claims.Role == "dev"
+
+	err := h.service.TransferOwnership(r.Context(), evCtx.EventID, evCtx.UserID, isDev, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrTargetAlreadyOwnsEvent):

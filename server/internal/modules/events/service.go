@@ -179,7 +179,8 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID string, req UpdateEve
 }
 
 // TransferOwnership transfers the owner role to another member.
-func (s *Service) TransferOwnership(ctx context.Context, eventID, currentOwnerID string, req TransferOwnershipRequest) error {
+// Both the current event owner and platform devs may transfer ownership.
+func (s *Service) TransferOwnership(ctx context.Context, eventID, actorID string, isDev bool, req TransferOwnershipRequest) error {
 	newOwnerID := req.NewOwnerUserID
 	if newOwnerID == "" && req.NewOwnerEmail != nil && *req.NewOwnerEmail != "" {
 		var name string
@@ -196,25 +197,24 @@ func (s *Service) TransferOwnership(ctx context.Context, eventID, currentOwnerID
 		return errors.New("either new_owner_user_id or new_owner_email must be provided")
 	}
 
-	if currentOwnerID == newOwnerID {
-		return nil
-	}
-
-	if err := s.repo.TransferOwnership(ctx, eventID, currentOwnerID, newOwnerID); err != nil {
+	prevOwnerID, err := s.repo.TransferOwnership(ctx, eventID, actorID, newOwnerID, isDev)
+	if err != nil {
 		return err
 	}
 
 	if s.rdb != nil {
-		_ = s.rdb.Del(ctx,
-			fmt.Sprintf("event:%s:member:%s", eventID, currentOwnerID),
-			fmt.Sprintf("event:%s:member:%s", eventID, newOwnerID),
-		).Err()
+		keys := []string{fmt.Sprintf("event:%s:member:%s", eventID, newOwnerID)}
+		if prevOwnerID != "" {
+			keys = append(keys, fmt.Sprintf("event:%s:member:%s", eventID, prevOwnerID))
+		}
+		_ = s.rdb.Del(ctx, keys...).Err()
 		_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", newOwnerID), eventID).Err()
 	}
 
 	if s.auditor != nil {
-		s.auditor.RecordAction(ctx, audit.ActionEventTransferOwnership, audit.TargetEvent, &eventID, fmt.Sprintf("Transferred event ownership from %s to %s", currentOwnerID, newOwnerID), map[string]any{
-			"new_owner_user_id": newOwnerID,
+		s.auditor.RecordAction(ctx, audit.ActionEventTransferOwnership, audit.TargetEvent, &eventID, fmt.Sprintf("Transferred event ownership from %s to %s", prevOwnerID, newOwnerID), map[string]any{
+			"previous_owner_user_id": prevOwnerID,
+			"new_owner_user_id":      newOwnerID,
 		})
 	}
 

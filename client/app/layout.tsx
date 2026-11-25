@@ -1,3 +1,4 @@
+import React, { Suspense } from "react";
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -66,8 +67,12 @@ export default function RootLayout({
             <TenantProvider>
               <ToastProvider>
                 <NotificationProvider>
-                  <Navbar />
-                  <AppShell>{children}</AppShell>
+                  <Suspense fallback={<header className="app-header h-14" />}>
+                    <Navbar />
+                  </Suspense>
+                  <Suspense fallback={<main className="flex-1 min-h-[calc(100vh-3.5rem)]" />}>
+                    <AppShell>{children}</AppShell>
+                  </Suspense>
                 </NotificationProvider>
               </ToastProvider>
             </TenantProvider>

@@ -1,17 +1,15 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Award,
-  Check,
-  Layers,
+  ChevronRight,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Trash2,
+  Trophy,
   X,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
@@ -24,6 +22,7 @@ import {
   useUpdateCompetition,
 } from "@/hooks/use-competitions";
 import {
+  getCompetitionSectionHref,
   resolveNextActiveCompetitionSlug,
   validateCompetitionInput,
 } from "@/lib/competition-utils";
@@ -71,12 +70,14 @@ export default function CompetitionsPage() {
     isAdmin,
     isOwner,
     isDev,
+    isVolunteer,
+    isJudge,
+    isParticipant,
   } = useAuth();
   const {
     eventSlug,
     activeEvent,
     competitionSlug: activeCompetitionSlug,
-    activeCompetition,
     selectCompetition,
   } = useTenant();
 
@@ -163,10 +164,12 @@ export default function CompetitionsPage() {
     setFieldErrors({});
   };
 
-  const handleSelectCompetition = (comp: Competition) => {
-    if (activeCompetitionSlug === comp.slug) return;
+  const handleOpenCompetition = (comp: Competition) => {
     selectCompetition(comp.slug);
-    toast.info(`Switched to "${comp.name}".`, "Competition active");
+    const participantOnly =
+      isParticipant && !isAdmin && !isVolunteer && !isJudge;
+    const defaultSection = participantOnly ? "judging" : "teams";
+    router.push(getCompetitionSectionHref(comp.slug, defaultSection));
   };
 
   const handleSaveCompetition = async (e: React.FormEvent) => {
@@ -208,7 +211,7 @@ export default function CompetitionsPage() {
         });
         selectCompetition(created.slug);
         toast.success(
-          `Competition "${created.name}" created and set active.`,
+          `Competition "${created.name}" created.`,
           "Competition created"
         );
       } else if (dialogMode === "edit" && editingCompetition) {
@@ -291,18 +294,13 @@ export default function CompetitionsPage() {
               {competitions.length}{" "}
               {competitions.length === 1 ? "competition" : "competitions"}
             </Badge>
-            {activeCompetition && (
-              <Badge variant="emerald" dot size="sm">
-                Active: {activeCompetition.name}
-              </Badge>
-            )}
           </div>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
-            Select a competition to scope Teams and Judging rounds inside{" "}
+            Open a competition in{" "}
             <strong className="font-medium text-[var(--ink-primary)]">
               {displayEventName}
-            </strong>
-            .
+            </strong>{" "}
+            to manage its teams and judging rounds.
           </p>
         </div>
 
@@ -411,92 +409,58 @@ export default function CompetitionsPage() {
       ) : (
         <div className="rounded-[12px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-card)] overflow-hidden divide-y divide-[var(--card-line)]">
           {filteredCompetitions.map((comp) => {
-            const isSelected = activeCompetitionSlug === comp.slug;
-
             return (
               <div
                 key={comp.id}
-                onClick={() => handleSelectCompetition(comp)}
+                onClick={() => handleOpenCompetition(comp)}
                 role="button"
                 tabIndex={0}
-                aria-pressed={isSelected}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    handleSelectCompetition(comp);
+                    handleOpenCompetition(comp);
                   }
                 }}
-                className={`group flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-5 py-4 transition-colors duration-150 cursor-pointer hover:bg-[var(--card-solid-subtle)] ${
-                  isSelected ? "bg-[var(--card-solid-subtle)]" : ""
-                }`}
+                className="group flex items-center justify-between gap-4 px-4 sm:px-5 py-4 transition-colors duration-150 cursor-pointer hover:bg-[var(--card-solid-subtle)] focus-visible:outline-none focus-visible:bg-[var(--card-solid-subtle)]"
               >
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] truncate">
-                      {comp.name}
-                    </h2>
-                    {isSelected && (
-                      <Badge variant="emerald" dot size="sm">
-                        Active
-                      </Badge>
-                    )}
+                <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] text-[var(--ink-secondary)] transition-colors duration-150 group-hover:border-[var(--color-blue-border)] group-hover:bg-[var(--color-blue-dim)] group-hover:text-[var(--color-blue)]">
+                    <Trophy className="h-4 w-4" />
                   </div>
 
-                  {comp.description ? (
-                    <p className="text-xs text-[var(--ink-secondary)] line-clamp-2">
-                      {comp.description}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-[var(--ink-tertiary)]">
-                      Updated{" "}
-                      <span className="tabular-nums">
-                        {new Date(comp.updated_at).toLocaleDateString([], {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] group-hover:text-[var(--color-blue)] transition-colors truncate">
+                        {comp.name}
+                      </h2>
+                      <span className="font-mono text-[11px] text-[var(--ink-tertiary)] truncate">
+                        /{comp.slug}
                       </span>
-                    </p>
-                  )}
+                    </div>
+
+                    {comp.description ? (
+                      <p className="text-xs text-[var(--ink-secondary)] line-clamp-1">
+                        {comp.description}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-[var(--ink-tertiary)]">
+                        Updated{" "}
+                        <span className="tabular-nums">
+                          {new Date(comp.updated_at).toLocaleDateString([], {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </span>
+                      </p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-                  {isSelected ? (
-                    <>
-                      <div
-                        className="flex items-center gap-1.5"
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                      >
-                        <Link
-                          href="/dashboard/teams"
-                          className="inline-flex h-8 items-center gap-1 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] px-2.5 text-xs font-semibold text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors"
-                        >
-                          <Layers className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                          <span>Teams</span>
-                        </Link>
-                        <Link
-                          href="/dashboard/judging"
-                          className="inline-flex h-8 items-center gap-1 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] px-2.5 text-xs font-semibold text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-colors"
-                        >
-                          <Award className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                          <span>Judging</span>
-                        </Link>
-                      </div>
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-blue)] px-2 py-1">
-                        <Check className="h-3.5 w-3.5" />
-                        <span>Selected</span>
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-xs font-medium text-[var(--ink-secondary)] group-hover:text-[var(--ink-primary)] px-2 py-1 transition-colors">
-                      Set active
-                    </span>
-                  )}
-
+                <div className="flex items-center gap-2 shrink-0">
                   {canManage && (
                     <div
-                      className="flex items-center gap-1 pl-1 border-l border-[var(--card-line)]"
+                      className="flex items-center gap-1 pr-2 border-r border-[var(--card-line)]"
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => e.stopPropagation()}
                     >
@@ -524,6 +488,13 @@ export default function CompetitionsPage() {
                       </button>
                     </div>
                   )}
+
+                  <span
+                    aria-hidden="true"
+                    className="flex h-8 w-8 items-center justify-center rounded-[8px] text-[var(--ink-tertiary)] transition-[color,transform] duration-150 group-hover:text-[var(--ink-primary)] group-hover:translate-x-0.5"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </span>
                 </div>
               </div>
             );

@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LogOut,
   LayoutDashboard,
@@ -25,6 +25,10 @@ import {
   useUpdateEvent,
 } from "@/hooks/use-events";
 import { getAuthenticatedHomeRoute } from "@/lib/auth-routes";
+import {
+  getCompetitionRouteContext,
+  getCompetitionSectionHref,
+} from "@/lib/competition-utils";
 import { apiErrorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -35,6 +39,7 @@ import { LogoUploadField } from "@/components/events/logo-upload-field";
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const {
     user,
     isAuthenticated,
@@ -47,7 +52,6 @@ export function Navbar() {
     eventSlug,
     activeEvent,
     competitions,
-    competitionSlug,
     selectCompetition,
     clearEvent,
   } = useTenant();
@@ -231,6 +235,11 @@ export function Navbar() {
     (pathname === "/events" && (isDev || Boolean(eventSlug)));
   const displayEventName =
     eventDetail?.name || activeEvent?.event_name || eventSlug;
+  const competitionContext = getCompetitionRouteContext(pathname);
+  const currentCompetitionName = competitionContext
+    ? competitions.find((c) => c.slug === competitionContext.competitionSlug)
+        ?.name ?? competitionContext.competitionSlug
+    : null;
 
   return (
     <>
@@ -272,21 +281,38 @@ export function Navbar() {
                 >
                   {displayEventName}
                 </Link>
-                {competitions.length > 1 && (
+                {competitionContext && (
                   <>
                     <span className="text-xs text-[var(--ink-tertiary)]">/</span>
-                    <select
-                      aria-label="Active competition"
-                      value={competitionSlug ?? ""}
-                      onChange={(e) => selectCompetition(e.target.value || null)}
-                      className="h-7 rounded-[6px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] px-2 text-xs font-semibold text-[var(--ink-primary)] focus:outline-none focus:border-[var(--color-blue)] cursor-pointer max-w-[180px] truncate"
-                    >
-                      {competitions.map((comp) => (
-                        <option key={comp.id} value={comp.slug}>
-                          {comp.name}
-                        </option>
-                      ))}
-                    </select>
+                    {competitions.length > 1 ? (
+                      <select
+                        aria-label="Active competition"
+                        value={competitionContext.competitionSlug}
+                        onChange={(e) => {
+                          const nextSlug = e.target.value;
+                          if (!nextSlug) return;
+                          selectCompetition(nextSlug);
+                          const section =
+                            competitionContext.section === "judging"
+                              ? "judging"
+                              : "teams";
+                          router.push(
+                            getCompetitionSectionHref(nextSlug, section)
+                          );
+                        }}
+                        className="h-7 rounded-[6px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] px-2 text-xs font-semibold text-[var(--ink-primary)] focus:outline-none focus:border-[var(--color-blue)] cursor-pointer max-w-[180px] truncate"
+                      >
+                        {competitions.map((comp) => (
+                          <option key={comp.id} value={comp.slug}>
+                            {comp.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs font-semibold text-[var(--ink-primary)] truncate max-w-[180px]">
+                        {currentCompetitionName}
+                      </span>
+                    )}
                   </>
                 )}
               </div>

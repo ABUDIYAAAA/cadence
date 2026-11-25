@@ -142,3 +142,36 @@ export function resolveEventUserFilters<T extends UserFilter>(
   }
   return filters;
 }
+
+export interface CompetitionRouteContext {
+  competitionSlug: string;
+  section: string | null;
+}
+
+/**
+ * Extracts the competition slug and optional nested section (e.g. "teams", "judging")
+ * from `/dashboard/competitions/<slug>[/<section>]` paths.
+ */
+export function getCompetitionRouteContext(
+  pathname: string
+): CompetitionRouteContext | null {
+  const match = pathname.match(/^\/dashboard\/competitions\/([^/]+)(?:\/([^/]+))?/);
+  if (!match) return null;
+  let competitionSlug = match[1];
+  try {
+    competitionSlug = decodeURIComponent(competitionSlug);
+  } catch {
+    // keep raw segment if malformed
+  }
+  return {
+    competitionSlug,
+    section: match[2] ?? null,
+  };
+}
+
+export function getCompetitionSectionHref(
+  competitionSlug: string,
+  section: "teams" | "judging"
+): string {
+  return `/dashboard/competitions/${encodeURIComponent(competitionSlug)}/${section}`;
+}

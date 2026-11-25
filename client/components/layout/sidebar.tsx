@@ -14,6 +14,7 @@ import {
 	FileText,
 	Bell,
 	Activity,
+	ArrowLeft,
 	ArrowUpRight,
 	Calendar,
 	ChevronUp,
@@ -26,6 +27,10 @@ import { useTenant } from '@/providers/tenant-provider';
 import { useToast } from '@/providers/toast-provider';
 import { useNotificationsContext } from '@/providers/notification-provider';
 import { getDashboardRoute } from '@/lib/auth-routes';
+import {
+	getCompetitionRouteContext,
+	getCompetitionSectionHref,
+} from '@/lib/competition-utils';
 import { UserRole } from '@/types/auth';
 import { cn } from '@/lib/utils';
 
@@ -383,10 +388,64 @@ function UserChip({
 	);
 }
 
+function CompetitionHeader({
+	name,
+	pinned,
+	onNavigate,
+}: {
+	name: string;
+	pinned?: boolean;
+	onNavigate?: () => void;
+}) {
+	const labelCls = cn(
+		'whitespace-nowrap transition-opacity duration-200 motion-reduce:transition-none',
+		pinned
+			? 'opacity-100'
+			: 'opacity-0 group-hover/rail:opacity-100 group-has-[:focus-visible]/rail:opacity-100',
+	);
+
+	return (
+		<div className='mb-3 pb-3 border-b border-[var(--card-line)] space-y-2'>
+			<Link
+				href='/dashboard/competitions'
+				onClick={onNavigate}
+				className='flex items-center rounded-[12px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)] transition-[color,background-color,transform] duration-150 active:scale-[0.97] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-blue)]'
+				style={{ height: 38 }}>
+				<span
+					className='grid place-items-center shrink-0'
+					style={{ width: ITEM_H, height: 38 }}>
+					<ArrowLeft className='h-4 w-4' />
+				</span>
+				<span className={cn('text-xs font-medium pr-3 truncate', labelCls)}>
+					All competitions
+				</span>
+			</Link>
+
+			<div className='flex items-center' style={{ height: ITEM_H }}>
+				<span
+					className='grid place-items-center shrink-0'
+					style={{ width: ITEM_H, height: ITEM_H }}>
+					<span className='grid h-8 w-8 place-items-center rounded-[10px] bg-[var(--color-blue-dim)] text-[var(--color-blue)] ring-1 ring-[var(--color-blue-border)]'>
+						<Trophy className='h-4 w-4' />
+					</span>
+				</span>
+				<div className={cn('min-w-0 pr-2 leading-tight', labelCls)}>
+					<div className='truncate text-[13px] font-semibold text-[var(--ink-primary)]'>
+						{name}
+					</div>
+					<div className='truncate text-[11px] text-[var(--ink-tertiary)]'>
+						Competition
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export function Sidebar() {
 	const pathname = usePathname();
 	const { user, role, effectiveRole: authEffectiveRole, isAdmin, isDev } = useAuth();
-	const { eventSlug } = useTenant();
+	const { eventSlug, competitions, activeCompetition } = useTenant();
 	const [isOpenMobile, setIsOpenMobile] = useState(false);
 	const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
@@ -417,6 +476,18 @@ export function Sidebar() {
 		: effectiveRole
 		? getDashboardRoute(effectiveRole)
 		: '/dashboard';
+
+	const competitionContext = !isPlatformDevMode
+		? getCompetitionRouteContext(pathname)
+		: null;
+	const activeRouteCompetition = competitionContext
+		? competitions.find((c) => c.slug === competitionContext.competitionSlug) ??
+		  (activeCompetition?.slug === competitionContext.competitionSlug
+				? activeCompetition
+				: null)
+		: null;
+	const competitionDisplayName =
+		activeRouteCompetition?.name ?? competitionContext?.competitionSlug ?? '';
 
 	const devNavGroups: NavGroup[] = [
 		{
@@ -452,7 +523,7 @@ export function Sidebar() {
 			],
 		},
 		{
-			label: 'Competition',
+			label: 'Event',
 			items: [
 				{
 					label: 'Competitions',
@@ -460,23 +531,6 @@ export function Sidebar() {
 					icon: Trophy,
 					roles: ['owner', 'admin', 'volunteer', 'judge', 'participant'],
 				},
-				{
-					label: 'Teams',
-					href: '/dashboard/teams',
-					icon: Layers,
-					roles: ['owner', 'admin', 'volunteer', 'judge'],
-				},
-				{
-					label: 'Judging',
-					href: '/dashboard/judging',
-					icon: Award,
-					roles: ['owner', 'admin', 'judge', 'volunteer', 'participant'],
-				},
-			],
-		},
-		{
-			label: 'Event',
-			items: [
 				{
 					label: 'Users',
 					href: '/dashboard/users',
@@ -505,24 +559,60 @@ export function Sidebar() {
 		},
 	];
 
+	const competitionNavGroups: NavGroup[] = competitionContext
+		? [
+				{
+					items: [
+						{
+							label: 'Teams',
+							href: getCompetitionSectionHref(
+								competitionContext.competitionSlug,
+								'teams',
+							),
+							icon: Layers,
+							roles: ['owner', 'admin', 'volunteer', 'judge'],
+						},
+						{
+							label: 'Judging',
+							href: getCompetitionSectionHref(
+								competitionContext.competitionSlug,
+								'judging',
+							),
+							icon: Award,
+							roles: ['owner', 'admin', 'judge', 'volunteer', 'participant'],
+						},
+					],
+				},
+		  ]
+		: [];
+
+	const filterByRole = (groups: NavGroup[]) =>
+		groups
+			.map((group) => ({
+				...group,
+				items: group.items.filter(
+					(item) =>
+						!item.roles ||
+						isDev ||
+						(effectiveRole && item.roles.includes(effectiveRole)) ||
+						(isAdmin && item.roles.includes('admin')),
+				),
+			}))
+			.filter((group) => group.items.length > 0);
+
 	const visibleNavGroups: NavGroup[] = isPlatformDevMode
 		? devNavGroups
-		: eventNavGroups
-				.map((group) => ({
-					...group,
-					items: group.items.filter(
-						(item) =>
-							!item.roles ||
-							isDev ||
-							(effectiveRole && item.roles.includes(effectiveRole)) ||
-							(isAdmin && item.roles.includes('admin')),
-					),
-				}))
-				.filter((group) => group.items.length > 0);
+		: competitionContext
+		? filterByRole(competitionNavGroups)
+		: filterByRole(eventNavGroups);
 
 	const isActive = (item: NavItem) => {
 		if (item.external) return false;
-		if (item.href === '/dashboard' || item.href === dashboardHref)
+		if (
+			item.href === '/dashboard' ||
+			item.href === dashboardHref ||
+			item.href === '/dashboard/competitions'
+		)
 			return pathname === item.href;
 		return pathname.startsWith(item.href);
 	};
@@ -569,12 +659,21 @@ export function Sidebar() {
 						EASE_DRAWER,
 						isOpenMobile ? 'translate-x-0' : '-translate-x-full',
 					)}>
-					<NavList
-						groups={visibleNavGroups}
-						activeHref={activeHref}
-						pinned
-						onNavigate={() => setIsOpenMobile(false)}
-					/>
+					<div>
+						{competitionContext && (
+							<CompetitionHeader
+								name={competitionDisplayName}
+								pinned
+								onNavigate={() => setIsOpenMobile(false)}
+							/>
+						)}
+						<NavList
+							groups={visibleNavGroups}
+							activeHref={activeHref}
+							pinned
+							onNavigate={() => setIsOpenMobile(false)}
+						/>
+					</div>
 					{user && (
 						<div className='pt-3 border-t border-[var(--card-line)]'>
 							<UserChip
@@ -601,11 +700,19 @@ export function Sidebar() {
 						'hover:shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)] has-[:focus-visible]:shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)]',
 						isUserMenuOpen && 'w-[232px] shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)]',
 					)}>
-					<NavList
-						groups={visibleNavGroups}
-						activeHref={activeHref}
-						pinned={isUserMenuOpen}
-					/>
+					<div>
+						{competitionContext && (
+							<CompetitionHeader
+								name={competitionDisplayName}
+								pinned={isUserMenuOpen}
+							/>
+						)}
+						<NavList
+							groups={visibleNavGroups}
+							activeHref={activeHref}
+							pinned={isUserMenuOpen}
+						/>
+					</div>
 					{user && (
 						<div className='pt-3 border-t border-[var(--card-line)]'>
 							<UserChip

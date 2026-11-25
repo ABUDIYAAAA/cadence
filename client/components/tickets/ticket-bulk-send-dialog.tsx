@@ -2,13 +2,17 @@
 
 import React, { useState } from "react";
 import { UserDetailResponse } from "@/types/users";
-import { BulkSendTicketsRequest, BulkSendTicketsResponse } from "@/types/tickets";
+import {
+  BulkSendTicketsRequest,
+  BulkSendTicketsResponse,
+} from "@/types/tickets";
 import { useAllUsers } from "@/hooks/use-users";
 import { isEmailExcluded, parseEmailDomains } from "@/lib/utils";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { QrCode, Filter, CheckCircle2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { QrCode, Filter, CheckCircle2, Mail } from "lucide-react";
 
 /** email: send the QR by mail. release: only show the pass on the participant dashboard. */
 export type DeliveryMode = "email" | "release";
@@ -17,7 +21,10 @@ interface TicketBulkSendDialogProps {
   open: boolean;
   onClose: () => void;
   selectedUsers: UserDetailResponse[];
-  onSubmit: (req: BulkSendTicketsRequest, mode: DeliveryMode) => Promise<BulkSendTicketsResponse>;
+  onSubmit: (
+    req: BulkSendTicketsRequest,
+    mode: DeliveryMode
+  ) => Promise<BulkSendTicketsResponse>;
   isLoading: boolean;
 }
 
@@ -36,12 +43,20 @@ export function TicketBulkSendDialog({
   const selectedUsers = sendToAll ? allUsers || [] : selectedProp;
   const [excludeDomain, setExcludeDomain] = useState("");
   const [skipCheckedIn, setSkipCheckedIn] = useState(true);
+  const [forceResend, setForceResend] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailHtml, setEmailHtml] = useState("");
+  const [showCustomEmail, setShowCustomEmail] = useState(false);
   const [mode, setMode] = useState<DeliveryMode>("email");
   const [result, setResult] = useState<BulkSendTicketsResponse | null>(null);
 
   const resetDialog = () => {
     setExcludeDomain("");
     setSkipCheckedIn(true);
+    setForceResend(false);
+    setEmailSubject("");
+    setEmailHtml("");
+    setShowCustomEmail(false);
     setMode("email");
     setResult(null);
   };
@@ -67,8 +82,19 @@ export function TicketBulkSendDialog({
         {
           // Bulk mode lets the server resolve recipients; exclusion is enforced there too.
           ...(sendToAll ? {} : { user_ids: eligibleUsers.map((u) => u.id) }),
-          ...(excludedDomains.length > 0 ? { exclude_domains: excludedDomains } : {}),
+          ...(excludedDomains.length > 0
+            ? { exclude_domains: excludedDomains }
+            : {}),
           skip_checked_in: skipCheckedIn,
+          ...(mode === "email"
+            ? {
+                force_resend: forceResend,
+                ...(emailSubject.trim()
+                  ? { email_subject: emailSubject.trim() }
+                  : {}),
+                ...(emailHtml.trim() ? { email_html: emailHtml } : {}),
+              }
+            : {}),
         },
         mode
       );
@@ -82,7 +108,11 @@ export function TicketBulkSendDialog({
     <Dialog
       open={open}
       onClose={handleClose}
-      title={mode === "email" ? "Bulk Dispatch QR Entry Passes" : "Release QR Passes to Dashboard"}
+      title={
+        mode === "email"
+          ? "Bulk Dispatch QR Entry Passes"
+          : "Release QR Passes to Dashboard"
+      }
       description={
         mode === "email"
           ? "Generate cryptographic QR codes and email tickets to attendees."
@@ -110,7 +140,8 @@ export function TicketBulkSendDialog({
             >
               <QrCode className="h-3.5 w-3.5" />
               <span>
-                {mode === "email" ? "Dispatch" : "Release"} {eligibleUsers.length} QR Ticket
+                {mode === "email" ? "Dispatch" : "Release"}{" "}
+                {eligibleUsers.length} QR Ticket
                 {eligibleUsers.length === 1 ? "" : "s"}
               </span>
             </Button>
@@ -121,19 +152,35 @@ export function TicketBulkSendDialog({
       <div className="space-y-4 font-sans text-xs">
         {result ? (
           <div className="rounded-[16px] border border-[var(--color-emerald-border)] bg-[var(--color-emerald-dim)] p-4 flex items-start gap-3">
-            <CheckCircle2 className="h-5 w-5 text-[#2EB88A] shrink-0 mt-0.5" />
+            <CheckCircle2 className="h-5 w-5 text-[var(--color-emerald)] shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-bold text-[#2EB88A] text-sm">
-                {mode === "email" ? "Ticket Generation & Email Queue Dispatched" : "Passes Released to Dashboards"}
+              <p className="font-bold text-[var(--color-emerald)] text-sm">
+                {mode === "email"
+                  ? "Ticket Generation & Email Queue Dispatched"
+                  : "Passes Released to Dashboards"}
               </p>
               <p className="text-[var(--color-emerald)]">
                 {mode === "email"
                   ? `${result.enqueued} ticket emails enqueued for delivery.`
-                  : `${result.enqueued} new passes released (${result.total_processed - result.enqueued - result.skipped} already had one). No emails were sent.`}
+                  : `${result.enqueued} new passes released (${
+                      result.total_processed - result.enqueued - result.skipped
+                    } already had one). No emails were sent.`}
               </p>
-              {result.skipped > 0 && (
+              {(result.already_mailed ||
+                result.excluded_domain ||
+                result.skipped > 0) && (
                 <p className="text-[var(--ink-tertiary)] text-[11px]">
-                  ({result.skipped} tickets skipped as already active or checked in)
+                  {[
+                    result.already_mailed
+                      ? `${result.already_mailed} already mailed`
+                      : null,
+                    result.excluded_domain
+                      ? `${result.excluded_domain} excluded by domain`
+                      : null,
+                    result.skipped > 0 ? `${result.skipped} skipped` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               )}
             </div>
@@ -145,31 +192,50 @@ export function TicketBulkSendDialog({
                 <span className="text-[var(--ink-secondary)]">
                   {sendToAll ? "All Attendees:" : "Selected Recipients:"}
                 </span>
-                <strong className="text-[var(--ink-primary)] font-mono">{selectedUsers.length} Users</strong>
+                <strong className="text-[var(--ink-primary)] font-mono">
+                  {selectedUsers.length} Users
+                </strong>
               </div>
             </div>
 
             {/* Delivery */}
             <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2">
-              <div className="text-[var(--ink-primary)] font-semibold uppercase text-[11px]">Delivery</div>
+              <div className="text-[var(--ink-primary)] font-semibold uppercase text-[11px]">
+                Delivery
+              </div>
               {(
                 [
-                  { id: "email", label: "Email the QR pass", hint: "For external attendees without dashboard access." },
-                  { id: "release", label: "Release to dashboard only", hint: "Attendees see their QR on their dashboard. No email." },
+                  {
+                    id: "email",
+                    label: "Email the QR pass",
+                    hint: "For external attendees without dashboard access.",
+                  },
+                  {
+                    id: "release",
+                    label: "Release to dashboard only",
+                    hint: "Attendees see their QR on their dashboard. No email.",
+                  },
                 ] as const
               ).map((o) => (
-                <label key={o.id} className="flex items-start gap-2 cursor-pointer select-none">
+                <label
+                  key={o.id}
+                  className="flex items-start gap-2 cursor-pointer select-none"
+                >
                   <input
                     type="radio"
                     name="delivery"
                     checked={mode === o.id}
                     onChange={() => setMode(o.id)}
                     disabled={isLoading}
-                    className="accent-[#83A2DB] mt-0.5"
+                    className="accent-[var(--color-blue)] mt-0.5"
                   />
                   <span>
-                    <span className="text-[var(--ink-primary)] font-medium">{o.label}</span>
-                    <span className="block text-[10px] text-[var(--ink-secondary)]">{o.hint}</span>
+                    <span className="text-[var(--ink-primary)] font-medium">
+                      {o.label}
+                    </span>
+                    <span className="block text-[10px] text-[var(--ink-secondary)]">
+                      {o.hint}
+                    </span>
                   </span>
                 </label>
               ))}
@@ -189,9 +255,64 @@ export function TicketBulkSendDialog({
                 className="text-xs"
               />
               <p className="text-[10px] text-[var(--ink-secondary)]">
-                Separate multiple domains with commas or spaces. Attendees on these domains will be skipped (for example, test accounts).
+                Separate multiple domains with commas or spaces. Attendees on
+                these domains will be skipped.
               </p>
             </div>
+
+            {/* Custom Email Overrides (when mode === "email") */}
+            {mode === "email" && (
+              <div className="rounded-[14px] border border-[var(--card-line)] p-3.5 bg-[var(--card-solid)] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[var(--ink-primary)] font-semibold uppercase text-[11px]">
+                    <Mail className="h-3.5 w-3.5 text-[var(--color-blue)]" />
+                    <span>Email Template & Resend Options</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomEmail((prev) => !prev)}
+                    className="text-[11px] font-medium text-[var(--color-blue)] hover:underline cursor-pointer"
+                  >
+                    {showCustomEmail ? "Hide custom message" : "Customize email"}
+                  </button>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs">
+                  <input
+                    type="checkbox"
+                    checked={forceResend}
+                    onChange={(e) => setForceResend(e.target.checked)}
+                    disabled={isLoading}
+                    className="accent-[var(--color-blue)] h-4 w-4 rounded"
+                  />
+                  <span className="text-[var(--ink-primary)] font-medium">
+                    Force resend to attendees who were already emailed
+                  </span>
+                </label>
+
+                {showCustomEmail && (
+                  <div className="space-y-2 pt-1">
+                    <Input
+                      label="Custom Subject Override (optional)"
+                      placeholder="Leave blank to use event default subject"
+                      value={emailSubject}
+                      onChange={(e) => setEmailSubject(e.target.value)}
+                      disabled={isLoading}
+                      className="text-xs"
+                    />
+                    <Textarea
+                      label="Custom HTML Body Override (optional)"
+                      placeholder="Leave blank to use event default template..."
+                      rows={3}
+                      value={emailHtml}
+                      onChange={(e) => setEmailHtml(e.target.value)}
+                      disabled={isLoading}
+                      className="text-xs font-mono"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Checkbox Options */}
             <label className="flex items-center gap-2 cursor-pointer select-none text-xs">
@@ -200,7 +321,7 @@ export function TicketBulkSendDialog({
                 checked={skipCheckedIn}
                 onChange={(e) => setSkipCheckedIn(e.target.checked)}
                 disabled={isLoading}
-                className="accent-[#83A2DB] h-4 w-4 rounded"
+                className="accent-[var(--color-blue)] h-4 w-4 rounded"
               />
               <span className="text-[var(--ink-primary)] font-medium">
                 Skip attendees who have already checked in
@@ -211,19 +332,27 @@ export function TicketBulkSendDialog({
             <div className="rounded-[12px] border border-[var(--card-line)] p-3 bg-[var(--card-solid-subtle)] flex items-center justify-between text-[11px]">
               <div>
                 <span className="text-[var(--ink-secondary)]">Selected: </span>
-                <strong className="text-[var(--ink-primary)] font-mono">{selectedUsers.length}</strong>
+                <strong className="text-[var(--ink-primary)] font-mono">
+                  {selectedUsers.length}
+                </strong>
               </div>
               {excludedDomains.length > 0 && (
                 <div>
                   <span className="text-[var(--ink-secondary)]">
                     Excluded ({excludedDomains.join(", ")}):{" "}
                   </span>
-                  <strong className="text-[var(--ink-primary)] font-mono">{excludedCount}</strong>
+                  <strong className="text-[var(--ink-primary)] font-mono">
+                    {excludedCount}
+                  </strong>
                 </div>
               )}
               <div>
-                <span className="text-[var(--ink-secondary)]">Net To Send: </span>
-                <strong className="text-[var(--color-blue)] font-mono">{eligibleUsers.length}</strong>
+                <span className="text-[var(--ink-secondary)]">
+                  Net To Send:{" "}
+                </span>
+                <strong className="text-[var(--color-blue)] font-mono">
+                  {eligibleUsers.length}
+                </strong>
               </div>
             </div>
           </div>

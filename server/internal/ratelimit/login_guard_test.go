@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoginGuard_MultiDimensionalBruteForceProtection(t *testing.T) {
-	rdb := newTestRedis(t)
+	rdb := newTestRedisWithDB(t, 14)
 	guard := NewLoginGuard(rdb)
 	ctx := context.Background()
 

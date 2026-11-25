@@ -10,8 +10,9 @@ import (
 	"devclubxnst.com/cadence/internal/modules/tickets"
 )
 
-// Submissions are closed until an admin picks an attendance session; then only teams with at
-// least one member scanned in it can submit. Admins export every team's submission.
+// Submissions stay closed until a judging round is published (activated). Once published,
+// an optional attendance gate restricts submission to teams with >=1 member scanned in it.
+// Admins export every team's submission.
 func TestSubmissions_AttendanceGate(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
@@ -39,17 +40,34 @@ func TestSubmissions_AttendanceGate(t *testing.T) {
 	}
 	var mine judging.MySubmission
 
-	// No gate configured: closed for everyone.
+	// Before any round is published: closed for everyone.
 	aLead.DoJSON(t, http.MethodGet, "/api/v1/judging/my-submission", nil, http.StatusOK, &mine)
 	if mine.CanSubmit {
-		t.Fatalf("submissions must be closed by default: %+v", mine)
+		t.Fatalf("submissions must be closed before a round is published: %+v", mine)
 	}
 	aLead.DoJSON(t, http.MethodPut, "/api/v1/judging/my-submission", payload, http.StatusForbidden, nil)
+
+	// Create and publish a judging round, then gate it on an attendance session.
+	var roundResp struct {
+		RoundID string `json:"round_id"`
+	}
+	admin.DoJSON(t, http.MethodPost, "/api/v1/judging/rounds", map[string]any{
+		"name":               "Round 1",
+		"buffer_size":        1,
+		"slot_duration_mins": 10,
+		"criteria": []map[string]any{
+			{"name": "Quality", "min_score": 0, "max_score": 10, "weight": 100, "order_index": 1},
+		},
+	}, http.StatusCreated, &roundResp)
+	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/judging/rounds/%s/activate", roundResp.RoundID), nil, http.StatusOK, nil)
 
 	// Gate on an attendance session; only one member of Team A (not the leader) is scanned.
 	var sess tickets.ScanSession
 	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/sessions", map[string]string{"name": "Gate", "kind": "attendance"}, http.StatusCreated, &sess)
-	admin.DoJSON(t, http.MethodPut, "/api/v1/judging/submission-gate", map[string]any{"session_id": sess.ID}, http.StatusOK, nil)
+	admin.DoJSON(t, http.MethodPut, "/api/v1/judging/submission-gate", map[string]any{
+		"round_id":   roundResp.RoundID,
+		"session_id": sess.ID,
+	}, http.StatusOK, nil)
 	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v1/tickets/sessions/%s/scan", sess.ID),
 		map[string]string{"ticket_code": code("a.m1@internal.example")}, http.StatusOK, nil)
 

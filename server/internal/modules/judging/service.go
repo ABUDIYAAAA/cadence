@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/audit"
 	"devclubxnst.com/cadence/pkg/metrics"
 )
@@ -33,13 +34,15 @@ func NewService(repo *Repository, auditQueue audit.Recorder) *Service {
 	}
 }
 
+func actorEmail(ctx context.Context) string {
+	if claims, ok := auth.GetUserClaims(ctx); ok && claims != nil && claims.Email != "" {
+		return claims.Email
+	}
+	return "staff"
+}
+
 // CreateRound validates criteria and registers a new judging round.
-func (s *Service) CreateRound(
-	ctx context.Context,
-	req CreateRoundRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) (string, error) {
+func (s *Service) CreateRound(ctx context.Context, req CreateRoundRequest) (string, error) {
 	for _, c := range req.Criteria {
 		if c.MinScore < 0 || c.MaxScore <= c.MinScore || c.Weight < 0 {
 			return "", ErrInvalidCriteria
@@ -51,46 +54,41 @@ func (s *Service) CreateRound(
 		return "", err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingRoundCreate,
-		audit.TargetJudgingRound,
-		&roundID,
-		fmt.Sprintf("Judging round '%s' created by %s", req.Name, actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{
-			"round_name":         req.Name,
-			"buffer_size":        req.BufferSize,
-			"slot_duration_mins": req.SlotDurationMins,
-			"criteria_count":     len(req.Criteria),
-		},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingRoundCreate,
+			audit.TargetJudgingRound,
+			&roundID,
+			fmt.Sprintf("Judging round '%s' created by %s", req.Name, actorEmail(ctx)),
+			map[string]any{
+				"round_name":         req.Name,
+				"buffer_size":        req.BufferSize,
+				"slot_duration_mins": req.SlotDurationMins,
+				"criteria_count":     len(req.Criteria),
+			},
+		)
+	}
 
 	return roundID, nil
 }
 
 // ActivateRound sets round status to active.
-func (s *Service) ActivateRound(
-	ctx context.Context,
-	roundID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) ActivateRound(ctx context.Context, roundID string) error {
 	if err := s.repo.ActivateRound(ctx, roundID); err != nil {
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingRoundActivate,
-		audit.TargetJudgingRound,
-		&roundID,
-		fmt.Sprintf("Judging round activated by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"round_id": roundID},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingRoundActivate,
+			audit.TargetJudgingRound,
+			&roundID,
+			fmt.Sprintf("Judging round activated by %s", actorEmail(ctx)),
+			map[string]any{"round_id": roundID},
+		)
+	}
 
 	return nil
 }
@@ -106,36 +104,28 @@ func (s *Service) GetRound(ctx context.Context, roundID string) (*CreateRoundReq
 }
 
 // EndRound closes an active round.
-func (s *Service) EndRound(
-	ctx context.Context,
-	roundID string,
-	force bool,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) EndRound(ctx context.Context, roundID string, force bool) error {
 	if err := s.repo.EndRound(ctx, roundID, force); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionJudgingRoundEnd, audit.TargetJudgingRound, &roundID,
-		fmt.Sprintf("Judging round ended by %s (force: %t)", actorEmail, force),
-		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID, "force": force}, &ip, &userAgent)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionJudgingRoundEnd, audit.TargetJudgingRound, &roundID,
+			fmt.Sprintf("Judging round ended by %s (force: %t)", actorEmail(ctx), force),
+			map[string]any{"round_id": roundID, "force": force})
+	}
 	return nil
 }
 
 // DeleteRound permanently deletes a round that is not active.
-func (s *Service) DeleteRound(
-	ctx context.Context,
-	roundID string,
-	force bool,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) DeleteRound(ctx context.Context, roundID string, force bool) error {
 	if err := s.repo.DeleteRound(ctx, roundID, force); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionJudgingRoundDelete, audit.TargetJudgingRound, &roundID,
-		fmt.Sprintf("Judging round deleted by %s (force: %t)", actorEmail, force),
-		&actorID, &actorEmail, &actorRole, map[string]any{"round_id": roundID, "force": force}, &ip, &userAgent)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionJudgingRoundDelete, audit.TargetJudgingRound, &roundID,
+			fmt.Sprintf("Judging round deleted by %s (force: %t)", actorEmail(ctx), force),
+			map[string]any{"round_id": roundID, "force": force})
+	}
 	return nil
 }
 
@@ -145,73 +135,56 @@ func (s *Service) GetRoundPanels(ctx context.Context, roundID string) ([]RoundPa
 }
 
 // ImportTeamCriteria seeds the round roster and each team's extra criterion.
-func (s *Service) ImportTeamCriteria(
-	ctx context.Context,
-	roundID string,
-	req ImportTeamCriteriaRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) ImportTeamCriteria(ctx context.Context, roundID string, req ImportTeamCriteriaRequest) error {
 	if err := s.repo.ImportTeamCriteria(ctx, roundID, req); err != nil {
 		return err
 	}
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingTeamCriteriaImport,
-		audit.TargetJudgingRound,
-		&roundID,
-		fmt.Sprintf("Imported %d team criteria for round by %s", len(req.Rows), actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"round_id": roundID, "team_count": len(req.Rows), "weight": req.Weight},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingTeamCriteriaImport,
+			audit.TargetJudgingRound,
+			&roundID,
+			fmt.Sprintf("Imported %d team criteria for round by %s", len(req.Rows), actorEmail(ctx)),
+			map[string]any{"round_id": roundID, "team_count": len(req.Rows), "weight": req.Weight},
+		)
+	}
 	return nil
 }
 
 // SetTeamCriterion sets a team's custom criterion and the marks awarded for it.
-func (s *Service) SetTeamCriterion(
-	ctx context.Context,
-	roundID, teamID string,
-	req SetTeamCriterionRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) SetTeamCriterion(ctx context.Context, roundID, teamID string, req SetTeamCriterionRequest) error {
 	if err := s.repo.SetTeamCriterion(ctx, roundID, teamID, req); err != nil {
 		return err
 	}
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingTeamCriterionSet,
-		audit.TargetJudgingRound,
-		&roundID,
-		fmt.Sprintf("Team marks set by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"round_id": roundID, "team_id": teamID, "criterion": req.CriterionName, "max_score": req.MaxScore, "weight": req.Weight, "score": req.Score},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingTeamCriterionSet,
+			audit.TargetJudgingRound,
+			&roundID,
+			fmt.Sprintf("Team marks set by %s", actorEmail(ctx)),
+			map[string]any{"round_id": roundID, "team_id": teamID, "criterion": req.CriterionName, "max_score": req.MaxScore, "weight": req.Weight, "score": req.Score},
+		)
+	}
 	return nil
 }
 
 // DeleteTeamCriterion removes a team's custom criterion.
-func (s *Service) DeleteTeamCriterion(
-	ctx context.Context,
-	roundID, teamID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) DeleteTeamCriterion(ctx context.Context, roundID, teamID string) error {
 	if err := s.repo.DeleteTeamCriterion(ctx, roundID, teamID); err != nil {
 		return err
 	}
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingTeamCriterionDel,
-		audit.TargetJudgingRound,
-		&roundID,
-		fmt.Sprintf("Team criterion removed by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"round_id": roundID, "team_id": teamID},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingTeamCriterionDel,
+			audit.TargetJudgingRound,
+			&roundID,
+			fmt.Sprintf("Team criterion removed by %s", actorEmail(ctx)),
+			map[string]any{"round_id": roundID, "team_id": teamID},
+		)
+	}
 	return nil
 }
 
@@ -231,75 +204,82 @@ func (s *Service) GetAssignedJudges(ctx context.Context, roundID string) ([]Assi
 }
 
 // CreatePanel creates a panel in a room and assigns judges.
-func (s *Service) CreatePanel(
-	ctx context.Context,
-	req CreatePanelRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) (string, error) {
+func (s *Service) CreatePanel(ctx context.Context, req CreatePanelRequest) (string, error) {
 	panelID, err := s.repo.CreatePanel(ctx, req)
 	if err != nil {
 		return "", err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingPanelCreate,
-		audit.TargetJudgingPanel,
-		&panelID,
-		fmt.Sprintf("Judging panel '%s' created in Room '%s' with %d judges", req.Name, req.Room, len(req.JudgeIDs)),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{
-			"round_id":    req.RoundID,
-			"panel_name":  req.Name,
-			"room":        req.Room,
-			"judge_count": len(req.JudgeIDs),
-		},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingPanelCreate,
+			audit.TargetJudgingPanel,
+			&panelID,
+			fmt.Sprintf("Judging panel '%s' created in Room '%s' with %d judges", req.Name, req.Room, len(req.JudgeIDs)),
+			map[string]any{
+				"round_id":    req.RoundID,
+				"panel_name":  req.Name,
+				"room":        req.Room,
+				"judge_count": len(req.JudgeIDs),
+			},
+		)
+	}
 
 	return panelID, nil
 }
 
 // ConfigureSlots sets sequential team schedule in a panel.
-func (s *Service) ConfigureSlots(
-	ctx context.Context,
-	panelID string,
-	req ConfigureSlotsRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) ConfigureSlots(ctx context.Context, panelID string, req ConfigureSlotsRequest) error {
 	if err := s.repo.ConfigureSlots(ctx, panelID, req.Slots, req.Append); err != nil {
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotsConfigure,
-		audit.TargetJudgingPanel,
-		&panelID,
-		fmt.Sprintf("Configured %d team slots in panel by %s", len(req.Slots), actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{
-			"panel_id":   panelID,
-			"slot_count": len(req.Slots),
-		},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotsConfigure,
+			audit.TargetJudgingPanel,
+			&panelID,
+			fmt.Sprintf("Configured %d team slots in panel by %s", len(req.Slots), actorEmail(ctx)),
+			map[string]any{
+				"panel_id":   panelID,
+				"slot_count": len(req.Slots),
+			},
+		)
+	}
 
 	return nil
 }
 
-// UpdateSlotLinks modifies external project URLs for a slot.
+// sanitizeSubmissionArtifacts extracts a trimmed project_name (<=150 runes) and filters links to allowedSubmissionLinks.
+func sanitizeSubmissionArtifacts(projectName string, rawLinks map[string]string) (string, map[string]string, error) {
+	project := strings.TrimSpace(projectName)
+	if project == "" && rawLinks != nil {
+		project = strings.TrimSpace(rawLinks["project_name"])
+	}
+	if len([]rune(project)) > 150 {
+		return "", nil, ErrProjectNameTooLong
+	}
+	links := make(map[string]string, len(allowedSubmissionLinks))
+	for k, v := range rawLinks {
+		v = strings.TrimSpace(v)
+		if v != "" && allowedSubmissionLinks[k] {
+			links[k] = v
+		}
+	}
+	return project, links, nil
+}
+
+// UpdateSlotLinks modifies external project URLs for a slot's team.
 // If the caller is not an admin, verifies that the user belongs to the team assigned to this slot.
 func (s *Service) UpdateSlotLinks(
 	ctx context.Context,
 	slotID string,
-	actorID, actorEmail, actorRole string,
+	actorID, actorRole string,
 	links map[string]string,
-	ip, userAgent string,
 ) error {
-	if actorRole != "admin" {
+	if !auth.IsAdminRole(actorRole) {
 		allowed, err := s.repo.CanUserUpdateSlotLinks(ctx, slotID, actorID)
 		if err != nil {
 			return fmt.Errorf("verify slot permission: %w", err)
@@ -315,36 +295,41 @@ func (s *Service) UpdateSlotLinks(
 			return ErrUnauthorizedSlot
 		}
 	}
-	if actorRole != "admin" {
-		if ok, _, err := s.canTeamSubmit(ctx, slotID); err != nil {
+	teamID, err := s.repo.SlotTeamID(ctx, slotID)
+	if err != nil {
+		return err
+	}
+	if !auth.IsAdminRole(actorRole) {
+		if ok, _, err := s.gateStatus(ctx, teamID); err != nil {
 			return err
 		} else if !ok {
 			return ErrNotPresent
 		}
 	}
-	if name := links["project_name"]; len([]rune(name)) > 150 {
-		return ErrProjectNameTooLong
+	project, cleanedLinks, err := sanitizeSubmissionArtifacts("", links)
+	if err != nil {
+		return err
 	}
-	if err := s.repo.UpdateSlotLinks(ctx, slotID, links); err != nil {
+	if err := s.repo.SetTeamSubmission(ctx, teamID, project, cleanedLinks); err != nil {
 		return err
 	}
 
 	// Record which links changed, not their URLs: they can carry private repo or deck addresses.
-	keys := make([]string, 0, len(links))
-	for k := range links {
+	keys := make([]string, 0, len(cleanedLinks))
+	for k := range cleanedLinks {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotLinksUpdate,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Submission links updated by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"slot_id": slotID, "link_keys": keys},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotLinksUpdate,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Submission links updated by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID, "team_id": teamID, "link_keys": keys, "has_project_name": project != ""},
+		)
+	}
 	return nil
 }
 
@@ -363,12 +348,7 @@ func (s *Service) GetJudgeSlotDetails(ctx context.Context, slotID, judgeID strin
 }
 
 // StartSlot starts a team's pitch session and triggers on-deck queue shifts.
-func (s *Service) StartSlot(
-	ctx context.Context,
-	slotID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) StartSlot(ctx context.Context, slotID, actorID string) error {
 	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
 		return err
 	}
@@ -377,16 +357,16 @@ func (s *Service) StartSlot(
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotStart,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Judging slot pitch started by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"slot_id": slotID},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotStart,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Judging slot pitch started by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID},
+		)
+	}
 
 	return nil
 }
@@ -411,60 +391,50 @@ func (s *Service) authorizeSlotActor(ctx context.Context, slotID, actorID string
 }
 
 // PauseTimer pauses the pitch clock.
-func (s *Service) PauseTimer(
-	ctx context.Context,
-	slotID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) PauseTimer(ctx context.Context, slotID, actorID string) error {
 	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
 		return err
 	}
 	if err := s.repo.PauseTimer(ctx, slotID); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionJudgingTimerPause, audit.TargetJudgingSlot, &slotID,
-		fmt.Sprintf("Pitch timer paused by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole, map[string]any{"slot_id": slotID}, &ip, &userAgent)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionJudgingTimerPause, audit.TargetJudgingSlot, &slotID,
+			fmt.Sprintf("Pitch timer paused by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID})
+	}
 	return nil
 }
 
 // ResumeTimer resumes a paused pitch clock.
-func (s *Service) ResumeTimer(
-	ctx context.Context,
-	slotID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) ResumeTimer(ctx context.Context, slotID, actorID string) error {
 	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
 		return err
 	}
 	if err := s.repo.ResumeTimer(ctx, slotID); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionJudgingTimerResume, audit.TargetJudgingSlot, &slotID,
-		fmt.Sprintf("Pitch timer resumed by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole, map[string]any{"slot_id": slotID}, &ip, &userAgent)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionJudgingTimerResume, audit.TargetJudgingSlot, &slotID,
+			fmt.Sprintf("Pitch timer resumed by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID})
+	}
 	return nil
 }
 
 // ExtendTimer adds extra time to a pitch.
-func (s *Service) ExtendTimer(
-	ctx context.Context,
-	slotID string,
-	actorID, actorEmail, actorRole string,
-	seconds int,
-	ip, userAgent string,
-) error {
+func (s *Service) ExtendTimer(ctx context.Context, slotID, actorID string, seconds int) error {
 	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
 		return err
 	}
 	if err := s.repo.ExtendTimer(ctx, slotID, seconds); err != nil {
 		return err
 	}
-	s.recordAudit(ctx, audit.ActionJudgingTimerExtend, audit.TargetJudgingSlot, &slotID,
-		fmt.Sprintf("Pitch timer extended by %ds by %s", seconds, actorEmail),
-		&actorID, &actorEmail, &actorRole, map[string]any{"slot_id": slotID, "seconds": seconds}, &ip, &userAgent)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionJudgingTimerExtend, audit.TargetJudgingSlot, &slotID,
+			fmt.Sprintf("Pitch timer extended by %ds by %s", seconds, actorEmail(ctx)),
+			map[string]any{"slot_id": slotID, "seconds": seconds})
+	}
 	return nil
 }
 
@@ -485,12 +455,7 @@ func (s *Service) SubmitScores(
 }
 
 // LockScores locks the judge's score for the team.
-func (s *Service) LockScores(
-	ctx context.Context,
-	slotID string,
-	judgeID, judgeEmail, judgeRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) LockScores(ctx context.Context, slotID, judgeID string) error {
 	if err := s.authorizeSlotActor(ctx, slotID, judgeID); err != nil {
 		return err
 	}
@@ -501,27 +466,22 @@ func (s *Service) LockScores(
 
 	metrics.InstrumentScoreSubmission("locked")
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingScoreLock,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Judge %s locked their evaluation scorecard", judgeEmail),
-		&judgeID, &judgeEmail, &judgeRole,
-		map[string]any{"slot_id": slotID},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingScoreLock,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Judge %s locked their evaluation scorecard", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID},
+		)
+	}
 
 	return nil
 }
 
 // CompleteSlot validates all judges locked scores, then completes the slot and advances the queue.
-func (s *Service) CompleteSlot(
-	ctx context.Context,
-	slotID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) CompleteSlot(ctx context.Context, slotID, actorID string) error {
 	if err := s.authorizeSlotActor(ctx, slotID, actorID); err != nil {
 		return err
 	}
@@ -538,16 +498,16 @@ func (s *Service) CompleteSlot(
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotComplete,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Judging slot completed and queue advanced by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"slot_id": slotID},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotComplete,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Judging slot completed and queue advanced by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID},
+		)
+	}
 
 	return nil
 }
@@ -573,62 +533,39 @@ func (s *Service) withSubmitGate(ctx context.Context, teamID string) (*TeamStatu
 	if err != nil {
 		return nil, err
 	}
-	resp.CanSubmit = true
-	gate, err := s.repo.GetSubmissionGate(ctx)
+	can, reason, err := s.gateStatus(ctx, teamID)
 	if err != nil {
 		return nil, err
 	}
-	if gate.SessionID != nil {
-		present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
-		if err != nil {
-			return nil, fmt.Errorf("check attendance: %w", err)
-		}
-		if !present {
-			resp.CanSubmit = false
-			resp.SubmitBlockedReason = fmt.Sprintf("No member of your team was present at %q, so submissions are closed for your team.", *gate.SessionName)
-		}
-	}
+	resp.CanSubmit = can
+	resp.SubmitBlockedReason = reason
 	return resp, nil
 }
 
-// canTeamSubmit applies the attendance gate to the team that owns slotID.
-func (s *Service) canTeamSubmit(ctx context.Context, slotID string) (bool, SubmissionGate, error) {
-	gate, err := s.repo.GetSubmissionGate(ctx)
-	if err != nil {
-		return false, gate, err
-	}
-	teamID, err := s.repo.SlotTeamID(ctx, slotID)
-	if err != nil {
-		return false, gate, err
-	}
-	can, _, err := s.gateStatus(ctx, teamID)
-	return can, gate, err
+// GetSubmissionGate returns the optional attendance/check-in session that gates submissions for a round.
+func (s *Service) GetSubmissionGate(ctx context.Context, roundID string) (SubmissionGate, error) {
+	return s.repo.GetSubmissionGate(ctx, roundID)
 }
 
-// GetSubmissionGate returns the attendance session that gates submissions.
-func (s *Service) GetSubmissionGate(ctx context.Context) (SubmissionGate, error) {
-	return s.repo.GetSubmissionGate(ctx)
-}
-
-// SetSubmissionGate sets or clears the gating attendance session.
-func (s *Service) SetSubmissionGate(ctx context.Context, sessionID *string, actorID, actorEmail, actorRole, ip, ua string) (SubmissionGate, error) {
+// SetSubmissionGate sets or clears the optional gating session for a round.
+func (s *Service) SetSubmissionGate(ctx context.Context, roundID string, sessionID *string, actorID string) (SubmissionGate, error) {
 	if sessionID != nil && *sessionID == "" {
 		sessionID = nil
 	}
-	gate, err := s.repo.SetSubmissionGate(ctx, sessionID, actorID)
+	gate, err := s.repo.SetSubmissionGate(ctx, roundID, sessionID, actorID)
 	if err != nil {
 		return gate, err
 	}
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotLinksUpdate,
-		audit.TargetJudgingSlot,
-		nil,
-		fmt.Sprintf("Submission gate changed by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"submission_gate_session": sessionID},
-		&ip, &ua,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotLinksUpdate,
+			audit.TargetJudgingSlot,
+			nil,
+			fmt.Sprintf("Submission gate changed by %s", actorEmail(ctx)),
+			map[string]any{"round_id": roundID, "submission_gate_session": sessionID},
+		)
+	}
 	return gate, nil
 }
 
@@ -641,17 +578,28 @@ func (s *Service) ListSubmissions(ctx context.Context) (*SubmissionsResponse, er
 	return &SubmissionsResponse{Submissions: rows}, nil
 }
 
-// gateStatus reports whether the team may submit under the attendance gate.
+// gateStatus reports whether the team may submit under the active (published) round's optional gate.
+// Submissions stay closed until a judging round is published (status = 'active').
+// Once active, if no attendance gate session is configured on that round, submissions are open to all teams.
 func (s *Service) gateStatus(ctx context.Context, teamID string) (bool, string, error) {
-	// Submissions are closed until an admin picks an attendance session; then only teams with
-	// at least one member scanned in it may submit.
-	const closed = "Submissions are closed for your team."
-	gate, err := s.repo.GetSubmissionGate(ctx)
+	const (
+		closed       = "Submissions are closed for your team."
+		notPublished = "Submissions open once a judging round is published."
+	)
+	roundID, err := s.repo.ResolveActiveGateRoundID(ctx)
 	if err != nil {
 		return false, "", err
 	}
+	if roundID == "" {
+		return false, notPublished, nil
+	}
+	gate, err := s.repo.GetSubmissionGate(ctx, roundID)
+	if err != nil {
+		return false, "", err
+	}
+	// Optional gate: once the round is published, no session means submissions are open to all teams.
 	if gate.SessionID == nil {
-		return false, closed, nil
+		return true, "", nil
 	}
 	present, err := s.repo.TeamPresentInSession(ctx, teamID, *gate.SessionID)
 	if err != nil {
@@ -659,6 +607,9 @@ func (s *Service) gateStatus(ctx context.Context, teamID string) (bool, string, 
 	}
 	if present {
 		return true, "", nil
+	}
+	if gate.SessionName != nil && *gate.SessionName != "" {
+		return false, fmt.Sprintf("No member of your team was present at %q, so submissions are closed for your team.", *gate.SessionName), nil
 	}
 	return false, closed, nil
 }
@@ -686,7 +637,7 @@ func (s *Service) GetMySubmission(ctx context.Context, userID string) (*MySubmis
 var allowedSubmissionLinks = map[string]bool{"github": true, "demo": true, "slides": true}
 
 // SetMySubmission saves the caller's team submission, subject to the attendance gate.
-func (s *Service) SetMySubmission(ctx context.Context, actorID, actorEmail, actorRole string, req UpdateMySubmissionRequest, ip, ua string) error {
+func (s *Service) SetMySubmission(ctx context.Context, actorID string, req UpdateMySubmissionRequest) error {
 	teamID, err := s.repo.GetUserTeamID(ctx, actorID)
 	if err != nil {
 		return err
@@ -699,16 +650,9 @@ func (s *Service) SetMySubmission(ctx context.Context, actorID, actorEmail, acto
 	} else if !can {
 		return ErrNotPresent
 	}
-	project := strings.TrimSpace(req.ProjectName)
-	if len([]rune(project)) > 150 {
-		return ErrProjectNameTooLong
-	}
-	links := map[string]string{}
-	for k, v := range req.Links {
-		v = strings.TrimSpace(v)
-		if v != "" && allowedSubmissionLinks[k] {
-			links[k] = v
-		}
+	project, links, err := sanitizeSubmissionArtifacts(req.ProjectName, req.Links)
+	if err != nil {
+		return err
 	}
 	if err := s.repo.SetTeamSubmission(ctx, *teamID, project, links); err != nil {
 		return err
@@ -718,11 +662,11 @@ func (s *Service) SetMySubmission(ctx context.Context, actorID, actorEmail, acto
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	s.recordAudit(ctx, audit.ActionJudgingSlotLinksUpdate, audit.TargetJudgingSlot, teamID,
-		fmt.Sprintf("Team submission updated by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"team_id": *teamID, "link_keys": keys, "has_project_name": project != ""},
-		&ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionJudgingSlotLinksUpdate, audit.TargetJudgingSlot, teamID,
+			fmt.Sprintf("Team submission updated by %s", actorEmail(ctx)),
+			map[string]any{"team_id": *teamID, "link_keys": keys, "has_project_name": project != ""})
+	}
 	return nil
 }
 
@@ -752,8 +696,7 @@ func (s *Service) UnlockScorecard(
 	ctx context.Context,
 	slotID string,
 	req UnlockScorecardRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
+	actorID, actorRole string,
 ) ([]string, bool, error) {
 	// A judge can only reopen their own scorecard, on a panel they sit on. Admins can pick any judge.
 	if actorRole == "judge" {
@@ -766,53 +709,41 @@ func (s *Service) UnlockScorecard(
 	if err != nil {
 		return nil, false, err
 	}
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingScoreUnlock,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Scorecard unlocked by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"slot_id": slotID, "judge_ids": judges, "slot_reopened": reopened, "reason": req.Reason},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingScoreUnlock,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Scorecard unlocked by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID, "judge_ids": judges, "slot_reopened": reopened, "reason": req.Reason},
+		)
+	}
 	return judges, reopened, nil
 }
 
 // UpdateRoundDuration changes a round's default time per team.
-func (s *Service) UpdateRoundDuration(
-	ctx context.Context,
-	roundID string,
-	req UpdateRoundDurationRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) (int, error) {
+func (s *Service) UpdateRoundDuration(ctx context.Context, roundID string, req UpdateRoundDurationRequest) (int, error) {
 	reset, err := s.repo.UpdateRoundSlotDuration(ctx, roundID, req.SlotDurationMins, req.ResetCustom)
 	if err != nil {
 		return 0, err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingRoundDuration,
-		audit.TargetJudgingRound,
-		&roundID,
-		fmt.Sprintf("Round time per team changed by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"round_id": roundID, "slot_duration_mins": req.SlotDurationMins, "reset_custom": req.ResetCustom, "teams_reset": reset},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingRoundDuration,
+			audit.TargetJudgingRound,
+			&roundID,
+			fmt.Sprintf("Round time per team changed by %s", actorEmail(ctx)),
+			map[string]any{"round_id": roundID, "slot_duration_mins": req.SlotDurationMins, "reset_custom": req.ResetCustom, "teams_reset": reset},
+		)
+	}
 	return reset, nil
 }
 
 // SetPanelJudges replaces the judges seated in a room.
-func (s *Service) SetPanelJudges(
-	ctx context.Context,
-	panelID string,
-	req SetPanelJudgesRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) SetPanelJudges(ctx context.Context, panelID string, req SetPanelJudgesRequest) error {
 	added, removed, err := s.repo.SetPanelJudges(ctx, panelID, req.JudgeIDs)
 	if err != nil {
 		return err
@@ -821,27 +752,21 @@ func (s *Service) SetPanelJudges(
 		return nil
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingPanelJudges,
-		audit.TargetJudgingPanel,
-		&panelID,
-		fmt.Sprintf("Room judges changed by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"panel_id": panelID, "added": added, "removed": removed},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingPanelJudges,
+			audit.TargetJudgingPanel,
+			&panelID,
+			fmt.Sprintf("Room judges changed by %s", actorEmail(ctx)),
+			map[string]any{"panel_id": panelID, "added": added, "removed": removed},
+		)
+	}
 	return nil
 }
 
 // UpdateSlotTiming sets a team's own pitch length and pinned start time.
-func (s *Service) UpdateSlotTiming(
-	ctx context.Context,
-	slotID string,
-	req UpdateSlotTimingRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) UpdateSlotTiming(ctx context.Context, slotID string, req UpdateSlotTimingRequest) error {
 	if err := s.repo.UpdateSlotTiming(ctx, slotID, req); err != nil {
 		return err
 	}
@@ -854,27 +779,21 @@ func (s *Service) UpdateSlotTiming(
 		metadata["start_time"] = req.StartTime.UTC().Format(time.RFC3339)
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotTiming,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Judging slot time changed by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		metadata,
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotTiming,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Judging slot time changed by %s", actorEmail(ctx)),
+			metadata,
+		)
+	}
 	return nil
 }
 
 // MoveSlot moves a team slot across panels or reorders inside a panel.
-func (s *Service) MoveSlot(
-	ctx context.Context,
-	slotID string,
-	req MoveSlotRequest,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) MoveSlot(ctx context.Context, slotID string, req MoveSlotRequest) error {
 	if err := s.repo.MoveSlot(ctx, slotID, req); err != nil {
 		return err
 	}
@@ -890,93 +809,56 @@ func (s *Service) MoveSlot(
 		metadata["status"] = *req.Status
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotMove,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Judging slot moved by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		metadata,
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotMove,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Judging slot moved by %s", actorEmail(ctx)),
+			metadata,
+		)
+	}
 
 	return nil
 }
 
 // QueueSlot immediately puts a team slot on-deck into the room queue ('queued' status).
-func (s *Service) QueueSlot(
-	ctx context.Context,
-	slotID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) QueueSlot(ctx context.Context, slotID string) error {
 	if err := s.repo.QueueSlot(ctx, slotID); err != nil {
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotQueue,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Team slot thrown into room queue by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"slot_id": slotID, "status": "queued"},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotQueue,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Team slot thrown into room queue by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID, "status": "queued"},
+		)
+	}
 
 	return nil
 }
 
 // UnqueueSlot reverts a queued slot back to scheduled.
-func (s *Service) UnqueueSlot(
-	ctx context.Context,
-	slotID string,
-	actorID, actorEmail, actorRole string,
-	ip, userAgent string,
-) error {
+func (s *Service) UnqueueSlot(ctx context.Context, slotID string) error {
 	if err := s.repo.UnqueueSlot(ctx, slotID); err != nil {
 		return err
 	}
 
-	s.recordAudit(
-		ctx,
-		audit.ActionJudgingSlotUnqueue,
-		audit.TargetJudgingSlot,
-		&slotID,
-		fmt.Sprintf("Team slot removed from queue by %s", actorEmail),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"slot_id": slotID, "status": "scheduled"},
-		&ip, &userAgent,
-	)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(
+			ctx,
+			audit.ActionJudgingSlotUnqueue,
+			audit.TargetJudgingSlot,
+			&slotID,
+			fmt.Sprintf("Team slot removed from queue by %s", actorEmail(ctx)),
+			map[string]any{"slot_id": slotID, "status": "scheduled"},
+		)
+	}
 
 	return nil
-}
-
-func (s *Service) recordAudit(
-	ctx context.Context,
-	action, targetType string,
-	targetID *string,
-	desc string,
-	actorID, actorEmail, actorRole *string,
-	metadata map[string]any,
-	ip, ua *string,
-) {
-	if s.auditQueue == nil {
-		return
-	}
-	s.auditQueue.Record(ctx, audit.Event{
-		ActorID:     actorID,
-		ActorEmail:  actorEmail,
-		ActorRole:   actorRole,
-		Action:      action,
-		TargetType:  targetType,
-		TargetID:    targetID,
-		Description: desc,
-		Metadata:    metadata,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Timestamp:   time.Now(),
-	})
 }

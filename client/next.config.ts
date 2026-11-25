@@ -1,10 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   devIndicators: false,
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    agentUpgrade: "security",
+  },
   turbopack: {
     rules: {
       "*.css": {
@@ -16,12 +18,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: "/auth/:path*",
-        destination: "/:path*",
-      },
-      {
-        source: "/setup-account",
-        destination: "/setup-password",
+        source: "/auth/login",
+        destination: "/login",
       },
     ];
   },

@@ -10,13 +10,16 @@ import {
   useMyTeam,
   useRegenerateMyCode,
   useRenameMyTeam,
+  useTransferTeamLeadership,
 } from "@/hooks/use-teams";
 import { useAuth } from "@/providers/auth-provider";
+import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamNameDialog } from "./team-dialog-create";
 import { TeamJoinDialog } from "./team-dialog-join";
@@ -27,8 +30,26 @@ function errorMessage(err: unknown, fallback: string): string {
     : fallback;
 }
 
-export function MyTeamView() {
+function formatTeamSizeRange(min?: number, max?: number): string | null {
+  if (!max) return null;
+  if (!min || min === max) return `${max} ${max === 1 ? "member" : "members"}`;
+  return `${min}–${max} members`;
+}
+
+interface MyTeamViewProps {
+  /** Hide the inline competition selector when already inside a competition-scoped route. */
+  hideCompetitionSwitcher?: boolean;
+}
+
+export function MyTeamView({ hideCompetitionSwitcher = false }: MyTeamViewProps) {
   const { user } = useAuth();
+  const {
+    competitionSlug,
+    activeCompetition,
+    competitions,
+    isLoadingCompetitions,
+    selectCompetition,
+  } = useTenant();
   const toast = useToast();
   const { data: team, isLoading, isError, refetch } = useMyTeam();
 
@@ -38,35 +59,97 @@ export function MyTeamView() {
   const renameTeam = useRenameMyTeam();
   const regenerateCode = useRegenerateMyCode();
   const kickMember = useKickMember();
+  const transferLeadership = useTransferTeamLeadership();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
 
-  if (isLoading) {
+  const competitionSelector =
+    !hideCompetitionSwitcher && competitions.length > 0 ? (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-[var(--ink-primary)]">
+            Competition
+          </span>
+          {activeCompetition && (
+            <span className="text-[11px] text-[var(--ink-secondary)] tabular-nums">
+              {formatTeamSizeRange(
+                activeCompetition.min_team_size,
+                activeCompetition.max_team_size
+              )}
+            </span>
+          )}
+        </div>
+
+        <Select
+          aria-label="Select competition for team"
+          value={competitionSlug ?? ""}
+          onChange={(e) => {
+            if (e.target.value && e.target.value !== competitionSlug) {
+              selectCompetition(e.target.value);
+            }
+          }}
+          className="h-10 w-full text-xs font-medium"
+          options={competitions.map((comp) => ({
+            value: comp.slug,
+            label: comp.name,
+          }))}
+        />
+      </div>
+    ) : null;
+
+  if (isLoadingCompetitions) {
     return <Skeleton className="h-40 w-full rounded-[20px]" />;
+  }
+
+  if (!competitionSlug) {
+    return (
+      <EmptyState
+        title="No competition active"
+        description="This event does not have a competition yet. Teams will appear once a competition is created."
+      />
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <section className="font-sans space-y-3" aria-label="Your team">
+        {competitionSelector}
+        <Skeleton className="h-40 w-full rounded-[20px]" />
+      </section>
+    );
   }
 
   // `null` means "no team yet"; an error is a real failure.
   if (isError && !team) {
     return (
-      <EmptyState
-        title="Couldn't load your team"
-        description="Check your connection and try again."
-        action={
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            Retry
-          </Button>
-        }
-      />
+      <section className="font-sans space-y-3" aria-label="Your team">
+        {competitionSelector}
+        <EmptyState
+          title="Couldn't load your team"
+          description="Check your connection and try again."
+          action={
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Retry
+            </Button>
+          }
+        />
+      </section>
     );
   }
+
+  const compName = activeCompetition?.name ?? competitionSlug;
+  const sizeHint = formatTeamSizeRange(
+    activeCompetition?.min_team_size,
+    activeCompetition?.max_team_size
+  );
 
   const handleCreate = async (name: string) => {
     try {
       await createTeam.mutateAsync({ name });
-      toast.success(`Team "${name}" created. Share the join code with your teammates.`, "Team created");
+      toast.success(`Team "${name}" created for ${compName}. Share the join code with your teammates.`, "Team created");
     } catch (err) {
       toast.error(errorMessage(err, "Failed to create team"), "Could not create team");
       throw err;
@@ -82,9 +165,14 @@ export function MyTeamView() {
   if (!team) {
     return (
       <section className="font-sans space-y-3" aria-label="Your team">
+        {competitionSelector}
         <EmptyState
-          title="You're not on a team yet"
-          description="Start a team and share its code, or join one with a code from your team leader."
+          title={`No team for ${compName} yet`}
+          description={
+            sizeHint
+              ? `Start a team (${sizeHint}) and share its code, or join one with a code from your team leader.`
+              : "Start a team and share its code, or join one with a code from your team leader."
+          }
           action={
             <div className="flex flex-wrap justify-center gap-2">
               <Button variant="primary" size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
@@ -102,7 +190,7 @@ export function MyTeamView() {
           onClose={() => setCreateOpen(false)}
           onSubmit={handleCreate}
           isLoading={createTeam.isPending}
-          title="Create a team"
+          title={`Create a team for ${compName}`}
           description="You'll be the team leader. Teammates join with the code you share."
           submitLabel="Create team"
         />
@@ -157,6 +245,15 @@ export function MyTeamView() {
     }
   };
 
+  const handleTransferLeadership = async (userId: string, name: string) => {
+    try {
+      await transferLeadership.mutateAsync({ new_leader_id: userId });
+      toast.success(`${name} is now the team leader.`, "Leadership transferred");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to transfer leadership"), "Error");
+    }
+  };
+
   const handleLeave = async () => {
     try {
       await leaveTeam.mutateAsync();
@@ -169,6 +266,7 @@ export function MyTeamView() {
 
   return (
     <section className="font-sans space-y-3" aria-label="Your team">
+      {competitionSelector}
       <div className="flex items-baseline justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <h2 className="text-base font-semibold tracking-tight text-[var(--ink-primary)] truncate">
@@ -242,17 +340,30 @@ export function MyTeamView() {
                 </Badge>
               )}
               {isLeader && !member.is_leader && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-[var(--color-coral)]"
-                  disabled={frozen || kickMember.isPending}
-                  onClick={() => handleKick(member.id, member.name)}
-                  title={`Remove ${member.name}`}
-                  aria-label={`Remove ${member.name} from the team`}
-                >
-                  <UserMinus className="h-3.5 w-3.5" />
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] gap-1"
+                    disabled={frozen || transferLeadership.isPending || kickMember.isPending}
+                    onClick={() => handleTransferLeadership(member.id, member.name)}
+                    title={`Transfer team leadership to ${member.name}`}
+                  >
+                    <Crown className="h-3 w-3" />
+                    Make lead
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-[var(--color-coral)]"
+                    disabled={frozen || kickMember.isPending || transferLeadership.isPending}
+                    onClick={() => handleKick(member.id, member.name)}
+                    title={`Remove ${member.name}`}
+                    aria-label={`Remove ${member.name} from the team`}
+                  >
+                    <UserMinus className="h-3.5 w-3.5" />
+                  </Button>
+                </>
               )}
             </div>
           </li>

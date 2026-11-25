@@ -2,28 +2,215 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LogOut, LayoutDashboard, Bell, Sun, Moon, Menu } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  LogOut,
+  LayoutDashboard,
+  Bell,
+  Sun,
+  Moon,
+  Menu,
+  Calendar,
+  Settings,
+  Crown,
+  Check,
+  ChevronDown,
+  Shield,
+} from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useAuth } from "@/providers/auth-provider";
+import { useTenant } from "@/providers/tenant-provider";
 import { useToast } from "@/providers/toast-provider";
 import { useNotificationsContext } from "@/providers/notification-provider";
-import { getDashboardRoute } from "@/lib/auth-routes";
-import { Badge } from "@/components/ui/badge";
+import {
+  useEventDetail,
+  useEvents,
+  useTransferEventOwnership,
+  useUpdateEvent,
+} from "@/hooks/use-events";
+import { getAuthenticatedHomeRoute } from "@/lib/auth-routes";
+import {
+  getCompetitionRouteContext,
+  getCompetitionSectionHref,
+} from "@/lib/competition-utils";
+import { apiErrorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert } from "@/components/ui/alert";
+import { LogoUploadField } from "@/components/events/logo-upload-field";
+
+interface HeaderSwitcherItem {
+  slug: string;
+  name: string;
+}
+
+function HeaderSwitcher({
+  label,
+  heading,
+  activeSlug,
+  displayName,
+  items,
+  onSelect,
+  emphasized = false,
+}: {
+  label: string;
+  heading: string;
+  activeSlug: string;
+  displayName: string;
+  items: HeaderSwitcherItem[];
+  onSelect: (slug: string) => void;
+  emphasized?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  if (items.length <= 1) {
+    return (
+      <span
+        className={`text-xs truncate max-w-[180px] ${
+          emphasized
+            ? "font-semibold text-[var(--ink-primary)]"
+            : "font-medium text-[var(--ink-secondary)]"
+        }`}
+      >
+        {displayName}
+      </span>
+    );
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={label}
+        className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-[6px] text-xs hover:bg-[var(--card-solid-subtle)] transition-colors cursor-pointer max-w-[180px] ${
+          emphasized
+            ? "font-semibold text-[var(--ink-primary)]"
+            : "font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+        }`}
+      >
+        <span className="truncate">{displayName}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-[var(--ink-tertiary)] transition-transform duration-150 ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label={label}
+          className="absolute left-0 mt-1.5 w-60 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 p-1.5 max-h-72 overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-150"
+        >
+          <div className="px-2.5 py-1 text-[11px] font-medium text-[var(--ink-tertiary)]">
+            {heading}
+          </div>
+          <div className="space-y-0.5">
+            {items.map((item) => {
+              const active = item.slug === activeSlug;
+              return (
+                <button
+                  key={item.slug}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    setOpen(false);
+                    onSelect(item.slug);
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 text-xs rounded-[8px] text-left transition-colors cursor-pointer ${
+                    active
+                      ? "bg-[var(--card-solid-subtle)] font-semibold text-[var(--ink-primary)]"
+                      : "text-[var(--ink-secondary)] hover:bg-[var(--card-solid-subtle)] hover:text-[var(--ink-primary)]"
+                  }`}
+                >
+                  <span className="truncate">{item.name}</span>
+                  {active && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-blue)]" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Navbar() {
   const pathname = usePathname();
-  const { user, isAuthenticated, logout } = useAuth();
+  const router = useRouter();
+  const {
+    user,
+    isAuthenticated,
+    isDev,
+    isOwner,
+    isAdmin,
+    logout,
+  } = useAuth();
+  const {
+    eventSlug,
+    activeEvent,
+    events,
+    competitions,
+    selectEvent,
+    selectCompetition,
+    clearEvent,
+  } = useTenant();
   const { isSupported, isSubscribed, enablePush, disablePush } =
     useNotificationsContext();
   const toast = useToast();
+
+  const { data: eventDetail } = useEventDetail(eventSlug, {
+    enabled: isAuthenticated && Boolean(eventSlug),
+  });
+  const { data: allEvents = [] } = useEvents({
+    enabled: isAuthenticated && isDev,
+  });
+
+  const updateEvent = useUpdateEvent(eventSlug || "");
+  const transferOwnership = useTransferEventOwnership(eventSlug || "");
+
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [isDark, setIsDark] = useState(false);
+
+  // Event Settings / Ownership Transfer Dialog state
+  const [eventSettingsOpen, setEventSettingsOpen] = useState(false);
+  const [eventName, setEventName] = useState("");
+  const [eventDesc, setEventDesc] = useState("");
+  const [eventLogoUrl, setEventLogoUrl] = useState("");
+  const [newOwnerEmail, setNewOwnerEmail] = useState("");
+  const [newOwnerName, setNewOwnerName] = useState("");
+  const [eventError, setEventError] = useState<string | null>(null);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Sync dark mode state with document class asynchronously
   useEffect(() => {
     const isDarkMode = document.documentElement.classList.contains("dark");
     const frame = requestAnimationFrame(() => {
@@ -40,17 +227,16 @@ export function Navbar() {
       document.documentElement.classList.remove("light");
       try {
         localStorage.setItem("theme", "dark");
-      } catch {}
+      } catch { }
     } else {
       document.documentElement.classList.remove("dark");
       document.documentElement.classList.add("light");
       try {
         localStorage.setItem("theme", "light");
-      } catch {}
+      } catch { }
     }
   };
 
-  // Close dropdown on click outside or escape key
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -89,159 +275,448 @@ export function Navbar() {
     }
   };
 
-  const homeHref = isAuthenticated && user ? getDashboardRoute(user.role) : "/login";
+  const openEventSettings = () => {
+    setEventName(eventDetail?.name || activeEvent?.event_name || "");
+    setEventDesc(eventDetail?.description || "");
+    setEventLogoUrl(eventDetail?.logo_url || activeEvent?.logo_url || "");
+    setNewOwnerEmail("");
+    setNewOwnerName("");
+    setEventError(null);
+    setEventSettingsOpen(true);
+  };
 
-  // Compute initials
+  const openEventSettingsRef = useRef(openEventSettings);
+
+  useEffect(() => {
+    openEventSettingsRef.current = openEventSettings;
+  });
+
+  useEffect(() => {
+    const handler = () => openEventSettingsRef.current();
+    window.addEventListener("cadence:open-event-settings", handler);
+    return () =>
+      window.removeEventListener("cadence:open-event-settings", handler);
+  }, []);
+
+  const handleSaveEventSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEventError(null);
+    if (!eventName.trim() || eventName.trim().length < 2) {
+      setEventError("Event name must be at least 2 characters.");
+      return;
+    }
+    try {
+      await updateEvent.mutateAsync({
+        name: eventName.trim(),
+        description: eventDesc.trim(),
+        logo_url: eventLogoUrl.trim(),
+      });
+      toast.success("Event details updated.", "Event updated");
+      setEventSettingsOpen(false);
+    } catch (err: unknown) {
+      setEventError(apiErrorMessage(err, "Failed to update event"));
+    }
+  };
+
+  const handleTransferOwnership = async () => {
+    setEventError(null);
+    if (!newOwnerEmail.trim()) {
+      setEventError("Enter the new owner's email address.");
+      return;
+    }
+    try {
+      await transferOwnership.mutateAsync({
+        new_owner_email: newOwnerEmail.trim(),
+        new_owner_name: newOwnerName.trim() || undefined,
+      });
+      toast.success(
+        `Event ownership transferred to ${newOwnerEmail.trim()}.`,
+        "Ownership transferred"
+      );
+      setEventSettingsOpen(false);
+    } catch (err: unknown) {
+      setEventError(apiErrorMessage(err, "Failed to transfer ownership"));
+    }
+  };
+
+  const homeHref =
+    isAuthenticated && user
+      ? getAuthenticatedHomeRoute(user, eventSlug)
+      : "/login";
+
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
+
   const initials = user?.name
     ? user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase()
     : "CD";
 
+  const showAvatarImage = Boolean(
+    user?.avatar_url && failedAvatarUrl !== user.avatar_url
+  );
+
   const isDashboard = pathname.startsWith("/dashboard");
+  const hasSidebar =
+    isDashboard ||
+    (pathname === "/events" && (isDev || Boolean(eventSlug)));
+  const displayEventName =
+    eventDetail?.name || activeEvent?.event_name || eventSlug || "";
+  const switcherEvents = isDev
+    ? allEvents.map((e) => ({ slug: e.slug, name: e.name }))
+    : events.map((e) => ({ slug: e.event_slug, name: e.event_name }));
+  const competitionContext = getCompetitionRouteContext(pathname);
+  const currentCompetitionName = competitionContext
+    ? competitions.find((c) => c.slug === competitionContext.competitionSlug)
+        ?.name ?? competitionContext.competitionSlug
+    : "";
+
+  const handleSelectEvent = (nextSlug: string) => {
+    if (nextSlug === eventSlug) return;
+    selectEvent(nextSlug);
+    if (
+      competitionContext ||
+      pathname === "/events" ||
+      pathname === "/dashboard/dev"
+    ) {
+      router.push(getAuthenticatedHomeRoute(user, nextSlug));
+    }
+  };
+
+  const handleSelectCompetition = (nextSlug: string) => {
+    if (!nextSlug || !competitionContext || nextSlug === competitionContext.competitionSlug) return;
+    selectCompetition(nextSlug);
+    const section =
+      competitionContext.section === "judging"
+        ? "judging"
+        : competitionContext.section === "users"
+        ? "users"
+        : "teams";
+    router.push(getCompetitionSectionHref(nextSlug, section));
+  };
 
   return (
-    <header className="app-header font-sans transition-colors duration-200">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
-        {/* Brand & Mobile Sidebar Trigger */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {isAuthenticated && user && isDashboard && (
-            <button
-              type="button"
-              onClick={() =>
-                window.dispatchEvent(new CustomEvent("cadence:toggle-sidebar"))
-              }
-              aria-label="Toggle navigation menu"
-              className="md:hidden flex items-center justify-center h-8 w-8 rounded-[6px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] active:scale-95 transition-transform cursor-pointer"
+    <>
+      <header className="app-header font-sans transition-colors duration-200">
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-4 sm:px-6">
+          {/* Left: Brand, Mobile Sidebar Trigger, and Event/Competition Switcher */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {isAuthenticated && user && hasSidebar && (
+              <button
+                type="button"
+                onClick={() =>
+                  window.dispatchEvent(new CustomEvent("cadence:toggle-sidebar"))
+                }
+                aria-label="Toggle navigation menu"
+                className="md:hidden flex items-center justify-center h-8 w-8 shrink-0 rounded-[6px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] active:scale-95 transition-transform cursor-pointer"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            )}
+
+            <Link
+              href={homeHref}
+              className="flex items-center gap-2 text-decoration-none group select-none shrink-0"
             >
-              <Menu className="h-4 w-4" />
-            </button>
-          )}
-
-          <Link
-            href={homeHref}
-            className="flex items-center gap-2.5 text-decoration-none group select-none"
-          >
-            <span className="text-base font-bold tracking-tight text-[var(--ink-primary)]">
-              Cadence
-              <span className="ml-1.5 text-xs font-medium tracking-normal text-[var(--ink-tertiary)]">
-                by DevClub
+              <span className="text-base font-bold tracking-tight text-[var(--ink-primary)]">
+                Cadence
+                <span className="hidden lg:inline ml-1.5 text-xs font-medium tracking-normal text-[var(--ink-tertiary)]">
+                  by DevClub
+                </span>
               </span>
-            </span>
-          </Link>
-        </div>
+            </Link>
 
-        {/* Right Section: Theme Switcher, Notification Bell & User Avatar */}
-        <div className="flex items-center gap-2">
-          {/* Theme Switcher Button */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            aria-label="Toggle light/dark theme"
-            className="circle-icon-btn !w-8 !h-8 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
-          >
-            {isDark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-          </button>
-
-          {isAuthenticated && user ? (
-            <>
-              {/* Notification Bell */}
-              <NotificationBell />
-
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setDropdownOpen((prev) => !prev)}
-                  aria-label="User menu"
-                  aria-expanded={dropdownOpen}
-                  className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] font-semibold text-xs shadow-xs hover:border-[var(--color-blue)] transition-[border-color,transform] active:scale-95 cursor-pointer select-none"
-                >
-                  {initials}
-                </button>
-
-                {/* Dropdown Menu */}
-                {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
-                    {/* User Profile Header */}
-                    <div className="p-3 bg-[var(--card-solid-subtle)] rounded-[8px] border border-[var(--card-line)] mb-1.5">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] font-medium text-[var(--ink-secondary)]">
-                          Account
-                        </span>
-                        <Badge variant="subtle" size="sm">
-                          {user.role}
-                        </Badge>
-                      </div>
-                      <p className="text-xs font-semibold text-[var(--ink-primary)] truncate">
-                        {user.name}
-                      </p>
-                      <p className="text-[11px] text-[var(--ink-secondary)] truncate font-mono">
-                        {user.email}
-                      </p>
-                    </div>
-
-                    {/* Navigation Options */}
-                    <div className="space-y-0.5">
-                      <Link
-                        href={getDashboardRoute(user.role)}
-                        onClick={() => setDropdownOpen(false)}
-                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
-                      >
-                        <LayoutDashboard className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
-                        <span>Dashboard</span>
-                      </Link>
-                    </div>
-
-                    {/* Push Notification Status & Control */}
-                    {isSupported && (
-                      <div className="mt-1 px-3 py-2 border-t border-[var(--card-line)] flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5 text-[var(--ink-secondary)]">
-                          <Bell className="h-3.5 w-3.5" />
-                          <span>Push alerts</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            isSubscribed ? disablePush() : enablePush()
-                          }
-                          className="text-[11px] font-medium rounded-[6px] px-2.5 py-0.5 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] hover:bg-[var(--card-solid)] transition-colors cursor-pointer"
-                        >
-                          {isSubscribed ? "Active" : "Enable"}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Logout Action */}
-                    <div className="pt-1 border-t border-[var(--card-line)] mt-1">
-                      <button
-                        type="button"
-                        onClick={handleLogout}
-                        disabled={isLoggingOut}
-                        className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-[6px] text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer font-medium disabled:opacity-50"
-                      >
-                        <span className="flex items-center gap-2">
-                          <LogOut className="h-3.5 w-3.5" />
-                          <span>{isLoggingOut ? "Signing out..." : "Log out"}</span>
-                        </span>
-                        <span className="text-[10px] uppercase opacity-60">ESC</span>
-                      </button>
-                    </div>
-                  </div>
+            {isAuthenticated && hasSidebar && eventSlug && (
+              <div className="flex items-center gap-1 min-w-0 pl-2 border-l border-[var(--card-line)]">
+                <HeaderSwitcher
+                  label="Switch event"
+                  heading="Switch event"
+                  activeSlug={eventSlug}
+                  displayName={displayEventName}
+                  items={switcherEvents}
+                  onSelect={handleSelectEvent}
+                />
+                {competitionContext && (
+                  <>
+                    <span className="text-xs text-[var(--ink-tertiary)]">/</span>
+                    <HeaderSwitcher
+                      label="Switch competition"
+                      heading="Switch competition"
+                      activeSlug={competitionContext.competitionSlug}
+                      displayName={currentCompetitionName}
+                      items={competitions.map((c) => ({ slug: c.slug, name: c.name }))}
+                      onSelect={handleSelectCompetition}
+                      emphasized
+                    />
+                  </>
                 )}
               </div>
-            </>
-          ) : (
-            <Link href="/login">
-              <Button variant="primary" size="sm" className="text-xs h-8">
-                Sign in
-              </Button>
-            </Link>
+            )}
+          </div>
+
+          {/* Right Section: Theme Switcher, Notification Bell & User Avatar */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label="Toggle light/dark theme"
+              className="circle-icon-btn !w-8 !h-8 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+            >
+              {isDark ? (
+                <Sun className="h-3.5 w-3.5" />
+              ) : (
+                <Moon className="h-3.5 w-3.5" />
+              )}
+            </button>
+
+            {isAuthenticated && user ? (
+              <>
+                {eventSlug && <NotificationBell />}
+
+                {!hasSidebar && (
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setDropdownOpen((prev) => !prev)}
+                    aria-label="User menu"
+                    aria-expanded={dropdownOpen}
+                    className="flex items-center justify-center h-8 w-8 rounded-[8px] overflow-hidden bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] font-semibold text-xs shadow-xs hover:border-[var(--color-blue)] transition-[border-color,transform] active:scale-95 cursor-pointer select-none"
+                  >
+                    {showAvatarImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={user.avatar_url!}
+                        alt={user.name || "User avatar"}
+                        referrerPolicy="no-referrer"
+                        onError={() => setFailedAvatarUrl(user.avatar_url ?? null)}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      initials
+                    )}
+                  </button>
+
+                  {dropdownOpen && (() => {
+                    const showDashboard = Boolean(eventSlug || isDev);
+                    const showSwitchEvent = pathname !== "/events";
+                    const showEventSettings = Boolean(eventSlug && isAdmin);
+                    const hasMenuActions = showDashboard || showSwitchEvent || showEventSettings;
+                    const showPushAlerts = Boolean(isSupported && eventSlug);
+                    return (
+                    <div className="absolute right-0 mt-2 w-64 origin-top-right rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-[var(--shadow-container)] z-50 animate-in fade-in-0 zoom-in-95 duration-150 p-2 text-[var(--ink-primary)] font-sans">
+                      {hasMenuActions && (
+                      <div className="space-y-0.5">
+                        {showDashboard && (
+                          <Link
+                            href={
+                              pathname === "/events" && isDev
+                                ? "/dashboard/dev"
+                                : getAuthenticatedHomeRoute(user, eventSlug)
+                            }
+                            onClick={() => {
+                              if (pathname === "/events" && isDev) {
+                                clearEvent();
+                              }
+                              setDropdownOpen(false);
+                            }}
+                            className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
+                          >
+                            <LayoutDashboard className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                            <span>Dashboard</span>
+                          </Link>
+                        )}
+                        {isDev && pathname !== "/dashboard/dev" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              clearEvent();
+                              setDropdownOpen(false);
+                              router.push("/dashboard/dev");
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)] cursor-pointer"
+                          >
+                            <Shield className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                            <span>Platform dashboard</span>
+                          </button>
+                        )}
+                        {showSwitchEvent && (
+                          <Link
+                            href="/events"
+                            onClick={() => setDropdownOpen(false)}
+                            className="flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)]"
+                          >
+                            <Calendar className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                            <span>Switch event</span>
+                          </Link>
+                        )}
+                        {showEventSettings && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDropdownOpen(false);
+                              openEventSettings();
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs rounded-[6px] hover:bg-[var(--card-solid-subtle)] transition-colors font-medium text-[var(--ink-primary)] cursor-pointer"
+                          >
+                            <Settings className="h-3.5 w-3.5 text-[var(--ink-secondary)]" />
+                            <span>Event settings</span>
+                          </button>
+                        )}
+                      </div>
+                      )}
+
+                      {showPushAlerts && (
+                        <div className={`${hasMenuActions ? "mt-1 border-t border-[var(--card-line)] " : ""}px-3 py-2 flex items-center justify-between text-xs`}>
+                          <span className="flex items-center gap-1.5 text-[var(--ink-secondary)]">
+                            <Bell className="h-3.5 w-3.5" />
+                            <span>Push alerts</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              isSubscribed ? disablePush() : enablePush()
+                            }
+                            className="text-[11px] font-medium rounded-[6px] px-2.5 py-0.5 bg-[var(--card-solid-subtle)] border border-[var(--card-line)] text-[var(--ink-primary)] hover:bg-[var(--card-solid)] transition-colors cursor-pointer"
+                          >
+                            {isSubscribed ? "Active" : "Enable"}
+                          </button>
+                        </div>
+                      )}
+
+                      <div className={hasMenuActions || showPushAlerts ? "pt-1 border-t border-[var(--card-line)] mt-1" : ""}>
+                        <button
+                          type="button"
+                          onClick={handleLogout}
+                          disabled={isLoggingOut}
+                          className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-[6px] text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer font-medium disabled:opacity-50"
+                        >
+                          <span className="flex items-center gap-2">
+                            <LogOut className="h-3.5 w-3.5" />
+                            <span>
+                              {isLoggingOut ? "Signing out..." : "Log out"}
+                            </span>
+                          </span>
+                          <span className="text-[10px] uppercase opacity-60">
+                            ESC
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                    );
+                  })()}
+                </div>
+                )}
+              </>
+            ) : (
+              <Link href="/login">
+                <Button variant="primary" size="sm" className="text-xs h-8">
+                  Sign in
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Event Settings & Ownership Transfer Dialog */}
+      <Dialog
+        open={eventSettingsOpen}
+        onClose={() => setEventSettingsOpen(false)}
+        title="Event Settings"
+        description={`Manage metadata${isOwner ? " and ownership" : ""} for ${displayEventName}.`}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={() => setEventSettingsOpen(false)}
+              disabled={updateEvent.isPending || transferOwnership.isPending}
+            >
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              onClick={handleSaveEventSettings}
+              isLoading={updateEvent.isPending}
+            >
+              Save Event Details
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 font-sans text-xs">
+          {eventError && (
+            <Alert variant="error" title="Update failed">
+              {eventError}
+            </Alert>
+          )}
+
+          <form onSubmit={handleSaveEventSettings} className="space-y-3">
+            <Input
+              label="Event Name *"
+              value={eventName}
+              onChange={(e) => setEventName(e.target.value)}
+              required
+            />
+            <Textarea
+              label="Description"
+              rows={2}
+              value={eventDesc}
+              onChange={(e) => setEventDesc(e.target.value)}
+            />
+            <LogoUploadField
+              value={eventLogoUrl}
+              onChange={setEventLogoUrl}
+              disabled={updateEvent.isPending}
+            />
+          </form>
+
+          {isOwner && (
+            <div className="pt-3 border-t border-[var(--card-line)] space-y-2.5">
+              <div className="flex items-center gap-1.5 font-semibold text-[var(--ink-primary)]">
+                <Crown className="h-3.5 w-3.5 text-[var(--color-amber)]" />
+                <span>Transfer Event Ownership</span>
+              </div>
+              <p className="text-[11px] text-[var(--ink-secondary)]">
+                Transferring ownership assigns the target user as the sole owner of this event and converts your role to admin.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Input
+                  label="New Owner Email *"
+                  type="email"
+                  placeholder="owner@event.com"
+                  value={newOwnerEmail}
+                  onChange={(e) => setNewOwnerEmail(e.target.value)}
+                />
+                <Input
+                  label="New Owner Name (optional)"
+                  placeholder="Name"
+                  value={newOwnerName}
+                  onChange={(e) => setNewOwnerName(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onClick={handleTransferOwnership}
+                  isLoading={transferOwnership.isPending}
+                  className="text-[var(--color-coral)]"
+                >
+                  Transfer Ownership
+                </Button>
+              </div>
+            </div>
           )}
         </div>
-      </div>
-    </header>
+      </Dialog>
+    </>
   );
 }

@@ -8,21 +8,17 @@ import (
 	"time"
 
 	"devclubxnst.com/cadence/internal/config"
-	"devclubxnst.com/cadence/internal/modules/auth"
 	"devclubxnst.com/cadence/pkg/audit"
-	"devclubxnst.com/cadence/pkg/utils"
 	"github.com/redis/go-redis/v9"
 )
 
 var (
-	ErrPasswordAlreadyConfigured = errors.New("user has already configured their password")
-	ErrRoleNotPermitted          = errors.New("volunteers can only add participants")
+	ErrRoleNotPermitted = errors.New("insufficient permissions to assign this role")
 )
 
 type Service struct {
 	repo        *Repository
 	cfg         *config.Config
-	emailSender auth.EmailSender
 	redis       *redis.Client
 	auditor     audit.Recorder
 }
@@ -30,14 +26,15 @@ type Service struct {
 func NewService(
 	repo *Repository,
 	cfg *config.Config,
-	emailSender auth.EmailSender,
 	redis *redis.Client,
 	auditor audit.Recorder,
 ) *Service {
+	if repo != nil && auditor != nil {
+		repo.WithAuditor(auditor)
+	}
 	return &Service{
 		repo:        repo,
 		cfg:         cfg,
-		emailSender: emailSender,
 		redis:       redis,
 		auditor:     auditor,
 	}
@@ -57,8 +54,8 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 
 	for i, u := range req.Users {
 		role := u.Role
-		if role == "" {
-			role = "participant"
+		if role != "dev" {
+			role = "user"
 		}
 
 		// Savepoint per row: any single-row DB error (bad enum, length, etc.) must not abort the whole batch.
@@ -79,13 +76,18 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 		}
 
 		resp.TotalCreated++
+		if s.redis != nil {
+			blockedKey := fmt.Sprintf("blocked:user:%s", userID)
+			if val, err := s.redis.Get(ctx, blockedKey).Result(); err == nil && val == "deleted" {
+				_ = s.redis.Del(ctx, blockedKey).Err()
+			}
+		}
 		resp.Users = append(resp.Users, UserDetailResponse{
 			ID:                   userID,
 			Email:                u.Email,
 			Name:                 u.Name,
 			PhoneNumber:          u.PhoneNumber,
 			Role:                 role,
-			IsPasswordConfigured: false,
 			IsActive:             true,
 			CreatedAt:            time.Now(),
 		})
@@ -96,40 +98,20 @@ func (s *Service) BulkCreateUsers(ctx context.Context, req BulkCreateUsersReques
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserBulkImport,
-			TargetType:  audit.TargetUser,
-			Description: fmt.Sprintf("Bulk import completed: %d created, %d skipped", resp.TotalCreated, resp.SkippedCount),
-			Metadata: map[string]any{
+		s.auditor.RecordAction(ctx, audit.ActionUserBulkImport, audit.TargetUser, nil,
+			fmt.Sprintf("Bulk import completed: %d created, %d skipped", resp.TotalCreated, resp.SkippedCount),
+			map[string]any{
 				"total_processed": resp.TotalProcessed,
 				"total_created":   resp.TotalCreated,
 				"skipped_count":   resp.SkippedCount,
 			},
-		})
+		)
 	}
 
 	return resp, nil
 }
 
 func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserDetailResponse, error) {
-	// Volunteers add participants (for example, someone who registered with a wrong email); nothing else.
-	if volunteerCaller(ctx) {
-		if req.Role != "" && req.Role != "participant" {
-			return nil, ErrRoleNotPermitted
-		}
-		req.Role = "participant"
-	}
 	bulkResp, err := s.BulkCreateUsers(ctx, BulkCreateUsersRequest{
 		Users: []CreateUserRequest{req},
 	})
@@ -145,26 +127,13 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*UserD
 
 	user, err := s.repo.GetUserByID(ctx, bulkResp.Users[0].ID)
 	if err == nil && s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserCreate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &user.ID,
-			Description: fmt.Sprintf("Created user %s (%s)", user.Email, user.Role),
-			Metadata: map[string]any{
+		s.auditor.RecordAction(ctx, audit.ActionUserCreate, audit.TargetUser, &user.ID,
+			fmt.Sprintf("Created user %s (%s)", user.Email, user.Role),
+			map[string]any{
 				"email": user.Email,
 				"role":  user.Role,
 			},
-		})
+		)
 	}
 
 	return user, err
@@ -232,22 +201,8 @@ func (s *Service) UpdateUser(ctx context.Context, id string, req UpdateUserReque
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserUpdate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: fmt.Sprintf("Updated user profile %s", user.Email),
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			fmt.Sprintf("Updated user profile %s", user.Email), nil)
 	}
 	return user, nil
 }
@@ -285,7 +240,7 @@ func updateMinTokenVersion(ctx context.Context, rdb *redis.Client, userID string
 
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	user, _ := s.repo.GetUserByID(ctx, id)
-	if err := s.repo.SoftDeleteUser(ctx, id); err != nil {
+	if err := s.repo.DeleteUser(ctx, id); err != nil {
 		return err
 	}
 
@@ -293,29 +248,16 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	if s.redis != nil {
 		blockedKey := fmt.Sprintf("blocked:user:%s", id)
 		_ = s.redis.Set(ctx, blockedKey, "deleted", 24*time.Hour).Err()
+		_ = s.redis.Del(ctx, fmt.Sprintf("user:%s:events", id)).Err()
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
 		email := id
 		if user != nil {
 			email = user.Email
 		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserDelete,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: fmt.Sprintf("Administrator removed and blocked user %s", email),
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserDelete, audit.TargetUser, &id,
+			fmt.Sprintf("Administrator removed and blocked user %s", email), nil)
 	}
 
 	return nil
@@ -329,76 +271,57 @@ func (s *Service) RestoreUser(ctx context.Context, id string) error {
 
 	if s.redis != nil {
 		_ = s.redis.Del(ctx, fmt.Sprintf("blocked:user:%s", id)).Err()
+		if user, err := s.repo.GetUserByID(ctx, id); err == nil && user != nil {
+			ttl := 24 * time.Hour
+			if s.cfg != nil && s.cfg.JWTAccessExpiry > 0 {
+				ttl = s.cfg.JWTAccessExpiry * 2
+			}
+			updateMinTokenVersion(ctx, s.redis, id, user.TokenVersion, ttl)
+		}
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserUpdate,
-			TargetType:  audit.TargetUser,
-			TargetID:    &id,
-			Description: "Administrator reactivated a removed user",
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			"Administrator reactivated a removed user", nil)
 	}
 	return nil
 }
 
-// volunteerCaller reports whether the caller in ctx is a volunteer, who may only add participants.
-func volunteerCaller(ctx context.Context) bool {
-	claims, ok := auth.GetUserClaims(ctx)
-	return ok && claims.Role == "volunteer"
-}
-
-func (s *Service) TriggerResetPassword(ctx context.Context, userID string) error {
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
+// BlacklistUser sets is_active=FALSE, writes instant Redis revocation, purges accessible competitions, and evicts from team.
+func (s *Service) BlacklistUser(ctx context.Context, id string) error {
+	active := false
+	if _, err := s.repo.UpdateUser(ctx, id, UpdateUserRequest{IsActive: &active}); err != nil {
 		return err
 	}
 
-	rawToken, err := utils.GenerateRandomToken(32)
-	if err != nil {
-		return fmt.Errorf("generate reset token: %w", err)
-	}
+	_ = s.repo.EvictUserFromAnyTeam(ctx, id)
 
-	tokenHash := utils.HashToken(rawToken)
-	expiresAt := time.Now().Add(1 * time.Hour)
-
-	if err := s.repo.CreateResetOrSetupToken(ctx, user.ID, tokenHash, "forgot_password", expiresAt); err != nil {
-		return err
-	}
-
-	if s.emailSender != nil {
-		resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s", s.cfg.FrontendURL, rawToken)
-		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
+	if s.redis != nil {
+		_ = s.redis.Set(ctx, fmt.Sprintf("blocked:user:%s", id), "blacklisted", 24*time.Hour).Err()
+		_ = s.redis.Del(ctx, fmt.Sprintf("user:%s:events", id)).Err()
 	}
 
 	if s.auditor != nil {
-		actorClaims, _ := auth.GetUserClaims(ctx)
-		var actorID, actorEmail, actorRole *string
-		if actorClaims != nil {
-			actorID = &actorClaims.UserID
-			actorEmail = &actorClaims.Email
-			actorRole = &actorClaims.Role
-		}
-		s.auditor.Record(ctx, audit.Event{
-			ActorID:     actorID,
-			ActorEmail:  actorEmail,
-			ActorRole:   actorRole,
-			Action:      audit.ActionUserResetTrigger,
-			TargetType:  audit.TargetUser,
-			TargetID:    &user.ID,
-			Description: fmt.Sprintf("Administrator triggered password recovery email for %s", user.Email),
-		})
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			fmt.Sprintf("Developer blacklisted user %s", id), nil)
+	}
+	return nil
+}
+
+// UnblacklistUser restores is_active=TRUE and removes the global Redis blocklist entry.
+func (s *Service) UnblacklistUser(ctx context.Context, id string) error {
+	active := true
+	if _, err := s.repo.UpdateUser(ctx, id, UpdateUserRequest{IsActive: &active}); err != nil {
+		return err
 	}
 
+	if s.redis != nil {
+		_ = s.redis.Del(ctx, fmt.Sprintf("blocked:user:%s", id)).Err()
+	}
+
+	if s.auditor != nil {
+		s.auditor.RecordAction(ctx, audit.ActionUserUpdate, audit.TargetUser, &id,
+			fmt.Sprintf("Developer unblacklisted user %s", id), nil)
+	}
 	return nil
 }

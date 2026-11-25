@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
-import { getDashboardRoute } from "@/lib/auth-routes";
+import { getTenantScope } from "@/lib/api-client";
+import { getAuthenticatedHomeRoute } from "@/lib/auth-routes";
 import { SkeletonCard } from "@/components/ui/skeleton";
 
 export default function RootPage() {
@@ -13,7 +14,7 @@ export default function RootPage() {
   useEffect(() => {
     if (!isLoading) {
       if (isAuthenticated && user) {
-        router.replace(getDashboardRoute(user.role));
+        router.replace(getAuthenticatedHomeRoute(user, getTenantScope().eventSlug));
       } else {
         router.replace("/login");
       }

@@ -15,8 +15,14 @@ func TestUnlock_JudgeAndAdminFlows(t *testing.T) {
 	mk := func(email, role string) string {
 		var id string
 		if err := pool.QueryRow(ctx, `
-			INSERT INTO users (email, name, role, is_active, is_password_configured)
-			VALUES ($1, $1, $2, true, true) RETURNING id`, email, role).Scan(&id); err != nil {
+			INSERT INTO users (email, name, is_active)
+			VALUES ($1, $1, true) RETURNING id`, email).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO user_events (user_id, event_id, role)
+			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::event_role)
+			ON CONFLICT (event_id, user_id) DO UPDATE SET role = EXCLUDED.role`, id, role); err != nil {
 			t.Fatal(err)
 		}
 		return id
@@ -67,7 +73,7 @@ func TestUnlock_JudgeAndAdminFlows(t *testing.T) {
 		return n
 	}
 	unlock := func(slot, actor, role, target string) ([]string, bool, error) {
-		return svc.UnlockScorecard(ctx, slot, UnlockScorecardRequest{JudgeID: target}, actor, actor+"@x", role, "ip", "ua")
+		return svc.UnlockScorecard(ctx, slot, UnlockScorecardRequest{JudgeID: target}, actor, role)
 	}
 
 	if err := repo.StartSlot(ctx, s1); err != nil {

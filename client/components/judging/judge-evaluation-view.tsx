@@ -27,11 +27,13 @@ import {
   useStartSlot,
   usePauseTimer,
   useResumeTimer,
+  useExtendTimer,
   useSubmitScores,
   useLockScores,
   useUnlockScorecard,
   useCompleteSlot,
 } from "@/hooks/use-judging";
+import { TIMER_EXTENSION_PRESETS } from "@/lib/judging-utils";
 import { useToast } from "@/providers/toast-provider";
 import {
   JudgePanelSummary,
@@ -371,6 +373,7 @@ function JudgeSlotScorecardForm({
   const startSlotMutation = useStartSlot();
   const pauseTimerMutation = usePauseTimer();
   const resumeTimerMutation = useResumeTimer();
+  const extendTimerMutation = useExtendTimer();
   const submitScoresMutation = useSubmitScores();
   const lockScoresMutation = useLockScores();
   const unlockScoresMutation = useUnlockScorecard();
@@ -471,6 +474,11 @@ function JudgeSlotScorecardForm({
     runTimerAction(() => pauseTimerMutation.mutateAsync(slot.slot_id), "Timer paused.");
   const handleResumeTimer = () =>
     runTimerAction(() => resumeTimerMutation.mutateAsync(slot.slot_id), "Timer resumed.");
+  const handleExtendTimer = (seconds: number, label: string) =>
+    runTimerAction(
+      () => extendTimerMutation.mutateAsync({ slotId: slot.slot_id, seconds }),
+      `Added ${label} to pitch timer.`
+    );
 
   // 2. Action: Save Draft Scores
   const handleSaveDraft = async () => {
@@ -626,7 +634,12 @@ function JudgeSlotScorecardForm({
           receivedAt={receivedAt}
           onPause={handlePauseTimer}
           onResume={handleResumeTimer}
-          isBusy={pauseTimerMutation.isPending || resumeTimerMutation.isPending}
+          onExtend={handleExtendTimer}
+          isBusy={
+            pauseTimerMutation.isPending ||
+            resumeTimerMutation.isPending ||
+            extendTimerMutation.isPending
+          }
         />
       </div>
 
@@ -1095,6 +1108,7 @@ function JudgeCountdownTimer({
   receivedAt,
   onPause,
   onResume,
+  onExtend,
   isBusy,
 }: {
   slot: JudgeSlotDetails;
@@ -1102,6 +1116,7 @@ function JudgeCountdownTimer({
   receivedAt: number;
   onPause: () => void;
   onResume: () => void;
+  onExtend: (seconds: number, label: string) => void;
   isBusy: boolean;
 }) {
   const status = slot.status;
@@ -1196,18 +1211,37 @@ function JudgeCountdownTimer({
       </div>
 
       {!isEnded && (
-      <div className="flex items-center gap-2 flex-wrap border-t border-[var(--card-line)] pt-3">
-        {isPaused ? (
-          <button type="button" onClick={onResume} disabled={isBusy} className={controlBtn}>
-            <Play className="h-3.5 w-3.5 fill-current" />
-            <span>Resume</span>
-          </button>
-        ) : (
-          <button type="button" onClick={onPause} disabled={isBusy} className={controlBtn}>
-            <Pause className="h-3.5 w-3.5 fill-current" />
-            <span>Pause</span>
-          </button>
-        )}
+      <div className="flex items-center justify-between gap-2 flex-wrap border-t border-[var(--card-line)] pt-3">
+        <div className="flex items-center gap-2">
+          {isPaused ? (
+            <button type="button" onClick={onResume} disabled={isBusy} className={controlBtn}>
+              <Play className="h-3.5 w-3.5 fill-current" />
+              <span>Resume</span>
+            </button>
+          ) : (
+            <button type="button" onClick={onPause} disabled={isBusy} className={controlBtn}>
+              <Pause className="h-3.5 w-3.5 fill-current" />
+              <span>Pause</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] font-medium text-[var(--ink-secondary)] mr-0.5">
+            Add time:
+          </span>
+          {TIMER_EXTENSION_PRESETS.map((preset) => (
+            <button
+              key={preset.seconds}
+              type="button"
+              onClick={() => onExtend(preset.seconds, preset.label)}
+              disabled={isBusy}
+              className="inline-flex h-8 items-center rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] px-2.5 text-xs font-mono font-semibold text-[var(--ink-primary)] transition-[transform,background-color] duration-150 hover:bg-[var(--card-solid-subtle)] active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
       </div>
       )}
     </div>

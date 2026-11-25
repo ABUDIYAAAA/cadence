@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 export type ToastType = "info" | "success" | "error" | "warning";
@@ -170,15 +170,20 @@ export function useToast() {
     throw new Error("useToast must be used within a ToastProvider");
   }
 
-  return {
-    toast: context.toast,
-    info: (message: string, title?: string) =>
-      context.toast({ message, title, type: "info" }),
-    success: (message: string, title?: string) =>
-      context.toast({ message, title, type: "success" }),
-    error: (message: string, title?: string) =>
-      context.toast({ message, title, type: "error" }),
-    warning: (message: string, title?: string) =>
-      context.toast({ message, title, type: "warning" }),
-  };
+  const toastFn = context.toast;
+
+  return useMemo(
+    () => ({
+      toast: toastFn,
+      info: (message: string, title?: string) =>
+        toastFn({ message, title, type: "info" }),
+      success: (message: string, title?: string) =>
+        toastFn({ message, title, type: "success" }),
+      error: (message: string, title?: string) =>
+        toastFn({ message, title, type: "error" }),
+      warning: (message: string, title?: string) =>
+        toastFn({ message, title, type: "warning" }),
+    }),
+    [toastFn]
+  );
 }

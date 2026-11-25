@@ -211,3 +211,57 @@ func TestValidateStructAndResponses(t *testing.T) {
 		t.Fatalf("unexpected ErrorResponse payload: %+v", errResp)
 	}
 }
+
+func TestSanitizeEmailHTMLAndRender(t *testing.T) {
+	t.Run("strips script, iframe, style, event handlers, and javascript URLs", func(t *testing.T) {
+		raw := `<h1>Welcome!</h1><script>alert('xss')</script><p onclick="evil()" onmouseover="steal()">Hello <strong>World</strong></p><a href="javascript:alert(1)">Bad Link</a><a href="https://example.com">Good Link</a><iframe src="https://evil.com"></iframe>`
+		got := SanitizeEmailHTML(raw)
+
+		if strings.Contains(got, "<script") || strings.Contains(got, "alert(") {
+			t.Fatalf("expected script tag and content to be stripped, got: %s", got)
+		}
+		if strings.Contains(got, "onclick") || strings.Contains(got, "onmouseover") {
+			t.Fatalf("expected event handlers to be stripped, got: %s", got)
+		}
+		if strings.Contains(got, "javascript:") {
+			t.Fatalf("expected javascript: href to be stripped, got: %s", got)
+		}
+		if strings.Contains(got, "<iframe") {
+			t.Fatalf("expected iframe to be stripped, got: %s", got)
+		}
+		if !strings.Contains(got, "<h1>Welcome!</h1>") || !strings.Contains(got, "<strong>World</strong>") || !strings.Contains(got, `href="https://example.com"`) {
+			t.Fatalf("expected safe HTML to be preserved, got: %s", got)
+		}
+	})
+
+	t.Run("escapes dynamic {{name}} and {{event_name}} placeholders without inline QR", func(t *testing.T) {
+		custom := `<p>Hi {{name}}, welcome to {{event_name}}!</p>`
+		rendered := RenderCustomTicketEmailHTML(custom, `<script>evil()</script>Alice`, `DevClub & "Friends"`)
+
+		if strings.Contains(rendered, "<script>evil()</script>") {
+			t.Fatalf("expected recipient name HTML to be escaped, got: %s", rendered)
+		}
+		if !strings.Contains(rendered, "&lt;script&gt;evil()&lt;/script&gt;Alice") {
+			t.Fatalf("expected escaped recipient name in rendered email, got: %s", rendered)
+		}
+		if strings.Contains(rendered, "cid:ticket_qr.png") {
+			t.Fatalf("expected NO inline cid:ticket_qr.png in rendered email")
+		}
+	})
+}
+
+func TestExtractEmailDomainAndIsEmailExcluded(t *testing.T) {
+	domains := []string{"@nst.rishihood.edu.in", "staff@internal.org", "  CORP.COM  "}
+	if !IsEmailExcluded("student@nst.rishihood.edu.in", domains) {
+		t.Fatal("expected student@nst.rishihood.edu.in to be excluded")
+	}
+	if !IsEmailExcluded("person@sub.internal.org", domains) {
+		t.Fatal("expected subdomain of internal.org to be excluded")
+	}
+	if !IsEmailExcluded("boss@corp.com", domains) {
+		t.Fatal("expected boss@corp.com to be excluded")
+	}
+	if IsEmailExcluded("external@gmail.com", domains) {
+		t.Fatal("expected external@gmail.com NOT to be excluded")
+	}
+}

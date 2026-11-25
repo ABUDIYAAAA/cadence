@@ -41,18 +41,50 @@ export function TicketUserTable({
 }: TicketUserTableProps) {
   if (isLoading) {
     return (
-      <div className="space-y-3 font-sans">
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center space-x-4 py-2">
-              <Skeleton className="h-4 w-8" />
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/6" />
-            </div>
-          ))}
-        </div>
+      <div className="w-full overflow-x-auto font-sans">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {canSendTickets && <TableHead className="w-10" />}
+              <TableHead>Attendee</TableHead>
+              <TableHead>System Role</TableHead>
+              <TableHead>Squad / Team</TableHead>
+              <TableHead>Check-in Status</TableHead>
+              {canSendTickets && <TableHead className="text-right">Actions</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <TableRow key={i}>
+                {canSendTickets && (
+                  <TableCell>
+                    <Skeleton className="h-4 w-4 rounded-[4px] mx-auto" />
+                  </TableCell>
+                )}
+                <TableCell>
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3.5 w-32" />
+                    <Skeleton className="h-3 w-44" />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-24" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                </TableCell>
+                {canSendTickets && (
+                  <TableCell className="text-right">
+                    <Skeleton className="h-8 w-20 rounded-[8px] ml-auto" />
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     );
   }
@@ -60,7 +92,8 @@ export function TicketUserTable({
   if (users.length === 0) {
     return (
       <EmptyState
-        title="No Users Found"
+        icon={QrCode}
+        title="No attendees found"
         description="No attendee accounts matched your filter criteria."
       />
     );

@@ -2,7 +2,6 @@ package e2e_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,7 +23,6 @@ import (
 	tcrabbitmq "github.com/testcontainers/testcontainers-go/modules/rabbitmq"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -44,15 +43,32 @@ const (
 	TestVAPIDPublicKey   = "BHK-KDYnjw1Z0O844tmUWbz3m7OT8faBNZ8P0se6qjeqqnuIhtJa4zU-XyFfre29bHMUCQaW6hw5Ck4R20H6ziQ"
 	TestVAPIDPrivateKey  = "GWjhiHXmi8zODFg6GOGY4sN1SyAdkI8Kb-kalR15nfU"
 	TestFrontendURL      = "http://localhost:3000"
+
+	DefaultTestEventID   = "00000000-0000-0000-0000-000000000001"
+	DefaultTestEventSlug = "devclub-event"
 )
 
 var (
-	testApp       *bootstrap.Application
-	testServer    *httptest.Server
-	mailpitAPIURL string
-	rabbitAMQPURL string
-	adminSeedHash string
+	testApp           *bootstrap.Application
+	testServer        *httptest.Server
+	mailpitAPIURL     string
+	rabbitAMQPURL     string
+	activeCompSlugVal atomic.Value
+	compCounter       atomic.Int64
 )
+
+func getActiveCompetitionSlug() string {
+	if v := activeCompSlugVal.Load(); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func setActiveCompetitionSlug(slug string) {
+	activeCompSlugVal.Store(slug)
+}
 
 func TestMain(m *testing.M) {
 	os.Exit(runTestMain(m))
@@ -78,14 +94,6 @@ func runTestMain(m *testing.M) int {
 			cleanups[i]()
 		}
 	}()
-
-	// Pre-compute admin bcrypt hash once for fast state resets
-	hashBytes, err := bcrypt.GenerateFromPassword([]byte(TestAdminPassword), bcrypt.MinCost)
-	if err != nil {
-		log.Printf("[E2E HARNESS] Failed to generate admin bcrypt hash: %v", err)
-		return 1
-	}
-	adminSeedHash = string(hashBytes)
 
 	// 1. Start PostgreSQL 16 container
 	log.Printf("[E2E HARNESS] Starting PostgreSQL container (%s)...", postgresImage)
@@ -217,8 +225,6 @@ func runTestMain(m *testing.M) int {
 		log.Printf("[E2E HARNESS] Failed to resolve Mailpit host: %v", err)
 		return 1
 	}
-	// Normalize loopback host to "localhost" so mailer.NewMailer selects mail.NoTLS automatically
-	// when the application runs in-process on the host machine.
 	smtpHost := mpHost
 	if smtpHost == "127.0.0.1" || smtpHost == "::1" || smtpHost == "localhost" {
 		smtpHost = "localhost"
@@ -320,7 +326,7 @@ func runTestMain(m *testing.M) int {
 func applyMigrations(dbURL string) error {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
-		return errors.New("failed to locate harness_test.go path via runtime.Caller")
+		return fmt.Errorf("failed to locate harness_test.go path via runtime.Caller")
 	}
 	migrationsDir := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "migrations"))
 
@@ -332,14 +338,14 @@ func applyMigrations(dbURL string) error {
 		_, _ = m.Close()
 	}()
 
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("run migrations up: %w", err)
 	}
 	return nil
 }
 
 // ResetState deterministically purges RabbitMQ queues, truncates PostgreSQL tables,
-// flushes Redis keys, clears Mailpit messages, and seeds the root administrator.
+// flushes Redis keys, clears Mailpit messages, and seeds the root administrator and event.
 func ResetState(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -354,6 +360,10 @@ func ResetState(t *testing.T) {
 	// 2. Truncate all Postgres tables
 	truncateSQL := `
 		TRUNCATE TABLE
+			team_members,
+			user_events,
+			competitions,
+			events,
 			notification_recipients,
 			notifications,
 			push_subscriptions,
@@ -368,7 +378,6 @@ func ResetState(t *testing.T) {
 			scan_sessions,
 			tickets,
 			audit_logs,
-			password_reset_tokens,
 			refresh_tokens,
 			users,
 			teams
@@ -397,14 +406,36 @@ func ResetState(t *testing.T) {
 		t.Fatalf("[ResetState] unexpected status clearing Mailpit messages: %d", resp.StatusCode)
 	}
 
-	// 5. Seed deterministic root administrator account
+	// 5. Seed deterministic root administrator account and event (no hardcoded 'main' competition fallback)
 	insertAdminSQL := `
-		INSERT INTO users (email, password_hash, name, role, is_password_configured, is_active)
-		VALUES ($1, $2, $3, 'admin', TRUE, TRUE)
+		INSERT INTO users (email, name, role, is_active)
+		VALUES ($1, $2, 'dev', TRUE)
+		RETURNING id
 	`
-	if _, err := testApp.DB.Exec(ctx, insertAdminSQL, TestAdminEmail, adminSeedHash, TestAdminName); err != nil {
+	var adminID string
+	if err := testApp.DB.QueryRow(ctx, insertAdminSQL, TestAdminEmail, TestAdminName).Scan(&adminID); err != nil {
 		t.Fatalf("[ResetState] failed to seed root admin user: %v", err)
 	}
+
+	seedEventSQL := `
+		INSERT INTO events (id, name, slug, description)
+		VALUES ($1, 'DevClub Event', $2, 'Default seeded event')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug
+	`
+	if _, err := testApp.DB.Exec(ctx, seedEventSQL, DefaultTestEventID, DefaultTestEventSlug); err != nil {
+		t.Fatalf("[ResetState] failed to seed event: %v", err)
+	}
+
+	seedUserEventSQL := `
+		INSERT INTO user_events (user_id, event_id, role)
+		VALUES ($1, $2, 'owner')
+		ON CONFLICT (event_id, user_id) DO UPDATE SET role = 'owner'
+	`
+	if _, err := testApp.DB.Exec(ctx, seedUserEventSQL, adminID, DefaultTestEventID); err != nil {
+		t.Fatalf("[ResetState] failed to seed user event role: %v", err)
+	}
+
+	setActiveCompetitionSlug("")
 }
 
 func purgeRabbitQueues(t *testing.T) {

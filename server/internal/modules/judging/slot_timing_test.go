@@ -14,9 +14,15 @@ func TestSlotTiming_OverridesAndChaining(t *testing.T) {
 
 	var judgeID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.st@cadence.local', 'Judge ST', 'judge', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.st@cadence.local', 'Judge ST', true) RETURNING id`).Scan(&judgeID); err != nil {
 		t.Fatalf("seed judge: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_events (user_id, event_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
+		ON CONFLICT (event_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
+		t.Fatalf("seed user event: %v", err)
 	}
 	teams := make([]string, 3)
 	for i, code := range []string{"TIMEA001", "TIMEB002", "TIMEC003"} {
@@ -104,8 +110,14 @@ func TestRoundDuration_ChangeAndReset(t *testing.T) {
 
 	var judgeID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.rd@cadence.local', 'Judge RD', 'judge', true, true) RETURNING id`).Scan(&judgeID); err != nil {
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.rd@cadence.local', 'Judge RD', true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_events (user_id, event_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
+		ON CONFLICT (event_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
 		t.Fatal(err)
 	}
 	teams := make([]string, 2)

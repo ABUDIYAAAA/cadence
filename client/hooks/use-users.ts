@@ -1,6 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { resolveEventUserFilters } from "@/lib/competition-utils";
+import { useTenant } from "@/providers/tenant-provider";
 import { usersService } from "@/services/users.service";
 import {
   BulkCreateUsersRequest,
@@ -12,24 +19,53 @@ import {
 
 export const USERS_QUERY_KEY = ["users"] as const;
 
-export function useUsers(filters?: UserFilter, options?: { enabled?: boolean }) {
+export function useUsers(
+  filters?: UserFilter,
+  options?: { enabled?: boolean }
+) {
+  const { eventSlug, activeCompetition } = useTenant();
+  const effectiveFilters = filters
+    ? resolveEventUserFilters(filters, activeCompetition?.id)
+    : activeCompetition?.id
+    ? ({ competition_id: activeCompetition.id } as UserFilter)
+    : undefined;
+
   return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "list", filters],
-    queryFn: () => usersService.list(filters),
+    queryKey: [...USERS_QUERY_KEY, "list", eventSlug, effectiveFilters],
+    queryFn: () => usersService.list(effectiveFilters),
     enabled: options?.enabled ?? true,
+    placeholderData: keepPreviousData,
   });
 }
 
-/** Fetches every user by walking all pages (the API caps page size at 100). */
-export function useAllUsers(options?: { enabled?: boolean }) {
+export function usePlatformUsers(
+  filters?: UserFilter,
+  options?: { enabled?: boolean }
+) {
   return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "all"],
+    queryKey: [...USERS_QUERY_KEY, "platform", filters],
+    queryFn: () => usersService.listPlatform(filters),
+    enabled: options?.enabled ?? true,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Fetches every user in the active scope by walking all pages (the API caps page size at 100). */
+export function useAllUsers(options?: { enabled?: boolean }) {
+  const { eventSlug, activeCompetition } = useTenant();
+  const competitionId = activeCompetition?.id;
+  return useQuery({
+    queryKey: [...USERS_QUERY_KEY, "all", eventSlug, competitionId],
     queryFn: async () => {
       const all: UserDetailResponse[] = [];
       let page = 1;
       let totalPages = 1;
       do {
-        const res = await usersService.list({ page, limit: 100 });
+        const res = await usersService.list({
+          page,
+          limit: 100,
+          competition_id: competitionId,
+        });
         all.push(...res.data);
         totalPages = res.total_pages;
         page++;
@@ -37,14 +73,6 @@ export function useAllUsers(options?: { enabled?: boolean }) {
       return all;
     },
     enabled: options?.enabled ?? true,
-  });
-}
-
-export function useUser(id: string) {
-  return useQuery({
-    queryKey: [...USERS_QUERY_KEY, "detail", id],
-    queryFn: () => usersService.getById(id),
-    enabled: Boolean(id),
   });
 }
 
@@ -59,12 +87,37 @@ export function useCreateUser() {
   });
 }
 
+export function useCreatePlatformUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CreateUserRequest) =>
+      usersService.createPlatform(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
+  });
+}
+
 export function useBulkCreateUsers() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (payload: BulkCreateUsersRequest) =>
       usersService.bulkCreate(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+}
+
+export function useBulkCreatePlatformUsers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: BulkCreateUsersRequest) =>
+      usersService.bulkCreatePlatform(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
     },
@@ -108,11 +161,22 @@ export function useReactivateUser() {
   });
 }
 
-export function useTriggerResetPassword() {
+export function useBlacklistUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => usersService.triggerResetPassword(id),
+    mutationFn: (id: string) => usersService.blacklist(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+    },
+  });
+}
+
+export function useUnblacklistUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => usersService.unblacklist(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
     },

@@ -20,22 +20,22 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-[20px] border border-dashed border-[var(--color-blue-border)] bg-[var(--card-solid)]/70 backdrop-blur-md p-10 text-center font-sans",
+        "flex flex-col items-center justify-center rounded-[12px] border border-dashed border-[var(--card-line)] bg-[var(--card-solid-subtle)]/60 px-6 py-10 text-center font-sans",
         className
       )}
     >
-      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-blue-dim)] text-[var(--color-blue)]">
-        {Icon ? <Icon className="h-6 w-6" /> : <Inbox className="h-6 w-6" />}
+      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-[10px] border border-[var(--card-line)] bg-[var(--card-solid)] text-[var(--ink-secondary)]">
+        {Icon ? <Icon className="h-5 w-5" /> : <Inbox className="h-5 w-5" />}
       </div>
-      <h4 className="text-sm font-extrabold tracking-tight text-[var(--ink-primary)]">
+      <h4 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)]">
         {title}
       </h4>
       {description && (
-        <p className="mt-1.5 max-w-sm text-xs text-[var(--ink-secondary)] leading-relaxed">
+        <p className="mt-1 max-w-sm text-xs text-[var(--ink-secondary)] leading-relaxed">
           {description}
         </p>
       )}
-      {action && <div className="mt-5">{action}</div>}
+      {action && <div className="mt-4">{action}</div>}
     </div>
   );
 }

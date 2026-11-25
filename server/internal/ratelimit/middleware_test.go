@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"os"
+
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
@@ -17,22 +19,21 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
-	"os"
 )
 
-func newTestRedis(t *testing.T) *redis.Client {
+func newTestRedisWithDB(t *testing.T, db int) *redis.Client {
 	t.Helper()
 	_ = godotenv.Load("../../.env")
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://127.0.0.1:6379/15"
+		redisURL = "redis://127.0.0.1:6379"
 	}
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
 		t.Skipf("skipping rate limit Redis test: invalid REDIS_URL: %v", err)
 	}
-	// Always use isolated DB 15 for unit tests
-	opts.DB = 15
+	// Use specified isolated DB for unit tests
+	opts.DB = db
 
 	client := redis.NewClient(opts)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -48,6 +49,10 @@ func newTestRedis(t *testing.T) *redis.Client {
 		_ = client.Close()
 	})
 	return client
+}
+
+func newTestRedis(t *testing.T) *redis.Client {
+	return newTestRedisWithDB(t, 15)
 }
 
 func TestAtomicSlidingWindowLimiter(t *testing.T) {
@@ -160,7 +165,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 	})
 
 	t.Run("forged or invalid JWT does not get a per-user bucket and is blocked by campus IP ceiling", func(t *testing.T) {
-		forgedToken, err := utils.GenerateAccessToken("user-1", "u1@test.com", "participant", 1, "wrong-secret", 15*time.Minute)
+		forgedToken, err := utils.GenerateAccessToken("user-1", "u1@test.com", "user", 1, "wrong-secret", 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate forged token: %v", err)
 		}
@@ -175,7 +180,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 	})
 
 	t.Run("authenticated users with verified JWT succeed even when campus IP ceiling is saturated", func(t *testing.T) {
-		validToken, err := utils.GenerateAccessToken("user-verified-1", "u1@test.com", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		validToken, err := utils.GenerateAccessToken("user-verified-1", "u1@test.com", "user", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate valid token: %v", err)
 		}
@@ -201,7 +206,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 		if err := rdb.Set(ctx, "blocked:user:"+blockedUserID, "1", time.Minute).Err(); err != nil {
 			t.Fatalf("set blocklist key: %v", err)
 		}
-		validToken, err := utils.GenerateAccessToken(blockedUserID, "blocked@test.com", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		validToken, err := utils.GenerateAccessToken(blockedUserID, "blocked@test.com", "user", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate token: %v", err)
 		}
@@ -328,7 +333,7 @@ func TestRateLimitMiddleware_CampusNATAndBuckets(t *testing.T) {
 	})
 
 	t.Run("Bearer-only authenticated client without cookies is tracked in per-user bucket and throttled at DefaultUserLimit", func(t *testing.T) {
-		bearerToken, err := utils.GenerateAccessToken("user-bearer-only", "bearer@test.com", "participant", 1, cfg.JWTAccessSecret, 15*time.Minute)
+		bearerToken, err := utils.GenerateAccessToken("user-bearer-only", "bearer@test.com", "user", 1, cfg.JWTAccessSecret, 15*time.Minute)
 		if err != nil {
 			t.Fatalf("generate bearer token: %v", err)
 		}

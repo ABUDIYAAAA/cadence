@@ -2,8 +2,10 @@ package tickets
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,25 +16,51 @@ import (
 )
 
 const (
+	KindCheckIn    = "check_in"
 	KindAttendance = "attendance"
 	KindExit       = "exit"
+
+	checkInCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	checkInCodeLength   = 6
 )
 
 var (
-	ErrSessionNotFound = errors.New("scan session not found")
-	ErrSessionClosed   = errors.New("scan session is closed")
-	ErrNotCheckedIn    = errors.New("attendee has not checked in at entry")
-	ErrExitNotRequired = errors.New("internal attendees do not exit-scan")
-	ErrAlreadyScanned  = errors.New("ticket already scanned in this session")
+	ErrSessionNotFound                = errors.New("scan session not found")
+	ErrSessionClosed                  = errors.New("scan session is closed")
+	ErrNotCheckedIn                   = errors.New("attendee has not checked in at entry")
+	ErrExitNotRequired                = errors.New("internal attendees do not exit-scan")
+	ErrAlreadyScanned                 = errors.New("ticket already scanned in this session")
+	ErrCompetitionRequiredForTeamScan = errors.New("competition_id is required when full-team-via-leader scanning is enabled")
+	ErrInvalidCompetition             = errors.New("competition does not belong to this event")
+	ErrInvalidCheckInCode             = errors.New("invalid or expired check-in code")
+	ErrCheckInCodeConflict            = errors.New("check-in code is already in use by another scan session in this event")
+	ErrNotEventMember                 = errors.New("you are not an active participant of this event")
 )
 
 // ---- DTOs -------------------------------------------------------------------------------------
 
 type CreateSessionRequest struct {
 	Name string `json:"name" validate:"required,min=2,max=150"`
-	Kind string `json:"kind" validate:"required,oneof=attendance exit"`
-	// MarkTeam makes a team leader's scan mark the whole team. Defaults to true for attendance rounds.
+	Kind string `json:"kind" validate:"omitempty,oneof=check_in attendance exit"`
+	// MarkTeam makes a team leader's scan mark the whole team in the linked competition (false = per member).
 	MarkTeam *bool `json:"mark_team"`
+	// CompetitionID optionally links this scan session to a single competition in the event (required when MarkTeam is true).
+	CompetitionID *string `json:"competition_id"`
+	// GenerateCode automatically generates an initial check-in code for this session when true.
+	GenerateCode bool `json:"generate_code"`
+	// CheckInCode optionally sets a specific initial check-in code for this session.
+	CheckInCode *string `json:"checkin_code"`
+}
+
+type GenerateCheckInCodeRequest struct {
+	// Code optionally specifies a custom check-in code (2-32 chars). If omitted, a random 6-character code is generated.
+	Code *string `json:"code"`
+	// SessionID optionally targets a specific scan session on POST /tickets/checkin-code (defaults to the event's default Entry Check-In session).
+	SessionID *string `json:"session_id"`
+}
+
+type CheckInByCodeRequest struct {
+	Code string `json:"code" validate:"required"`
 }
 
 type SessionScanRequest struct {
@@ -44,31 +72,53 @@ type SetSessionOpenRequest struct {
 }
 
 type ScanSession struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name"`
-	Kind         string     `json:"kind"`
-	IsOpen       bool       `json:"is_open"`
-	MarkTeam     bool       `json:"mark_team"`
-	ScannedCount int        `json:"scanned_count"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ClosedAt     *time.Time `json:"closed_at,omitempty"`
+	ID                   string     `json:"id"`
+	EventID              string     `json:"event_id"`
+	CompetitionID        *string    `json:"competition_id,omitempty"`
+	CompetitionSlug      *string    `json:"competition_slug,omitempty"`
+	CompetitionName      *string    `json:"competition_name,omitempty"`
+	Name                 string     `json:"name"`
+	Kind                 string     `json:"kind"`
+	IsDefault            bool       `json:"is_default"`
+	IsOpen               bool       `json:"is_open"`
+	MarkTeam             bool       `json:"mark_team"`
+	CheckInCode          *string    `json:"checkin_code,omitempty"`
+	CheckInCodeUpdatedAt *time.Time `json:"checkin_code_updated_at,omitempty"`
+	ScannedCount         int        `json:"scanned_count"`
+	CreatedByID          *string    `json:"created_by_id,omitempty"`
+	CreatedByName        *string    `json:"created_by_name,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	ClosedAt             *time.Time `json:"closed_at,omitempty"`
 }
 
 type SessionScanResponse struct {
-	Success   bool            `json:"success"`
-	Message   string          `json:"message"`
-	Session   ScanSession     `json:"session"`
-	ScannedAt string          `json:"scanned_at"`
-	Attendee  AttendeeDetails `json:"attendee"`
-	Team      *TeamScanResult `json:"team,omitempty"`
+	Success        bool            `json:"success"`
+	Message        string          `json:"message"`
+	Session        ScanSession     `json:"session"`
+	ScannedAt      string          `json:"scanned_at"`
+	ScannedByID    string          `json:"scanned_by_id"`
+	ScannedByName  string          `json:"scanned_by_name,omitempty"`
+	ScannedByEmail string          `json:"scanned_by_email,omitempty"`
+	Attendee       AttendeeDetails `json:"attendee"`
+	Team           *TeamScanResult `json:"team,omitempty"`
+}
+
+type TeamMemberScanRecord struct {
+	UserID      string `json:"user_id"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	ScannedAt   string `json:"scanned_at"`
+	ScannedByID string `json:"scanned_by_id"`
 }
 
 // TeamScanResult reports what happened to the rest of the team when a leader was scanned.
 type TeamScanResult struct {
-	TeamName string         `json:"team_name"`
-	Marked   int            `json:"marked"`
-	Already  int            `json:"already_scanned"`
-	Skipped  []TeamScanSkip `json:"skipped"`
+	TeamID        string                 `json:"team_id"`
+	TeamName      string                 `json:"team_name"`
+	Marked        int                    `json:"marked"`
+	Already       int                    `json:"already_scanned"`
+	MarkedMembers []TeamMemberScanRecord `json:"marked_members,omitempty"`
+	Skipped       []TeamScanSkip         `json:"skipped"`
 }
 
 type TeamScanSkip struct {
@@ -81,6 +131,7 @@ type SessionScanRejection struct {
 	Error         string          `json:"error"`
 	Code          string          `json:"code"`
 	ScannedAt     string          `json:"scanned_at,omitempty"`
+	ScannedByID   *string         `json:"scanned_by_id,omitempty"`
 	ScannedByName *string         `json:"scanned_by_name,omitempty"`
 	Attendee      AttendeeDetails `json:"attendee"`
 }
@@ -93,13 +144,17 @@ type ReleaseTicketsResponse struct {
 }
 
 type SessionPerson struct {
-	UserID    string  `json:"user_id"`
-	Name      string  `json:"name"`
-	Email     string  `json:"email"`
-	Phone     *string `json:"phone_number,omitempty"`
-	TeamName  *string `json:"team_name,omitempty"`
-	External  bool    `json:"is_external"`
-	ScannedAt *string `json:"scanned_at,omitempty"`
+	UserID        string  `json:"user_id"`
+	Name          string  `json:"name"`
+	Email         string  `json:"email"`
+	Phone         *string `json:"phone_number,omitempty"`
+	TeamID        *string `json:"team_id,omitempty"`
+	TeamName      *string `json:"team_name,omitempty"`
+	IsLeader      bool    `json:"is_leader"`
+	External      bool    `json:"is_external"`
+	ScannedAt     *string `json:"scanned_at,omitempty"`
+	ScannedByID   *string `json:"scanned_by_id,omitempty"`
+	ScannedByName *string `json:"scanned_by_name,omitempty"`
 	// Present is true once the person has been scanned in this session.
 	Present bool `json:"present"`
 }
@@ -116,23 +171,176 @@ type SessionReport struct {
 
 // ---- Repository -------------------------------------------------------------------------------
 
-func (r *Repository) CreateSession(ctx context.Context, name, kind string, markTeam bool, createdBy string) (*ScanSession, error) {
+const scanSessionSelectQuery = `
+	SELECT s.id, s.event_id, s.competition_id, c.slug, c.name,
+	       s.name, s.kind, s.is_default, s.is_open, s.mark_team,
+	       s.checkin_code, s.checkin_code_updated_at,
+	       (SELECT COUNT(*) FROM scan_events e WHERE e.session_id = s.id),
+	       s.created_by, u.name, s.created_at, s.closed_at
+	FROM scan_sessions s
+	LEFT JOIN competitions c ON c.id = s.competition_id
+	LEFT JOIN users u ON u.id = s.created_by
+`
+
+func scanSessionRow(row pgx.Row, s *ScanSession) error {
+	return row.Scan(
+		&s.ID,
+		&s.EventID,
+		&s.CompetitionID,
+		&s.CompetitionSlug,
+		&s.CompetitionName,
+		&s.Name,
+		&s.Kind,
+		&s.IsDefault,
+		&s.IsOpen,
+		&s.MarkTeam,
+		&s.CheckInCode,
+		&s.CheckInCodeUpdatedAt,
+		&s.ScannedCount,
+		&s.CreatedByID,
+		&s.CreatedByName,
+		&s.CreatedAt,
+		&s.ClosedAt,
+	)
+}
+
+func generateRandomCheckInCode() (string, error) {
+	b := make([]byte, checkInCodeLength)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	out := make([]byte, checkInCodeLength)
+	for i := range b {
+		out[i] = checkInCodeAlphabet[int(b[i])%len(checkInCodeAlphabet)]
+	}
+	return string(out), nil
+}
+
+// GetSessionByCheckInCode looks up a scan session in the active event by its active checkin_code (case-insensitive).
+func (r *Repository) GetSessionByCheckInCode(ctx context.Context, code string) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
+	normalized := strings.ToUpper(strings.TrimSpace(code))
+	if normalized == "" {
+		return nil, ErrInvalidCheckInCode
+	}
 	var s ScanSession
-	err := r.db.QueryRow(ctx, `
-		INSERT INTO scan_sessions (name, kind, mark_team, created_by) VALUES ($1, $2, $3, $4)
-		RETURNING id, name, kind, is_open, mark_team, created_at, closed_at`, name, kind, markTeam, createdBy,
-	).Scan(&s.ID, &s.Name, &s.Kind, &s.IsOpen, &s.MarkTeam, &s.CreatedAt, &s.ClosedAt)
+	err := scanSessionRow(
+		r.db.QueryRow(ctx, scanSessionSelectQuery+` WHERE s.event_id = $1 AND s.checkin_code IS NOT NULL AND UPPER(s.checkin_code) = $2 LIMIT 1`, eventID, normalized),
+		&s,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("create scan session: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrInvalidCheckInCode
+		}
+		return nil, fmt.Errorf("get session by check-in code: %w", err)
 	}
 	return &s, nil
 }
 
+// SetSessionCheckInCode sets or rotates (or clears when code == nil) the check-in code for a scan session in the active event.
+func (r *Repository) SetSessionCheckInCode(ctx context.Context, sessionID string, code *string) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
+	var cleanCode *string
+	if code != nil {
+		c := strings.ToUpper(strings.TrimSpace(*code))
+		if c != "" {
+			cleanCode = &c
+		}
+	}
+
+	var updatedAt *time.Time
+	if cleanCode != nil {
+		now := time.Now()
+		updatedAt = &now
+	}
+
+	tag, err := r.db.Exec(ctx, `
+		UPDATE scan_sessions
+		SET checkin_code = $1,
+		    checkin_code_updated_at = $2
+		WHERE id = $3 AND event_id = $4
+	`, cleanCode, updatedAt, sessionID, eventID)
+	if err != nil {
+		if strings.Contains(err.Error(), "idx_scan_sessions_event_checkin_code") || strings.Contains(err.Error(), "duplicate key") {
+			return nil, ErrCheckInCodeConflict
+		}
+		return nil, fmt.Errorf("set session check-in code: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrSessionNotFound
+	}
+	return r.GetSession(ctx, sessionID)
+}
+
+// EnsureDefaultCheckInSession guarantees that the active event has its default Entry Check-In scan session.
+func (r *Repository) EnsureDefaultCheckInSession(ctx context.Context) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO scan_sessions (event_id, name, kind, is_default, is_open, mark_team)
+		VALUES ($1, 'Entry Check-In', 'check_in', TRUE, TRUE, FALSE)
+		ON CONFLICT (event_id) WHERE is_default = TRUE DO NOTHING
+	`, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("ensure default check-in session: %w", err)
+	}
+
+	var s ScanSession
+	err = scanSessionRow(
+		r.db.QueryRow(ctx, scanSessionSelectQuery+` WHERE s.event_id = $1 AND s.is_default = TRUE LIMIT 1`, eventID),
+		&s,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load default check-in session: %w", err)
+	}
+	return &s, nil
+}
+
+// RecordDefaultCheckInScan records a scan in the active event's default Check-In session when a user checks in via /tickets/check-in.
+func (r *Repository) RecordDefaultCheckInScan(ctx context.Context, ticketID, scannerID string) error {
+	defSess, err := r.EnsureDefaultCheckInSession(ctx)
+	if err != nil {
+		return err
+	}
+	_, _, err = r.RecordScan(ctx, defSess.ID, ticketID, scannerID)
+	return err
+}
+
+// CompetitionBelongsToEvent verifies that competitionID belongs to the active event.
+func (r *Repository) CompetitionBelongsToEvent(ctx context.Context, competitionID string) (bool, error) {
+	eventID := resolveEventID(ctx)
+	var exists bool
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM competitions WHERE id = $1 AND event_id = $2)`, competitionID, eventID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check competition event: %w", err)
+	}
+	return exists, nil
+}
+
+func (r *Repository) CreateSession(ctx context.Context, name, kind string, markTeam bool, competitionID *string, createdBy string) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
+	var compID string
+	if competitionID != nil {
+		compID = strings.TrimSpace(*competitionID)
+	}
+	var sessionID string
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO scan_sessions (event_id, competition_id, name, kind, is_default, mark_team, created_by)
+		VALUES ($1, NULLIF($2, '')::uuid, $3, $4, FALSE, $5, NULLIF($6, '')::uuid)
+		RETURNING id`,
+		eventID, compID, name, kind, markTeam, createdBy,
+	).Scan(&sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("create scan session: %w", err)
+	}
+	return r.GetSession(ctx, sessionID)
+}
+
 func (r *Repository) ListSessions(ctx context.Context) ([]ScanSession, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT s.id, s.name, s.kind, s.is_open, s.mark_team, s.created_at, s.closed_at,
-		       (SELECT COUNT(*) FROM scan_events e WHERE e.session_id = s.id)
-		FROM scan_sessions s ORDER BY s.is_open DESC, s.created_at DESC`)
+	_, _ = r.EnsureDefaultCheckInSession(ctx)
+	eventID := resolveEventID(ctx)
+	rows, err := r.db.Query(ctx, scanSessionSelectQuery+`
+		WHERE s.event_id = $1
+		ORDER BY s.is_default DESC, s.is_open DESC, s.created_at DESC`, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("list scan sessions: %w", err)
 	}
@@ -140,7 +348,7 @@ func (r *Repository) ListSessions(ctx context.Context) ([]ScanSession, error) {
 	out := make([]ScanSession, 0)
 	for rows.Next() {
 		var s ScanSession
-		if err := rows.Scan(&s.ID, &s.Name, &s.Kind, &s.IsOpen, &s.MarkTeam, &s.CreatedAt, &s.ClosedAt, &s.ScannedCount); err != nil {
+		if err := scanSessionRow(rows, &s); err != nil {
 			return nil, fmt.Errorf("scan session row: %w", err)
 		}
 		out = append(out, s)
@@ -149,12 +357,12 @@ func (r *Repository) ListSessions(ctx context.Context) ([]ScanSession, error) {
 }
 
 func (r *Repository) GetSession(ctx context.Context, id string) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
 	var s ScanSession
-	err := r.db.QueryRow(ctx, `
-		SELECT s.id, s.name, s.kind, s.is_open, s.mark_team, s.created_at, s.closed_at,
-		       (SELECT COUNT(*) FROM scan_events e WHERE e.session_id = s.id)
-		FROM scan_sessions s WHERE s.id = $1`, id,
-	).Scan(&s.ID, &s.Name, &s.Kind, &s.IsOpen, &s.MarkTeam, &s.CreatedAt, &s.ClosedAt, &s.ScannedCount)
+	err := scanSessionRow(
+		r.db.QueryRow(ctx, scanSessionSelectQuery+` WHERE s.id = $1 AND s.event_id = $2`, id, eventID),
+		&s,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrSessionNotFound
@@ -165,10 +373,11 @@ func (r *Repository) GetSession(ctx context.Context, id string) (*ScanSession, e
 }
 
 func (r *Repository) SetSessionOpen(ctx context.Context, id string, open bool) (*ScanSession, error) {
+	eventID := resolveEventID(ctx)
 	tag, err := r.db.Exec(ctx, `
 		UPDATE scan_sessions
 		SET is_open = $2, closed_at = CASE WHEN $2 THEN NULL ELSE CURRENT_TIMESTAMP END
-		WHERE id = $1`, id, open)
+		WHERE id = $1 AND event_id = $3`, id, open, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("toggle scan session: %w", err)
 	}
@@ -178,11 +387,11 @@ func (r *Repository) SetSessionOpen(ctx context.Context, id string, open bool) (
 	return r.GetSession(ctx, id)
 }
 
-// RecordScan inserts the scan; returns false when this ticket was already scanned in the session.
+// RecordScan inserts the scan with who scanned whom and when; returns false when this ticket was already scanned in the session.
 func (r *Repository) RecordScan(ctx context.Context, sessionID, ticketID, scannerID string) (time.Time, bool, error) {
 	var at time.Time
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO scan_events (session_id, ticket_id, scanned_by) VALUES ($1, $2, $3)
+		INSERT INTO scan_events (session_id, ticket_id, scanned_by) VALUES ($1, $2, NULLIF($3, '')::uuid)
 		ON CONFLICT (session_id, ticket_id) DO NOTHING
 		RETURNING scanned_at`, sessionID, ticketID, scannerID).Scan(&at)
 	if err != nil {
@@ -194,16 +403,18 @@ func (r *Repository) RecordScan(ctx context.Context, sessionID, ticketID, scanne
 	return at, true, nil
 }
 
-func (r *Repository) GetScan(ctx context.Context, sessionID, ticketID string) (time.Time, *string, error) {
+func (r *Repository) GetScan(ctx context.Context, sessionID, ticketID string) (time.Time, *string, *string, error) {
 	var at time.Time
-	var by *string
+	var byID, byName *string
 	err := r.db.QueryRow(ctx, `
-		SELECT e.scanned_at, u.name FROM scan_events e LEFT JOIN users u ON u.id = e.scanned_by
-		WHERE e.session_id = $1 AND e.ticket_id = $2`, sessionID, ticketID).Scan(&at, &by)
+		SELECT e.scanned_at, e.scanned_by::text, u.name
+		FROM scan_events e
+		LEFT JOIN users u ON u.id = e.scanned_by
+		WHERE e.session_id = $1 AND e.ticket_id = $2`, sessionID, ticketID).Scan(&at, &byID, &byName)
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("get scan: %w", err)
+		return time.Time{}, nil, nil, fmt.Errorf("get scan: %w", err)
 	}
-	return at, by, nil
+	return at, byID, byName, nil
 }
 
 // ReleaseTicket marks a ticket visible on the participant dashboard without sending email.
@@ -221,11 +432,94 @@ func (r *Repository) CountScans(ctx context.Context, sessionID string) (int, err
 	return n, err
 }
 
-// MarkTeamOfLeader marks every member holding a pass of the team led by leaderID in the session.
-// Returns nil when the scanned user does not lead a team. The leader's own scan is excluded from the counts.
-func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, scannerID string) (*TeamScanResult, error) {
+// GetTicketByCodeForCompetition looks up a ticket in the active event and resolves the attendee's team
+// in competitionID (if non-nil) or in the event otherwise.
+func (r *Repository) GetTicketByCodeForCompetition(ctx context.Context, ticketCode string, competitionID *string) (*TicketAttendeeInfo, error) {
+	eventID := resolveEventID(ctx)
+	var compID string
+	if competitionID != nil {
+		compID = *competitionID
+	}
+	query := `
+		SELECT 
+			t.id, t.event_id, t.user_id, t.ticket_code, t.is_checked_in, t.checked_in_at, t.checked_in_by,
+			t.email_status, t.email_sent_at, t.released_at,
+			u.name, u.email, COALESCE(ue.role::text, 'participant'), u.phone_number,
+			tm_sub.team_id, tm_sub.team_name,
+			v.name
+		FROM tickets t
+		JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
+		LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = t.event_id
+		LEFT JOIN LATERAL (
+			SELECT tm.team_id, tm_t.name AS team_name
+			FROM team_members tm
+			JOIN teams tm_t ON tm_t.id = tm.team_id
+			JOIN competitions c ON c.id = tm_t.competition_id
+			WHERE tm.user_id = u.id
+			  AND c.event_id = t.event_id
+			  AND ($3 = '' OR tm.competition_id = $3::uuid)
+			ORDER BY tm.joined_at DESC
+			LIMIT 1
+		) tm_sub ON TRUE
+		LEFT JOIN users v ON v.id = t.checked_in_by
+		WHERE t.event_id = $1 AND t.ticket_code = $2;
+	`
+	var info TicketAttendeeInfo
+	err := r.db.QueryRow(ctx, query, eventID, ticketCode, compID).Scan(
+		&info.TicketID,
+		&info.EventID,
+		&info.UserID,
+		&info.TicketCode,
+		&info.IsCheckedIn,
+		&info.CheckedInAt,
+		&info.CheckedInByID,
+		&info.EmailStatus,
+		&info.EmailSentAt,
+		&info.ReleasedAt,
+		&info.UserName,
+		&info.UserEmail,
+		&info.UserRole,
+		&info.UserPhone,
+		&info.TeamID,
+		&info.TeamName,
+		&info.CheckedInByName,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrTicketNotFound
+		}
+		return nil, fmt.Errorf("query ticket by code for competition: %w", err)
+	}
+	return &info, nil
+}
+
+// MarkTeamOfLeader marks every member of the team led by leaderID in the session's linked competition.
+// Returns nil when the scanned user does not lead a team in that competition.
+// Each team member scan is recorded in scan_events with scanned_by = scannerID and scanned_at = NOW().
+func (r *Repository) MarkTeamOfLeader(
+	ctx context.Context,
+	sessionID string,
+	competitionID *string,
+	leaderID, scannerID string,
+	mintCodeFn func() (string, error),
+) (*TeamScanResult, error) {
+	eventID := resolveEventID(ctx)
+	var compID string
+	if competitionID != nil {
+		compID = *competitionID
+	}
+
 	var teamID, teamName string
-	err := r.db.QueryRow(ctx, `SELECT id, name FROM teams WHERE leader_id = $1`, leaderID).Scan(&teamID, &teamName)
+	err := r.db.QueryRow(ctx, `
+		SELECT t.id, t.name
+		FROM teams t
+		JOIN competitions c ON c.id = t.competition_id
+		WHERE t.leader_id = $1
+		  AND c.event_id = $2
+		  AND ($3 = '' OR t.competition_id = $3::uuid)
+		ORDER BY t.created_at DESC
+		LIMIT 1
+	`, leaderID, eventID, compID).Scan(&teamID, &teamName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -234,22 +528,25 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT u.name, t.id
-		FROM users u
-		LEFT JOIN tickets t ON t.user_id = u.id
-		WHERE u.team_id = $1 AND u.id <> $2 AND u.deleted_at IS NULL
-		ORDER BY u.name`, teamID, leaderID)
+		SELECT u.id, u.name, u.email, t.id
+		FROM team_members tm
+		JOIN users u ON u.id = tm.user_id
+		LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = $3
+		WHERE tm.team_id = $1 AND u.id <> $2 AND u.deleted_at IS NULL
+		ORDER BY u.name`, teamID, leaderID, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("list team members: %w", err)
 	}
 	type member struct {
+		userID   string
 		name     string
+		email    string
 		ticketID *string
 	}
 	var members []member
 	for rows.Next() {
 		var m member
-		if err := rows.Scan(&m.name, &m.ticketID); err != nil {
+		if err := rows.Scan(&m.userID, &m.name, &m.email, &m.ticketID); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan team member: %w", err)
 		}
@@ -260,18 +557,40 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 		return nil, err
 	}
 
-	res := &TeamScanResult{TeamName: teamName, Skipped: []TeamScanSkip{}}
+	res := &TeamScanResult{
+		TeamID:        teamID,
+		TeamName:      teamName,
+		MarkedMembers: []TeamMemberScanRecord{},
+		Skipped:       []TeamScanSkip{},
+	}
 	for _, m := range members {
+		tktID := m.ticketID
+		// If a team member hasn't opened their dashboard yet to mint their ticket, mint it automatically so the leader's scan marks them!
+		if tktID == nil && mintCodeFn != nil {
+			if code, codeErr := mintCodeFn(); codeErr == nil {
+				if minted, mintErr := r.GetOrCreateReleasedTicket(ctx, m.userID, code); mintErr == nil {
+					tktID = &minted.ID
+				}
+			}
+		}
+
 		switch {
-		case m.ticketID == nil:
+		case tktID == nil:
 			res.Skipped = append(res.Skipped, TeamScanSkip{Name: m.name, Reason: "no_pass"})
 		default:
-			_, recorded, err := r.RecordScan(ctx, sessionID, *m.ticketID, scannerID)
+			at, recorded, err := r.RecordScan(ctx, sessionID, *tktID, scannerID)
 			if err != nil {
 				return nil, err
 			}
 			if recorded {
 				res.Marked++
+				res.MarkedMembers = append(res.MarkedMembers, TeamMemberScanRecord{
+					UserID:      m.userID,
+					Name:        m.name,
+					Email:       m.email,
+					ScannedAt:   at.Format(time.RFC3339),
+					ScannedByID: scannerID,
+				})
 			} else {
 				res.Already++
 			}
@@ -280,17 +599,43 @@ func (r *Repository) MarkTeamOfLeader(ctx context.Context, sessionID, leaderID, 
 	return res, nil
 }
 
-// sessionPeople returns every ticket holder with their scan time in the session (if any).
-// Exit sessions only expect people who have entered; attendance sessions expect everyone.
-func (r *Repository) sessionPeople(ctx context.Context, sessionID, kind string) ([]SessionPerson, error) {
+// sessionPeople returns every expected participant in the active event (or linked competition)
+// with their scan timestamp and the volunteer/admin who scanned them in the session (if any).
+func (r *Repository) sessionPeople(ctx context.Context, sess *ScanSession) ([]SessionPerson, error) {
+	eventID := resolveEventID(ctx)
+	var compID string
+	if sess.CompetitionID != nil {
+		compID = *sess.CompetitionID
+	}
+
 	rows, err := r.db.Query(ctx, `
-		SELECT u.id, u.name, u.email, u.phone_number, tm.name, e.scanned_at
-		FROM tickets t
-		JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
-		LEFT JOIN teams tm ON tm.id = u.team_id
+		SELECT u.id, u.name, u.email, u.phone_number,
+		       tm_sub.team_id, tm_sub.team_name, COALESCE(tm_sub.is_leader, FALSE),
+		       e.scanned_at, e.scanned_by::text, scanner.name
+		FROM user_events ue
+		JOIN users u ON u.id = ue.user_id AND u.deleted_at IS NULL
+		LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = ue.event_id
+		LEFT JOIN LATERAL (
+			SELECT tm.team_id::text AS team_id, tm_t.name AS team_name, (tm_t.leader_id = u.id) AS is_leader
+			FROM team_members tm
+			JOIN teams tm_t ON tm_t.id = tm.team_id
+			JOIN competitions c ON c.id = tm_t.competition_id
+			WHERE tm.user_id = u.id
+			  AND c.event_id = ue.event_id
+			  AND ($4 = '' OR tm.competition_id = $4::uuid)
+			ORDER BY tm.joined_at DESC
+			LIMIT 1
+		) tm_sub ON TRUE
 		LEFT JOIN scan_events e ON e.ticket_id = t.id AND e.session_id = $1
-		WHERE ($2 <> 'exit' OR t.is_checked_in = true)
-		ORDER BY u.name`, sessionID, kind)
+		LEFT JOIN users scanner ON scanner.id = e.scanned_by
+		WHERE ue.event_id = $3
+		  AND ue.role = 'participant'
+		  AND ue.is_banned = FALSE
+		  AND ($2 <> 'exit' OR COALESCE(t.is_checked_in, FALSE) = TRUE)
+		  AND ($4 = '' OR tm_sub.team_id IS NOT NULL OR e.scanned_at IS NOT NULL)
+		ORDER BY u.name`,
+		sess.ID, sess.Kind, eventID, compID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("query session people: %w", err)
 	}
@@ -299,7 +644,18 @@ func (r *Repository) sessionPeople(ctx context.Context, sessionID, kind string) 
 	for rows.Next() {
 		var p SessionPerson
 		var at *time.Time
-		if err := rows.Scan(&p.UserID, &p.Name, &p.Email, &p.Phone, &p.TeamName, &at); err != nil {
+		if err := rows.Scan(
+			&p.UserID,
+			&p.Name,
+			&p.Email,
+			&p.Phone,
+			&p.TeamID,
+			&p.TeamName,
+			&p.IsLeader,
+			&at,
+			&p.ScannedByID,
+			&p.ScannedByName,
+		); err != nil {
 			return nil, fmt.Errorf("scan session person: %w", err)
 		}
 		if at != nil {
@@ -322,26 +678,194 @@ func (s *Service) isExternal(ctx context.Context, email string) (bool, error) {
 	return !utils.IsEmailExcluded(email, domains), nil
 }
 
-func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest, actorID, actorEmail, actorRole, ip, ua string) (*ScanSession, error) {
-	markTeam := req.Kind == KindAttendance
-	if req.MarkTeam != nil {
-		markTeam = *req.MarkTeam && req.Kind == KindAttendance
+func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest, actorID, actorEmail string) (*ScanSession, error) {
+	kind := strings.TrimSpace(req.Kind)
+	if kind == "" {
+		kind = KindAttendance
 	}
-	sess, err := s.repo.CreateSession(ctx, req.Name, req.Kind, markTeam, actorID)
+
+	var compID *string
+	if req.CompetitionID != nil && strings.TrimSpace(*req.CompetitionID) != "" {
+		trimmed := strings.TrimSpace(*req.CompetitionID)
+		belongs, err := s.repo.CompetitionBelongsToEvent(ctx, trimmed)
+		if err != nil {
+			return nil, err
+		}
+		if !belongs {
+			return nil, ErrInvalidCompetition
+		}
+		compID = &trimmed
+	}
+
+	markTeam := false
+	if req.MarkTeam != nil {
+		markTeam = *req.MarkTeam && kind == KindAttendance
+	} else if compID != nil && kind == KindAttendance {
+		markTeam = true
+	}
+
+	if markTeam && compID == nil {
+		return nil, ErrCompetitionRequiredForTeamScan
+	}
+
+	sess, err := s.repo.CreateSession(ctx, req.Name, kind, markTeam, compID, actorID)
 	if err != nil {
 		return nil, err
 	}
-	s.recordAudit(ctx, audit.ActionScanSessionCreate, audit.TargetScanSession, &sess.ID,
-		fmt.Sprintf("%s created %s scan session %q", actorEmail, req.Kind, req.Name),
-		&actorID, &actorEmail, &actorRole, map[string]any{"name": req.Name, "kind": req.Kind}, &ip, &ua)
+
+	if req.CheckInCode != nil && strings.TrimSpace(*req.CheckInCode) != "" {
+		sess, err = s.GenerateSessionCheckInCode(ctx, sess.ID, req.CheckInCode, actorEmail)
+		if err != nil {
+			return nil, err
+		}
+	} else if req.GenerateCode {
+		sess, err = s.GenerateSessionCheckInCode(ctx, sess.ID, nil, actorEmail)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionCreate, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s created %s scan session %q (mark_team=%t)", actorEmail, kind, req.Name, markTeam),
+			map[string]any{"name": req.Name, "kind": kind, "mark_team": markTeam, "competition_id": compID, "checkin_code": sess.CheckInCode})
+	}
 	return sess, nil
+}
+
+// GenerateSessionCheckInCode generates or rotates a check-in code for a specific scan session (or the default Check-In session if sessionID == "").
+// Generating a new code immediately replaces and invalidates the previous code on that session.
+func (s *Service) GenerateSessionCheckInCode(
+	ctx context.Context,
+	sessionID string,
+	customCode *string,
+	actorEmail string,
+) (*ScanSession, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		defSess, err := s.repo.EnsureDefaultCheckInSession(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sessionID = defSess.ID
+	}
+
+	var sess *ScanSession
+	if customCode != nil && strings.TrimSpace(*customCode) != "" {
+		code := strings.ToUpper(strings.TrimSpace(*customCode))
+		if len(code) < 2 || len(code) > 32 {
+			return nil, ErrInvalidCheckInCode
+		}
+		var err error
+		sess, err = s.repo.SetSessionCheckInCode(ctx, sessionID, &code)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		for attempt := 0; attempt < 5; attempt++ {
+			code, genErr := generateRandomCheckInCode()
+			if genErr != nil {
+				return nil, genErr
+			}
+			sess, err = s.repo.SetSessionCheckInCode(ctx, sessionID, &code)
+			if errors.Is(err, ErrCheckInCodeConflict) {
+				continue
+			}
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionCodeGen, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s generated new check-in code for session %q", actorEmail, sess.Name),
+			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": sess.CheckInCode})
+	}
+
+	return sess, nil
+}
+
+// ClearSessionCheckInCode disables code-based self-check-in for the given scan session (or default Check-In session if sessionID == "").
+func (s *Service) ClearSessionCheckInCode(
+	ctx context.Context,
+	sessionID string,
+	actorEmail string,
+) (*ScanSession, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		defSess, err := s.repo.EnsureDefaultCheckInSession(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sessionID = defSess.ID
+	}
+
+	sess, err := s.repo.SetSessionCheckInCode(ctx, sessionID, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionCodeClear, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s cleared check-in code for session %q", actorEmail, sess.Name),
+			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "checkin_code": nil})
+	}
+
+	return sess, nil
+}
+
+// CheckInByCode allows an authenticated participant to check themselves in directly using an active check-in code
+// generated by an event admin or owner.
+func (s *Service) CheckInByCode(
+	ctx context.Context,
+	rawCode string,
+	userID, userEmail string,
+) (*SessionScanResponse, *SessionScanRejection, error) {
+	isMember, err := s.repo.IsEventMember(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !isMember {
+		return nil, nil, ErrNotEventMember
+	}
+
+	sess, err := s.repo.GetSessionByCheckInCode(ctx, rawCode)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Ensure the participant has a ticket row minted in this event so the scan can be recorded against their ticket
+	ticket, err := s.repo.GetTicketByUserID(ctx, userID)
+	if err != nil && !errors.Is(err, ErrTicketNotFound) {
+		return nil, nil, err
+	}
+	if ticket == nil {
+		code, codeErr := s.generateTicketCode()
+		if codeErr != nil {
+			return nil, nil, fmt.Errorf("generate ticket code: %w", codeErr)
+		}
+		ticket, err = s.repo.GetOrCreateReleasedTicket(ctx, userID, code)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// Delegate to ScanInSession using the participant's own ticket code and userID as the self-check-in actor
+	resp, rejection, err := s.ScanInSession(ctx, sess.ID, ticket.TicketCode, userID, userEmail)
+	if err == nil && resp != nil && s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketCodeCheckIn, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("Participant %s self-checked in to %q via code", userEmail, sess.Name),
+			map[string]any{"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind, "ticket_id": ticket.ID})
+	}
+	return resp, rejection, err
 }
 
 func (s *Service) ListSessions(ctx context.Context) ([]ScanSession, error) {
 	return s.repo.ListSessions(ctx)
 }
 
-func (s *Service) SetSessionOpen(ctx context.Context, id string, open bool, actorID, actorEmail, actorRole, ip, ua string) (*ScanSession, error) {
+func (s *Service) SetSessionOpen(ctx context.Context, id string, open bool, actorEmail string) (*ScanSession, error) {
 	sess, err := s.repo.SetSessionOpen(ctx, id, open)
 	if err != nil {
 		return nil, err
@@ -350,17 +874,19 @@ func (s *Service) SetSessionOpen(ctx context.Context, id string, open bool, acto
 	if open {
 		state = "opened"
 	}
-	s.recordAudit(ctx, audit.ActionScanSessionToggle, audit.TargetScanSession, &sess.ID,
-		fmt.Sprintf("%s %s scan session %q", actorEmail, state, sess.Name),
-		&actorID, &actorEmail, &actorRole, map[string]any{"is_open": open}, &ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionScanSessionToggle, audit.TargetScanSession, &sess.ID,
+			fmt.Sprintf("%s %s scan session %q", actorEmail, state, sess.Name),
+			map[string]any{"is_open": open})
+	}
 	return sess, nil
 }
 
-// ScanInSession validates and records an attendance or exit scan.
-// On refusal it returns a rejection describing why, alongside the sentinel error.
+// ScanInSession validates and records a check-in, attendance, or exit scan (recording who scanned whom and when,
+// and supporting either per-member scanning or full-team-via-leader scanning in the linked competition).
 func (s *Service) ScanInSession(
 	ctx context.Context, sessionID, ticketCode string,
-	scannerID, scannerEmail, scannerRole, ip, ua string,
+	scannerID, scannerEmail string,
 ) (*SessionScanResponse, *SessionScanRejection, error) {
 	sess, err := s.repo.GetSession(ctx, sessionID)
 	if err != nil {
@@ -368,12 +894,14 @@ func (s *Service) ScanInSession(
 	}
 	// Refusals are audited so a gate dispute can be traced. The ticket code itself is never logged: it is the credential.
 	auditRejected := func(code, desc string, targetID *string, extra map[string]any) {
+		if s.auditQueue == nil {
+			return
+		}
 		meta := map[string]any{"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind, "reason": code}
 		for k, v := range extra {
 			meta[k] = v
 		}
-		s.recordAudit(ctx, audit.ActionTicketScanRejected, audit.TargetScanSession, targetID,
-			desc, &scannerID, &scannerEmail, &scannerRole, meta, &ip, &ua)
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketScanRejected, audit.TargetScanSession, targetID, desc, meta)
 	}
 
 	if !sess.IsOpen {
@@ -381,7 +909,7 @@ func (s *Service) ScanInSession(
 		return nil, &SessionScanRejection{Error: "This scan session is closed", Code: "session_closed"}, ErrSessionClosed
 	}
 
-	info, err := s.repo.GetTicketByCode(ctx, ticketCode)
+	info, err := s.repo.GetTicketByCodeForCompetition(ctx, ticketCode, sess.CompetitionID)
 	if err != nil {
 		metrics.InstrumentTicketScan("invalid")
 		if errors.Is(err, ErrTicketNotFound) {
@@ -419,39 +947,60 @@ func (s *Service) ScanInSession(
 		return nil, nil, err
 	}
 	if !recorded {
-		prevAt, prevBy, err := s.repo.GetScan(ctx, sess.ID, info.TicketID)
+		prevAt, prevByID, prevByName, err := s.repo.GetScan(ctx, sess.ID, info.TicketID)
 		if err != nil {
 			return nil, nil, err
 		}
 		metrics.InstrumentTicketScan("duplicate")
-		s.recordAudit(ctx, audit.ActionTicketDuplicateScan, audit.TargetTicket, &info.TicketID,
-			fmt.Sprintf("Duplicate %s scan of %s in %q by %s", sess.Kind, info.UserEmail, sess.Name, scannerEmail),
-			&scannerID, &scannerEmail, &scannerRole,
-			map[string]any{
-				"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind,
-				"attendee_id": info.UserID, "attendee_email": info.UserEmail,
-				"prior_scanned_at": prevAt.Format(time.RFC3339),
-			}, &ip, &ua)
+		if s.auditQueue != nil {
+			s.auditQueue.RecordAction(ctx, audit.ActionTicketDuplicateScan, audit.TargetTicket, &info.TicketID,
+				fmt.Sprintf("Duplicate %s scan of %s in %q by %s", sess.Kind, info.UserEmail, sess.Name, scannerEmail),
+				map[string]any{
+					"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind,
+					"attendee_id": info.UserID, "attendee_email": info.UserEmail,
+					"prior_scanned_at": prevAt.Format(time.RFC3339),
+				})
+		}
 		return nil, &SessionScanRejection{
 			Error: "Already scanned in this session", Code: "duplicate",
-			ScannedAt: prevAt.Format(time.RFC3339), ScannedByName: prevBy, Attendee: attendee,
+			ScannedAt: prevAt.Format(time.RFC3339), ScannedByID: prevByID, ScannedByName: prevByName, Attendee: attendee,
 		}, ErrAlreadyScanned
 	}
 
+	// If this is the default Check-In session (or a check_in session), synchronize tickets.is_checked_in as well.
+	if sess.IsDefault || sess.Kind == KindCheckIn {
+		_, _, _ = s.repo.MarkCheckedIn(ctx, info.TicketID, scannerID)
+	}
+
+	scannerName, _, _ := s.repo.GetUserByID(ctx, scannerID)
+
 	metrics.InstrumentTicketScan("valid")
-	s.recordAudit(ctx, audit.ActionTicketSessionScan, audit.TargetTicket, &info.TicketID,
-		fmt.Sprintf("%s scanned %s in %s %q", scannerEmail, info.UserEmail, sess.Kind, sess.Name),
-		&scannerID, &scannerEmail, &scannerRole,
-		map[string]any{"session_id": sess.ID, "session_name": sess.Name, "kind": sess.Kind, "attendee_email": info.UserEmail},
-		&ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketSessionScan, audit.TargetTicket, &info.TicketID,
+			fmt.Sprintf("%s scanned %s in %s %q", scannerEmail, info.UserEmail, sess.Kind, sess.Name),
+			map[string]any{
+				"session_id":     sess.ID,
+				"session_name":   sess.Name,
+				"kind":           sess.Kind,
+				"attendee_id":    info.UserID,
+				"attendee_email": info.UserEmail,
+				"scanned_by_id":  scannerID,
+			})
+	}
 
 	resp := &SessionScanResponse{
-		Success: true, Message: "Scan recorded", Session: *sess,
-		ScannedAt: at.Format(time.RFC3339), Attendee: attendee,
+		Success:        true,
+		Message:        "Scan recorded",
+		Session:        *sess,
+		ScannedAt:      at.Format(time.RFC3339),
+		ScannedByID:    scannerID,
+		ScannedByName:  scannerName,
+		ScannedByEmail: scannerEmail,
+		Attendee:       attendee,
 	}
 
 	if sess.Kind == KindAttendance && sess.MarkTeam {
-		team, err := s.repo.MarkTeamOfLeader(ctx, sess.ID, info.UserID, scannerID)
+		team, err := s.repo.MarkTeamOfLeader(ctx, sess.ID, sess.CompetitionID, info.UserID, scannerID, s.generateTicketCode)
 		if err != nil {
 			// The leader is already recorded; surface the failure rather than hide a partial team.
 			return nil, nil, fmt.Errorf("mark team: %w", err)
@@ -459,11 +1008,11 @@ func (s *Service) ScanInSession(
 		if team != nil {
 			resp.Team = team
 			resp.Message = fmt.Sprintf("Team %s: %d marked present", team.TeamName, team.Marked+1)
-			s.recordAudit(ctx, audit.ActionTicketSessionScan, audit.TargetScanSession, &sess.ID,
-				fmt.Sprintf("%s scanned team leader %s; team %q marked in %q", scannerEmail, info.UserEmail, team.TeamName, sess.Name),
-				&scannerID, &scannerEmail, &scannerRole,
-				map[string]any{"team": team.TeamName, "marked": team.Marked, "already": team.Already, "skipped": len(team.Skipped)},
-				&ip, &ua)
+			if s.auditQueue != nil {
+				s.auditQueue.RecordAction(ctx, audit.ActionTicketSessionScan, audit.TargetScanSession, &sess.ID,
+					fmt.Sprintf("%s scanned team leader %s; team %q marked in %q", scannerEmail, info.UserEmail, team.TeamName, sess.Name),
+					map[string]any{"team_id": team.TeamID, "team": team.TeamName, "marked": team.Marked, "already": team.Already, "skipped": len(team.Skipped)})
+			}
 		}
 	}
 
@@ -476,7 +1025,7 @@ func (s *Service) GetSessionReport(ctx context.Context, sessionID string) (*Sess
 	if err != nil {
 		return nil, err
 	}
-	people, err := s.repo.sessionPeople(ctx, sessionID, sess.Kind)
+	people, err := s.repo.sessionPeople(ctx, sess)
 	if err != nil {
 		return nil, err
 	}
@@ -516,44 +1065,48 @@ func sortRecent(p []SessionPerson) {
 	}
 }
 
-// ReleaseTickets creates tickets for matching users and shows them on the dashboard, sending no email.
-func (s *Service) ReleaseTickets(ctx context.Context, req BulkSendTicketsRequest, actorID, actorEmail, actorRole, ip, ua string) (*ReleaseTicketsResponse, error) {
+// ReleaseTickets marks event tickets as released globally and creates dashboard tickets for all current event members, sending no email.
+func (s *Service) ReleaseTickets(ctx context.Context, req BulkSendTicketsRequest, actorID, actorEmail string) (*ReleaseTicketsResponse, error) {
+	if err := s.setTicketsReleased(ctx, true, actorID); err != nil {
+		return nil, err
+	}
+
 	eligible, err := s.repo.FindEligibleUsers(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	resp := &ReleaseTicketsResponse{TotalProcessed: 0}
 	for _, u := range eligible {
-		if utils.IsEmailExcluded(u.Email, req.ExcludeDomains) {
-			continue
-		}
 		resp.TotalProcessed++
 
-		ticketID := u.TicketID
 		if u.TicketCode != "" {
-			resp.AlreadyHad++
-		} else {
-			code, err := s.generateTicketCode()
-			if err != nil {
-				resp.Skipped++
-				continue
+			if u.ReleasedAt != nil {
+				resp.AlreadyHad++
+			} else {
+				if err := s.repo.ReleaseTicket(ctx, u.TicketID); err != nil {
+					resp.Skipped++
+					continue
+				}
+				resp.Released++
 			}
-			t, err := s.repo.GetOrCreateTicket(ctx, u.UserID, code)
-			if err != nil {
-				resp.Skipped++
-				continue
-			}
-			ticketID = t.ID
-			resp.Released++
+			continue
 		}
-		if err := s.repo.ReleaseTicket(ctx, ticketID); err != nil {
+
+		code, err := s.generateTicketCode()
+		if err != nil {
 			resp.Skipped++
+			continue
 		}
+		if _, err := s.repo.GetOrCreateReleasedTicket(ctx, u.UserID, code); err != nil {
+			resp.Skipped++
+			continue
+		}
+		resp.Released++
 	}
-	s.recordAudit(ctx, audit.ActionTicketReleased, audit.TargetTicket, nil,
-		fmt.Sprintf("%s released %d passes to the dashboard without email", actorEmail, resp.Released),
-		&actorID, &actorEmail, &actorRole,
-		map[string]any{"released": resp.Released, "already_had": resp.AlreadyHad, "skipped": resp.Skipped},
-		&ip, &ua)
+	if s.auditQueue != nil {
+		s.auditQueue.RecordAction(ctx, audit.ActionTicketReleased, audit.TargetTicket, nil,
+			fmt.Sprintf("%s released %d passes to the dashboard without email", actorEmail, resp.Released),
+			map[string]any{"released": resp.Released, "already_had": resp.AlreadyHad, "skipped": resp.Skipped, "tickets_released": true})
+	}
 	return resp, nil
 }

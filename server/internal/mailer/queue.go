@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
+	"devclubxnst.com/cadence/pkg/amqpqueue"
 )
 
 const (
@@ -17,7 +18,7 @@ const (
 
 	// maxDeliveryRetries is how many times a failed email is retried before being dropped.
 	maxDeliveryRetries = 3
-	retryCountHeader   = "x-retry-count"
+	retryCountHeader   = amqpqueue.DefaultRetryHeader
 )
 
 var (
@@ -26,19 +27,47 @@ var (
 
 // Job represents an email task serialized into RabbitMQ.
 type Job struct {
+	TicketID    string         `json:"ticket_id,omitempty"`
 	To          string         `json:"to"`
 	Subject     string         `json:"subject"`
-	Template    string         `json:"template"`
-	Data        map[string]any `json:"data"`
+	Template    string         `json:"template,omitempty"`
+	HTMLBody    string         `json:"html_body,omitempty"`
+	Data        map[string]any `json:"data,omitempty"`
 	Attachments []Attachment   `json:"attachments,omitempty"`
 }
 
+// DeliveryCallback is invoked when a ticket email job is either delivered via SMTP or permanently dropped.
+type DeliveryCallback func(ctx context.Context, ticketID string, delivered bool, errMsg string)
+
 // Queue manages RabbitMQ publishing and background consumer goroutines.
 type Queue struct {
-	conn      *amqp.Connection
-	pubCh     *amqp.Channel
-	mailer    *Mailer
-	queueName string
+	broker     amqpqueue.Broker
+	mailer     *Mailer
+	logger     *slog.Logger
+	mu         sync.RWMutex
+	onDelivery DeliveryCallback
+}
+
+// SetDeliveryCallback registers a hook to record ticket email delivery success or permanent failure.
+func (q *Queue) SetDeliveryCallback(cb DeliveryCallback) {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.onDelivery = cb
+}
+
+func (q *Queue) notifyDelivery(ctx context.Context, ticketID string, delivered bool, errMsg string) {
+	if q == nil || ticketID == "" {
+		return
+	}
+	q.mu.RLock()
+	cb := q.onDelivery
+	q.mu.RUnlock()
+	if cb != nil {
+		cb(ctx, ticketID, delivered, errMsg)
+	}
 }
 
 // NewQueue creates and initializes RabbitMQ connection, channel, and declared queue.
@@ -47,64 +76,56 @@ func NewQueue(rabbitURL string, mailer *Mailer) (*Queue, error) {
 		return nil, ErrNilMailer
 	}
 
-	conn, err := amqp.Dial(rabbitURL)
-	if err != nil {
-		return nil, fmt.Errorf("connect to rabbitmq: %w", err)
+	logger := slog.Default().With(slog.String("component", "mailer"))
+	q := &Queue{
+		mailer: mailer,
+		logger: logger,
 	}
 
-	pubCh, err := conn.Channel()
+	broker, err := amqpqueue.NewAMQPBroker(amqpqueue.Config{
+		URL:               rabbitURL,
+		QueueName:         DefaultEmailQueue,
+		ConsumerPrefix:    "mailer-worker",
+		Prefetch:          1,
+		MaxRetries:        maxDeliveryRetries,
+		RetryHeader:       retryCountHeader,
+		PublishTimeout:    5 * time.Second,
+		Logger:            logger,
+		OnTerminalFailure: q.handleTerminalFailure,
+	})
 	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("open rabbitmq channel: %w", err)
+		return nil, fmt.Errorf("init mailer amqp broker: %w", err)
 	}
 
-	// Declare durable queue
-	_, err = pubCh.QueueDeclare(
-		DefaultEmailQueue,
-		true,  // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
-	)
-	if err != nil {
-		_ = pubCh.Close()
-		_ = conn.Close()
-		return nil, fmt.Errorf("declare rabbitmq queue: %w", err)
-	}
+	q.broker = broker
+	return q, nil
+}
 
+// NewQueueWithBroker builds a mailer Queue backed by any amqpqueue.Broker (e.g. MemoryBroker in tests).
+func NewQueueWithBroker(broker amqpqueue.Broker, mailer *Mailer) (*Queue, error) {
+	if mailer == nil {
+		return nil, ErrNilMailer
+	}
 	return &Queue{
-		conn:      conn,
-		pubCh:     pubCh,
-		mailer:    mailer,
-		queueName: DefaultEmailQueue,
+		broker: broker,
+		mailer: mailer,
+		logger: slog.Default().With(slog.String("component", "mailer")),
 	}, nil
 }
 
 // Enqueue publishes an email job to RabbitMQ.
 func (q *Queue) Enqueue(ctx context.Context, job Job) error {
+	if q == nil || q.broker == nil {
+		return amqpqueue.ErrBrokerClosed
+	}
 	payload, err := json.Marshal(job)
 	if err != nil {
 		return fmt.Errorf("marshal email job: %w", err)
 	}
 
-	err = q.pubCh.PublishWithContext(
-		ctx,
-		"",          // exchange (direct to default)
-		q.queueName, // routing key
-		true,        // mandatory
-		false,       // immediate
-		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			ContentType:  "application/json",
-			Timestamp:    time.Now(),
-			Body:         payload,
-		},
-	)
-	if err != nil {
+	if err := q.broker.Publish(ctx, payload); err != nil {
 		return fmt.Errorf("publish email to rabbitmq: %w", err)
 	}
-
 	return nil
 }
 
@@ -124,176 +145,119 @@ func (q *Queue) SendResetPasswordEmail(ctx context.Context, to, name, resetURL s
 
 // SendTicketEmail enqueues an entry pass email whose body shows the QR code (the ticket code itself is never included).
 func (q *Queue) SendTicketEmail(ctx context.Context, to, name, eventName string, qrPNG []byte) error {
-	return q.Enqueue(ctx, Job{
+	return q.SendCustomTicketEmail(ctx, "", to, name, eventName, "", "", qrPNG)
+}
+
+// SendCustomTicketEmail enqueues an entry pass email with an optional custom subject and pre-sanitized HTML body,
+// attaching the QR code PNG as a standard file attachment (not inline).
+func (q *Queue) SendCustomTicketEmail(
+	ctx context.Context,
+	ticketID, to, name, eventName, customSubject, renderedHTML string,
+	qrPNG []byte,
+) error {
+	subject := strings.TrimSpace(customSubject)
+	if subject == "" {
+		subject = fmt.Sprintf("Your entry pass for %s", eventName)
+	}
+
+	job := Job{
+		TicketID: ticketID,
 		To:       to,
-		Subject:  fmt.Sprintf("Your entry pass for %s", eventName),
-		Template: "ticket",
-		Data: map[string]any{
-			"Name":      name,
-			"EventName": eventName,
-		},
+		Subject:  subject,
 		Attachments: []Attachment{
 			{
 				Filename:    "ticket_qr.png",
 				ContentType: "image/png",
 				Data:        qrPNG,
-				Inline:      true,
+				Inline:      false,
 			},
 		},
-	})
+	}
+
+	if strings.TrimSpace(renderedHTML) != "" {
+		job.HTMLBody = renderedHTML
+	} else {
+		job.Template = "ticket"
+		job.Data = map[string]any{
+			"Name":      name,
+			"EventName": eventName,
+		}
+	}
+
+	return q.Enqueue(ctx, job)
 }
 
 // StartConsumers spins up a pool of background goroutines to consume and dispatch email jobs.
 func (q *Queue) StartConsumers(ctx context.Context, workers int) {
-	if workers < 1 {
-		workers = 1
+	if q == nil || q.broker == nil {
+		return
 	}
-	var wg sync.WaitGroup
-
-	for i := 1; i <= workers; i++ {
-		wg.Add(1)
-		workerID := i
-
-		go func() {
-			defer wg.Done()
-
-			// Each worker goroutine maintains its own AMQP channel for thread safety
-			ch, err := q.conn.Channel()
-			if err != nil {
-				log.Printf("[MAILER WORKER %d] Failed to create channel: %v", workerID, err)
-				return
-			}
-			defer ch.Close()
-
-			// Fair dispatch: fetch 1 message at a time
-			if err := ch.Qos(1, 0, false); err != nil {
-				log.Printf("[MAILER WORKER %d] Failed to set QoS: %v", workerID, err)
-				return
-			}
-
-			msgs, err := ch.ConsumeWithContext(
-				ctx,
-				q.queueName,
-				fmt.Sprintf("mailer-worker-%d", workerID),
-				false, // auto-ack disabled for reliable delivery
-				false, // exclusive
-				false, // no-local
-				false, // no-wait
-				nil,
-			)
-			if err != nil {
-				log.Printf("[MAILER WORKER %d] Failed to register consumer: %v", workerID, err)
-				return
-			}
-
-			log.Printf("[MAILER WORKER %d] Ready and listening for email jobs", workerID)
-
-			for {
-				select {
-				case <-ctx.Done():
-					log.Printf("[MAILER WORKER %d] Shutting down", workerID)
-					return
-				case delivery, ok := <-msgs:
-					if !ok {
-						log.Printf("[MAILER WORKER %d] Delivery channel closed", workerID)
-						return
-					}
-
-					var job Job
-					if err := json.Unmarshal(delivery.Body, &job); err != nil {
-						log.Printf("[MAILER WORKER %d] Failed to parse job: %v", workerID, err)
-						_ = delivery.Nack(false, false) // discard malformed message
-						continue
-					}
-
-					sendCtx, sendCancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err := q.mailer.SendWithAttachments(sendCtx, job.To, job.Subject, job.Template, job.Data, job.Attachments)
-					sendCancel()
-
-					if err != nil {
-						log.Printf("[MAILER WORKER %d] Failed to deliver email to %s: %v", workerID, job.To, err)
-						q.handleFailure(ch, delivery, err, workerID)
-					} else {
-						log.Printf("[MAILER WORKER %d] Email delivered successfully to %s (%s)", workerID, job.To, job.Subject)
-						_ = delivery.Ack(false)
-					}
-				}
-			}
-		}()
-	}
-
-	go func() {
-		<-ctx.Done()
-		wg.Wait()
-		log.Println("[MAILER] All consumer goroutines exited cleanly")
-	}()
+	q.broker.StartConsumers(ctx, workers, q.handleDelivery)
 }
 
-// IsHealthy returns true if the RabbitMQ connection is active and not closed.
-func (q *Queue) IsHealthy() bool {
-	return q != nil && q.conn != nil && !q.conn.IsClosed()
-}
+func (q *Queue) handleDelivery(_ context.Context, msg amqpqueue.Delivery) error {
+	var job Job
+	if err := json.Unmarshal(msg.Body, &job); err != nil {
+		return amqpqueue.Permanent(fmt.Errorf("parse email job: %w", err))
+	}
 
-// Close gracefully terminates open channels and connection.
-func (q *Queue) Close() error {
-	var errs []error
-	if q.pubCh != nil {
-		if err := q.pubCh.Close(); err != nil {
-			errs = append(errs, err)
-		}
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	var err error
+	if strings.TrimSpace(job.HTMLBody) != "" {
+		err = q.mailer.SendHTMLWithAttachments(sendCtx, job.To, job.Subject, job.HTMLBody, job.Attachments)
+	} else {
+		err = q.mailer.SendWithAttachments(sendCtx, job.To, job.Subject, job.Template, job.Data, job.Attachments)
 	}
-	if q.conn != nil {
-		if err := q.conn.Close(); err != nil {
-			errs = append(errs, err)
+	sendCancel()
+
+	if err != nil {
+		q.logger.Warn("Failed to deliver email",
+			slog.String("to", job.To),
+			slog.Int("attempt", msg.Attempt),
+			slog.Any("error", err),
+		)
+		if errors.Is(err, ErrTemplateNotFound) || errors.Is(err, ErrHeaderInjection) {
+			return amqpqueue.Permanent(err)
 		}
+		return err
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("close rabbitmq queue: %v", errs)
+
+	q.logger.Info("Email delivered successfully",
+		slog.String("to", job.To),
+		slog.String("subject", job.Subject),
+	)
+	if job.TicketID != "" {
+		cbCtx, cbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		q.notifyDelivery(cbCtx, job.TicketID, true, "")
+		cbCancel()
 	}
 	return nil
 }
 
-// handleFailure retries a failed job a bounded number of times with backoff, then drops it.
-func (q *Queue) handleFailure(ch *amqp.Channel, delivery amqp.Delivery, sendErr error, workerID int) {
-	attempts := 0
-	if v, ok := delivery.Headers[retryCountHeader]; ok {
-		switch n := v.(type) {
-		case int32:
-			attempts = int(n)
-		case int64:
-			attempts = int(n)
-		case int:
-			attempts = n
-		}
-	}
-
-	permanent := errors.Is(sendErr, ErrTemplateNotFound) || errors.Is(sendErr, ErrHeaderInjection)
-	if permanent || attempts >= maxDeliveryRetries {
-		log.Printf("[MAILER WORKER %d] Dropping email job after %d retries (permanent=%t): %v", workerID, attempts, permanent, sendErr)
-		_ = delivery.Nack(false, false)
+func (q *Queue) handleTerminalFailure(ctx context.Context, msg amqpqueue.Delivery, err error, _ bool) {
+	var job Job
+	if unmarshalErr := json.Unmarshal(msg.Body, &job); unmarshalErr != nil || job.TicketID == "" {
 		return
 	}
-
-	// Republish with an incremented counter, then ack the original.
-	headers := amqp.Table{}
-	for k, v := range delivery.Headers {
-		headers[k] = v
-	}
-	headers[retryCountHeader] = int32(attempts + 1)
-
-	time.Sleep(time.Duration(attempts+1) * 2 * time.Second) // linear backoff: 2s, 4s, 6s
-
-	err := ch.PublishWithContext(context.Background(), "", q.queueName, false, false, amqp.Publishing{
-		DeliveryMode: amqp.Persistent,
-		ContentType:  "application/json",
-		Timestamp:    time.Now(),
-		Headers:      headers,
-		Body:         delivery.Body,
-	})
+	errMsg := ""
 	if err != nil {
-		log.Printf("[MAILER WORKER %d] Failed to republish email job, requeueing as-is: %v", workerID, err)
-		_ = delivery.Nack(false, true)
-		return
+		errMsg = err.Error()
 	}
-	_ = delivery.Ack(false)
+	q.notifyDelivery(ctx, job.TicketID, false, errMsg)
+}
+
+// IsHealthy returns true if the RabbitMQ connection is active and not closed.
+func (q *Queue) IsHealthy() bool {
+	return q != nil && q.broker != nil && q.broker.IsHealthy()
+}
+
+// Close gracefully terminates open channels and connection.
+func (q *Queue) Close() error {
+	if q == nil || q.broker == nil {
+		return nil
+	}
+	if err := q.broker.Close(); err != nil && !errors.Is(err, amqpqueue.ErrBrokerClosed) {
+		return fmt.Errorf("close rabbitmq queue: %w", err)
+	}
+	return nil
 }

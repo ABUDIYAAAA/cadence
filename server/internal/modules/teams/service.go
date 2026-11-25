@@ -15,101 +15,99 @@ type Service struct {
 }
 
 func NewService(repo *Repository, auditor audit.Recorder) *Service {
+	if repo != nil && auditor != nil {
+		repo.WithAuditor(auditor)
+	}
 	return &Service{
 		repo:    repo,
 		auditor: auditor,
 	}
 }
 
-// record writes an audit event attributed to the caller in ctx.
-func (s *Service) record(ctx context.Context, action, teamID, description string, metadata map[string]any) {
+func (s *Service) recordAction(ctx context.Context, action, teamID, description string, metadata map[string]any) {
 	if s.auditor == nil {
 		return
 	}
-	var actorID, actorEmail, actorRole *string
-	if claims, _ := auth.GetUserClaims(ctx); claims != nil {
-		actorID = &claims.UserID
-		actorEmail = &claims.Email
-		actorRole = &claims.Role
-	}
-	event := audit.Event{
-		ActorID:     actorID,
-		ActorEmail:  actorEmail,
-		ActorRole:   actorRole,
-		Action:      action,
-		TargetType:  audit.TargetTeam,
-		Description: description,
-		Metadata:    metadata,
-	}
+	var targetID *string
 	if teamID != "" {
-		event.TargetID = &teamID
+		targetID = &teamID
 	}
-	s.auditor.Record(ctx, event)
+	s.auditor.RecordAction(ctx, action, audit.TargetTeam, targetID, description, metadata)
 }
 
 // ---- participant flows ----
 
-func (s *Service) CreateTeam(ctx context.Context, userID string, req CreateTeamRequest) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.CreateTeam(ctx, userID, req.Name)
+func (s *Service) CreateTeam(ctx context.Context, compID, userID string, req CreateTeamRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.CreateTeam(ctx, compID, userID, req.Name)
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamCreate, teamID, fmt.Sprintf("Created team %s", req.Name),
-		map[string]any{"name": req.Name, "leader_id": userID})
+	s.recordAction(ctx, audit.ActionTeamCreate, teamID, fmt.Sprintf("Created team %s", req.Name),
+		map[string]any{"name": req.Name, "leader_id": userID, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) JoinTeam(ctx context.Context, userID string, req JoinTeamRequest) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.JoinByCode(ctx, userID, req.Code)
+func (s *Service) JoinTeam(ctx context.Context, compID, userID string, req JoinTeamRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.JoinByCode(ctx, compID, userID, req.Code)
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamJoin, teamID, fmt.Sprintf("User %s joined team %s", userID, teamID),
-		map[string]any{"user_id": userID})
+	s.recordAction(ctx, audit.ActionTeamJoin, teamID, fmt.Sprintf("User %s joined team %s", userID, teamID),
+		map[string]any{"user_id": userID, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) LeaveTeam(ctx context.Context, userID string) error {
-	teamID, err := s.repo.LeaveTeam(ctx, userID)
+func (s *Service) LeaveTeam(ctx context.Context, compID, userID string) error {
+	teamID, err := s.repo.LeaveTeam(ctx, compID, userID)
 	if err != nil {
 		return err
 	}
-	s.record(ctx, audit.ActionTeamLeave, teamID, fmt.Sprintf("User %s left team %s", userID, teamID),
-		map[string]any{"user_id": userID})
+	s.recordAction(ctx, audit.ActionTeamLeave, teamID, fmt.Sprintf("User %s left team %s", userID, teamID),
+		map[string]any{"user_id": userID, "competition_id": compID})
 	return nil
 }
 
-func (s *Service) RenameOwnTeam(ctx context.Context, userID string, req RenameTeamRequest) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.RenameOwnTeam(ctx, userID, req.Name)
+func (s *Service) RenameOwnTeam(ctx context.Context, compID, userID string, req RenameTeamRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.RenameOwnTeam(ctx, compID, userID, req.Name)
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamUpdate, teamID, fmt.Sprintf("Renamed team to %s", req.Name),
-		map[string]any{"name": req.Name})
+	s.recordAction(ctx, audit.ActionTeamUpdate, teamID, fmt.Sprintf("Renamed team to %s", req.Name),
+		map[string]any{"name": req.Name, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) RegenerateOwnCode(ctx context.Context, userID string) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.RegenerateOwnCode(ctx, userID)
+func (s *Service) RegenerateOwnCode(ctx context.Context, compID, userID string) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.RegenerateOwnCode(ctx, compID, userID)
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamRegenCode, teamID, "Regenerated team join code", nil)
+	s.recordAction(ctx, audit.ActionTeamRegenCode, teamID, "Regenerated team join code", map[string]any{"competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) KickMember(ctx context.Context, leaderID, targetID string) (*TeamDetailResponse, error) {
-	teamID, err := s.repo.KickMember(ctx, leaderID, targetID)
+func (s *Service) KickMember(ctx context.Context, compID, leaderID, targetID string) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.KickMember(ctx, compID, leaderID, targetID)
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamKick, teamID, fmt.Sprintf("Removed member %s from team %s", targetID, teamID),
-		map[string]any{"user_id": targetID})
+	s.recordAction(ctx, audit.ActionTeamKick, teamID, fmt.Sprintf("Removed member %s from team %s", targetID, teamID),
+		map[string]any{"user_id": targetID, "competition_id": compID})
 	return s.repo.GetTeamByID(ctx, teamID)
 }
 
-func (s *Service) GetMyTeam(ctx context.Context, userID string) (*TeamDetailResponse, error) {
-	return s.repo.GetTeamByUserID(ctx, userID)
+func (s *Service) TransferLeadership(ctx context.Context, compID, leaderID string, req TransferLeadershipRequest) (*TeamDetailResponse, error) {
+	teamID, err := s.repo.TransferLeadership(ctx, compID, leaderID, req.NewLeaderID)
+	if err != nil {
+		return nil, err
+	}
+	s.recordAction(ctx, audit.ActionTeamUpdate, teamID, fmt.Sprintf("Transferred team leadership to %s", req.NewLeaderID),
+		map[string]any{"new_leader_id": req.NewLeaderID, "competition_id": compID})
+	return s.repo.GetTeamByID(ctx, teamID)
+}
+
+func (s *Service) GetMyTeam(ctx context.Context, compID, userID string) (*TeamDetailResponse, error) {
+	return s.repo.GetTeamByUserID(ctx, compID, userID)
 }
 
 // ---- reads ----
@@ -178,7 +176,7 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, req UpdateTeamReque
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamUpdate, id, fmt.Sprintf("Updated team %s", team.Name), map[string]any{
+	s.recordAction(ctx, audit.ActionTeamUpdate, id, fmt.Sprintf("Updated team %s", team.Name), map[string]any{
 		"name": req.Name, "leader_id": req.LeaderID, "max_size": req.MaxSize,
 	})
 	return team, nil
@@ -193,25 +191,25 @@ func (s *Service) DeleteTeam(ctx context.Context, id string) error {
 	if team != nil {
 		name = team.Name
 	}
-	s.record(ctx, audit.ActionTeamDelete, id, fmt.Sprintf("Deleted team %s and unassigned members", name), nil)
+	s.recordAction(ctx, audit.ActionTeamDelete, id, fmt.Sprintf("Deleted team %s and unassigned members", name), nil)
 	return nil
 }
 
-func (s *Service) AddMember(ctx context.Context, teamID, userID string) error {
-	if err := s.repo.AddMember(ctx, teamID, userID); err != nil {
+func (s *Service) AddMember(ctx context.Context, compID, teamID, userID string) error {
+	if err := s.repo.AddMember(ctx, compID, teamID, userID); err != nil {
 		return err
 	}
-	s.record(ctx, audit.ActionTeamAddMember, teamID, fmt.Sprintf("Added member %s to team %s", userID, teamID),
-		map[string]any{"user_id": userID, "team_id": teamID})
+	s.recordAction(ctx, audit.ActionTeamAddMember, teamID, fmt.Sprintf("Added member %s to team %s", userID, teamID),
+		map[string]any{"user_id": userID, "team_id": teamID, "competition_id": compID})
 	return nil
 }
 
-func (s *Service) RemoveMember(ctx context.Context, teamID, userID string) error {
-	if err := s.repo.RemoveMember(ctx, teamID, userID); err != nil {
+func (s *Service) RemoveMember(ctx context.Context, compID, teamID, userID string) error {
+	if err := s.repo.RemoveMember(ctx, compID, teamID, userID); err != nil {
 		return err
 	}
-	s.record(ctx, audit.ActionTeamRemoveMember, teamID, fmt.Sprintf("Removed member %s from team %s", userID, teamID),
-		map[string]any{"user_id": userID, "team_id": teamID})
+	s.recordAction(ctx, audit.ActionTeamRemoveMember, teamID, fmt.Sprintf("Removed member %s from team %s", userID, teamID),
+		map[string]any{"user_id": userID, "team_id": teamID, "competition_id": compID})
 	return nil
 }
 
@@ -219,7 +217,7 @@ func (s *Service) RegenerateCode(ctx context.Context, id string) (*TeamDetailRes
 	if err := s.repo.RegenerateCode(ctx, id); err != nil {
 		return nil, err
 	}
-	s.record(ctx, audit.ActionTeamRegenCode, id, "Regenerated team join code", nil)
+	s.recordAction(ctx, audit.ActionTeamRegenCode, id, "Regenerated team join code", nil)
 	return s.repo.GetTeamByID(ctx, id)
 }
 
@@ -231,7 +229,7 @@ func (s *Service) SetFrozen(ctx context.Context, id string, frozen bool) (*TeamD
 	if !frozen {
 		action, verb = audit.ActionTeamUnfreeze, "Unfroze"
 	}
-	s.record(ctx, action, id, fmt.Sprintf("%s team %s", verb, id), nil)
+	s.recordAction(ctx, action, id, fmt.Sprintf("%s team %s", verb, id), nil)
 	return s.repo.GetTeamByID(ctx, id)
 }
 
@@ -247,7 +245,7 @@ func (s *Service) SetFrozenAll(ctx context.Context, frozen bool) (*SettingsRespo
 	if !frozen {
 		action, desc = audit.ActionTeamUnfreezeAll, "Unfroze all teams"
 	}
-	s.record(ctx, action, "", desc, nil)
+	s.recordAction(ctx, action, "", desc, nil)
 	return s.GetSettings(ctx)
 }
 
@@ -260,16 +258,26 @@ func (s *Service) GetSettings(ctx context.Context) (*SettingsResponse, error) {
 }
 
 func (s *Service) UpdateSettings(ctx context.Context, req UpdateSettingsRequest) (*SettingsResponse, error) {
-	if req.MaxTeamSize != nil {
-		actor := ""
-		if claims, _ := auth.GetUserClaims(ctx); claims != nil {
-			actor = claims.UserID
-		}
-		if err := s.repo.SetMaxTeamSize(ctx, *req.MaxTeamSize, actor); err != nil {
+	if req.MinTeamSize != nil || req.MaxTeamSize != nil {
+		if err := s.repo.SetTeamSizeBounds(ctx, req.MinTeamSize, req.MaxTeamSize); err != nil {
 			return nil, err
 		}
-		s.record(ctx, audit.ActionTeamSettings, "", fmt.Sprintf("Set max team size to %d", *req.MaxTeamSize),
-			map[string]any{"max_team_size": *req.MaxTeamSize})
+		meta := map[string]any{}
+		if req.MinTeamSize != nil {
+			meta["min_team_size"] = *req.MinTeamSize
+		}
+		if req.MaxTeamSize != nil {
+			meta["max_team_size"] = *req.MaxTeamSize
+		}
+		desc := "Updated team size bounds"
+		if req.MinTeamSize != nil && req.MaxTeamSize != nil {
+			desc = fmt.Sprintf("Set team size bounds to %d–%d", *req.MinTeamSize, *req.MaxTeamSize)
+		} else if req.MaxTeamSize != nil {
+			desc = fmt.Sprintf("Set max team size to %d", *req.MaxTeamSize)
+		} else if req.MinTeamSize != nil {
+			desc = fmt.Sprintf("Set min team size to %d", *req.MinTeamSize)
+		}
+		s.recordAction(ctx, audit.ActionTeamSettings, "", desc, meta)
 	}
 	return s.GetSettings(ctx)
 }

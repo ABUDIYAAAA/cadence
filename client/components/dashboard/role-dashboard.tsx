@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
+import { useTenant } from "@/providers/tenant-provider";
 import { UserRole } from "@/types/auth";
 import { getDashboardRoute } from "@/lib/auth-routes";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +25,9 @@ export function RoleDashboard({
   children,
 }: RoleDashboardProps) {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, role, isAdmin, isDev, isAuthenticated, isLoading, logout } =
+    useAuth();
+  const { activeEvent, activeCompetition } = useTenant();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
@@ -42,7 +45,7 @@ export function RoleDashboard({
     }
   };
 
-  if (isLoading) {
+  if (isLoading || !isAuthenticated || !user) {
     return (
       <div className="space-y-6">
         <SkeletonCard />
@@ -50,30 +53,27 @@ export function RoleDashboard({
     );
   }
 
-  if (!isAuthenticated || !user) {
-    return (
-      <div className="">
-        <SkeletonCard />
-      </div>
-    );
-  }
-
-  const isRoleMismatch = user.role !== expectedRole;
+  const effectiveRole = role ?? user.role;
+  const isRoleMismatch =
+    expectedRole === "admin"
+      ? !isAdmin
+      : effectiveRole !== expectedRole && !isAdmin;
 
   return (
     <div className="space-y-6 font-sans">
       {isRoleMismatch && (
         <Alert variant="warning" title="Role mismatch">
-          Your account role is{" "}
-          <strong className="capitalize">{user.role}</strong>, but you are viewing
-          the <strong className="capitalize">{expectedRole}</strong> dashboard.
+          Your active event role is{" "}
+          <strong className="capitalize">{effectiveRole}</strong>, but you are
+          viewing the <strong className="capitalize">{expectedRole}</strong>{" "}
+          dashboard.
           <div className="mt-3">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push(getDashboardRoute(user.role))}
+              onClick={() => router.push(getDashboardRoute(effectiveRole))}
             >
-              Go to your dashboard ({user.role})
+              Go to your dashboard ({effectiveRole})
             </Button>
           </div>
         </Alert>
@@ -84,72 +84,78 @@ export function RoleDashboard({
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--card-line)]">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+                {title}
+              </h1>
               <Badge variant="blue" size="sm" className="capitalize">
                 {expectedRole} portal
               </Badge>
-              <span className="text-xs text-[var(--ink-secondary)] font-medium">
-                Signed in
-              </span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
-              {title}
-            </h1>
-            <p className="text-xs text-[var(--ink-secondary)] mt-1">
+            <p className="text-sm text-[var(--ink-secondary)] mt-1">
               {description}
             </p>
           </div>
 
           <Badge variant="subtle" size="sm" className="capitalize">
-            {user.role}
+            {effectiveRole}
           </Badge>
         </div>
 
-        {/* User Account Details Card */}
+        {/* User Details Card */}
         <div className="rounded-[10px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] overflow-hidden bg-[var(--card-solid)]">
           <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
             <span className="text-[var(--ink-secondary)] font-medium">Name</span>
-            <span className="font-semibold text-[var(--ink-primary)]">{user.name}</span>
+            <span className="font-semibold text-[var(--ink-primary)]">
+              {user.name}
+            </span>
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
             <span className="text-[var(--ink-secondary)] font-medium">Email</span>
-            <span className="font-mono text-[var(--ink-primary)]">{user.email}</span>
+            <span className="font-mono text-[var(--ink-primary)]">
+              {user.email}
+            </span>
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
-            <span className="text-[var(--ink-secondary)] font-medium">User ID</span>
-            <span className="font-mono text-[var(--ink-secondary)] break-all">{user.id}</span>
+            <span className="text-[var(--ink-secondary)] font-medium">
+              Active Event
+            </span>
+            <span className="font-semibold text-[var(--ink-primary)]">
+              {activeEvent?.event_name || "None selected"}
+            </span>
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
-            <span className="text-[var(--ink-secondary)] font-medium">Role</span>
-            <span className="capitalize font-medium text-[var(--ink-primary)]">{user.role}</span>
+            <span className="text-[var(--ink-secondary)] font-medium">
+              Active Competition
+            </span>
+            <span className="font-semibold text-[var(--ink-primary)]">
+              {activeCompetition?.name || "None selected"}
+            </span>
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
+            <span className="text-[var(--ink-secondary)] font-medium">
+              Event Role
+            </span>
+            <span className="capitalize font-medium text-[var(--ink-primary)]">
+              {effectiveRole}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
             <span className="text-[var(--ink-secondary)] font-medium">Phone</span>
             <span className="font-mono text-[var(--ink-primary)]">
               {user.phone_number || "—"}
             </span>
           </div>
 
-          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
-            <span className="text-[var(--ink-secondary)] font-medium">Team</span>
-            <span className="font-mono text-[var(--ink-primary)]">
-              {user.team_id ? user.team_id : "Unassigned"}
-            </span>
-          </div>
-
           <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid-subtle)]">
-            <span className="text-[var(--ink-secondary)] font-medium">Password</span>
-            <span className="font-medium text-[var(--ink-primary)]">
-              {user.is_password_configured ? "Configured" : "Pending setup"}
+            <span className="text-[var(--ink-secondary)] font-medium">
+              Created
             </span>
-          </div>
-
-          <div className="flex flex-col sm:flex-row justify-between p-3 text-xs bg-[var(--card-solid)]">
-            <span className="text-[var(--ink-secondary)] font-medium">Created</span>
             <span className="font-mono text-[var(--ink-secondary)]">
               {new Date(user.created_at).toLocaleString()}
             </span>
@@ -158,7 +164,7 @@ export function RoleDashboard({
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-[var(--card-line)]">
           <p className="text-xs text-[var(--ink-secondary)]">
-            Authenticated via secure HTTP-only session cookies.
+            Authenticated via Google OAuth and HTTP-only session cookies.
           </p>
 
           <Button

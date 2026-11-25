@@ -37,10 +37,7 @@ func (h *Handler) HandleCheckIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	resp, duplicateResp, err := h.service.CheckIn(r.Context(), claims.UserID, claims.Email, claims.Role, req.TicketCode, ip, ua)
+	resp, duplicateResp, err := h.service.CheckIn(r.Context(), claims.UserID, claims.Email, req.TicketCode)
 	if err != nil {
 		if errors.Is(err, ErrAlreadyCheckedIn) {
 			utils.JSON(w, http.StatusConflict, duplicateResp)
@@ -59,8 +56,7 @@ func (h *Handler) HandleCheckIn(w http.ResponseWriter, r *http.Request) {
 
 // HandleSendSingle triggers immediate ticket generation & email delivery to a specific user.
 func (h *Handler) HandleSendSingle(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.GetUserClaims(r.Context())
-	if !ok {
+	if _, ok := auth.GetUserClaims(r.Context()); !ok {
 		utils.ErrorJSON(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -71,11 +67,17 @@ func (h *Handler) HandleSendSingle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
+	var req SendSingleTicketRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
 
-	resp, err := h.service.SendSingleTicket(r.Context(), targetUserID, claims.UserID, claims.Email, claims.Role, ip, ua)
+	resp, err := h.service.SendSingleTicket(r.Context(), targetUserID, req)
 	if err != nil {
+		if errors.Is(err, ErrInvalidEmailSubject) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to dispatch ticket: "+err.Error())
 		return
 	}
@@ -97,11 +99,12 @@ func (h *Handler) HandleBulkSend(w http.ResponseWriter, r *http.Request) {
 		req = BulkSendTicketsRequest{}
 	}
 
-	ip := r.RemoteAddr
-	ua := r.UserAgent()
-
-	resp, err := h.service.BulkSendTickets(r.Context(), req, claims.UserID, claims.Email, claims.Role, ip, ua)
+	resp, err := h.service.BulkSendTickets(r.Context(), req, claims.UserID, claims.Email)
 	if err != nil {
+		if errors.Is(err, ErrInvalidDomain) || errors.Is(err, ErrInvalidEmailSubject) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to process bulk tickets: "+err.Error())
 		return
 	}

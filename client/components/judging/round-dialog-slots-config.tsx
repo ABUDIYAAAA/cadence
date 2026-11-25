@@ -5,7 +5,8 @@ import { ConfigureSlotsRequest, RoundSummary } from "@/types/judging";
 import { useTeams } from "@/hooks/use-teams";
 import { useRoundPanels, useRoundTeams, useSetTeamCriterion } from "@/hooks/use-judging";
 import { TeamResponse } from "@/types/teams";
-import { Input } from "@/components/ui/input";
+import { SearchSelect } from "@/components/ui/search-select";
+import { buildSlotAssignments } from "@/lib/judging-utils";
 import { apiErrorMessage } from "@/lib/utils";
 import {
   MarksValue,
@@ -34,9 +35,9 @@ export function RoundSlotsConfigDialog({
   isLoading,
 }: RoundSlotsConfigDialogProps) {
   const [search, setSearch] = useState("");
-  // Every team on Cadence can be added; the API returns at most 100 per request, so search narrows it.
-  const { data: teamsData, isLoading: teamsLoading } = useTeams({
-    limit: 100,
+  // Every team on Cadence can be added; search narrows the top matches.
+  const { data: teamsData, isFetching: teamsFetching } = useTeams({
+    limit: 50,
     search: search.trim() || undefined,
   });
   const { data: roundPanels, isLoading: panelsLoading } = useRoundPanels(
@@ -115,11 +116,7 @@ export function RoundSlotsConfigDialog({
         await setCriterion.mutateAsync({ roundId: round.id, teamId, payload: parsed.payload });
       }
 
-      const slots = slottedTeamIds.map((teamId, index) => ({
-        team_id: teamId,
-        sequence_order: index + 1,
-        submission_links: {},
-      }));
+      const slots = buildSlotAssignments(slottedTeamIds);
 
       await onSubmit(panelId.trim(), { slots, append: true });
       setSlottedTeamIds([]);
@@ -196,43 +193,49 @@ export function RoundSlotsConfigDialog({
           ))}
         </Select>
 
-        {/* Add Team Dropdown */}
+        {/* Add Team Fused Search */}
         <div className="space-y-1.5 pt-1 border-t border-[var(--card-line)]">
           <label className="block text-[10px] uppercase font-bold text-[var(--ink-secondary)]">
             Team to add
           </label>
-          <Input
-            type="search"
-            placeholder="Search all teams by name..."
-            aria-label="Search teams"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            disabled={isLoading}
-          />
-          <Select
-            onChange={(e) => {
-              if (e.target.value) {
-                handleAddTeamToSlots(e.target.value);
-                e.target.value = "";
-              }
-            }}
-            disabled={teamsLoading || isLoading}
-            className="h-8 text-xs font-mono"
-          >
-            <option value="">Choose a team...</option>
-            {availableTeams
-              .filter((t) => !slottedTeamIds.includes(t.id) && !scheduledIds.has(t.id))
-              .map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.member_count} members){isOffRoster(t.id) ? " · not in import" : ""}
-                </option>
-              ))}
-          </Select>
-          <p className="text-[11px] text-[var(--ink-tertiary)]">
-            {matchingTotal > availableTeams.length
-              ? `Showing ${availableTeams.length} of ${matchingTotal} teams. Search to narrow the list.`
-              : `${matchingTotal} ${matchingTotal === 1 ? "team" : "teams"} on Cadence${search.trim() ? " match" : ""}.`}
-          </p>
+          {(() => {
+            const pickableTeams = availableTeams.filter(
+              (t) => !slottedTeamIds.includes(t.id) && !scheduledIds.has(t.id)
+            );
+            return (
+              <SearchSelect
+                ariaLabel="Search teams"
+                placeholder="Search all teams by name..."
+                query={search}
+                onQueryChange={setSearch}
+                isLoading={teamsFetching}
+                loadingMessage="Searching teams..."
+                emptyMessage={
+                  search.trim()
+                    ? "No available teams match search"
+                    : "No unscheduled teams available"
+                }
+                disabled={isLoading}
+                maxVisible={3}
+                totalMatches={
+                  matchingTotal > availableTeams.length
+                    ? matchingTotal
+                    : pickableTeams.length
+                }
+                options={pickableTeams.map((t) => ({
+                  value: t.id,
+                  label: t.name,
+                  description: `${t.member_count} ${t.member_count === 1 ? "member" : "members"}${
+                    isOffRoster(t.id) ? " · not in import" : ""
+                  }`,
+                }))}
+                onSelect={(opt) => {
+                  handleAddTeamToSlots(opt.value);
+                  setSearch("");
+                }}
+              />
+            );
+          })()}
         </div>
 
         {/* Slotted Teams List */}

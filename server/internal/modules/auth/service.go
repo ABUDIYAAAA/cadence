@@ -2,246 +2,250 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/pkg/audit"
+	"devclubxnst.com/cadence/pkg/logger"
 	"devclubxnst.com/cadence/pkg/metrics"
 	"devclubxnst.com/cadence/pkg/utils"
-	"golang.org/x/crypto/bcrypt"
+	"log/slog"
 )
 
 var (
 	ErrInactiveUser        = errors.New("user account is inactive")
-	ErrPasswordNotSet      = errors.New("password has not been configured yet")
 	ErrTokenExpired        = errors.New("token has expired")
-	ErrTokenAlreadyUsed    = errors.New("token has already been used")
 	ErrSessionRevoked      = errors.New("session has been revoked")
 	ErrTokenReplayDetect   = errors.New("token replay detected: session compromised")
 	ErrTokenDeviceMismatch = errors.New("device mismatch: session does not belong to this device")
+	ErrOAuthExchangeFailed = errors.New("failed to exchange authorization code with Google")
+	ErrOAuthProfileFailed  = errors.New("failed to retrieve profile from Google")
 )
 
-type EmailSender interface {
-	SendResetPasswordEmail(ctx context.Context, to, name, resetURL string, expiryHours int) error
-}
-
 type Service struct {
-	repo        *Repository
-	cfg         *config.Config
-	emailSender EmailSender
-	auditor     audit.Recorder
+	repo       *Repository
+	cfg        *config.Config
+	auditor    audit.Recorder
+	httpClient *http.Client
 }
 
-func NewService(repo *Repository, cfg *config.Config, emailSender EmailSender, auditor audit.Recorder) *Service {
+func NewService(repo *Repository, cfg *config.Config, auditor audit.Recorder) *Service {
 	return &Service{
-		repo:        repo,
-		cfg:         cfg,
-		emailSender: emailSender,
-		auditor:     auditor,
+		repo:       repo,
+		cfg:        cfg,
+		auditor:    auditor,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-func (s *Service) Login(ctx context.Context, req LoginRequest, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
+// GetGoogleAuthURL generates the Google OAuth authorization URL with state nonce.
+func (s *Service) GetGoogleAuthURL(state string) string {
+	redirectURI := s.cfg.GetGoogleRedirectURL()
+	params := url.Values{}
+	params.Set("client_id", s.cfg.GoogleClientID)
+	params.Set("redirect_uri", redirectURI)
+	params.Set("response_type", "code")
+	params.Set("scope", "openid profile email")
+	params.Set("state", state)
+	params.Set("access_type", "offline")
+	params.Set("prompt", "select_account")
+
+	return fmt.Sprintf("https://accounts.google.com/o/oauth2/v2/auth?%s", params.Encode())
+}
+
+type googleTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	IDToken     string `json:"id_token"`
+}
+
+type googleUserInfo struct {
+	Sub           string `json:"sub"`
+	Email         string `json:"email"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+	EmailVerified bool   `json:"email_verified"`
+}
+
+// HandleGoogleCallback exchanges code for user profile, upserts user, and establishes session.
+func (s *Service) HandleGoogleCallback(ctx context.Context, code, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
 	sanitizedUA := truncateUserAgent(userAgent)
-	user, err := s.repo.GetUserByEmail(ctx, req.Email)
+
+	// 1. Exchange authorization code for Google access token
+	form := url.Values{}
+	form.Set("code", code)
+	form.Set("client_id", s.cfg.GoogleClientID)
+	form.Set("client_secret", s.cfg.GoogleClientSecret)
+	form.Set("redirect_uri", s.cfg.GetGoogleRedirectURL())
+	form.Set("grant_type", "authorization_code")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://oauth2.googleapis.com/token", strings.NewReader(form.Encode()))
 	if err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, fmt.Sprintf("Failed login: unknown email %s", req.Email), &req.Email, nil, nil, &deviceID, &sanitizedUA, &ip)
-			return nil, "", "", ErrInvalidCredentials
+		return nil, "", "", fmt.Errorf("create token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		metrics.InstrumentAuthEvent("google_login", false)
+		logger.FromContext(ctx).Error("google oauth token exchange failed", slog.Any("error", err))
+		if s.auditor != nil {
+			s.auditor.RecordAction(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, "Failed Google OAuth login: token exchange HTTP error", map[string]any{"error": err.Error()})
 		}
-		return nil, "", "", err
+		return nil, "", "", fmt.Errorf("%w: %v", ErrOAuthExchangeFailed, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		metrics.InstrumentAuthEvent("google_login", false)
+		body, _ := io.ReadAll(resp.Body)
+		logger.FromContext(ctx).Warn("google oauth token exchange non-200 status", slog.Int("status", resp.StatusCode))
+		if s.auditor != nil {
+			s.auditor.RecordAction(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, nil, fmt.Sprintf("Failed Google OAuth login: token endpoint returned status %d", resp.StatusCode), map[string]any{"status": resp.StatusCode})
+		}
+		return nil, "", "", fmt.Errorf("%w: google returned status %d (%s)", ErrOAuthExchangeFailed, resp.StatusCode, string(body))
+	}
+
+	var tokenResp googleTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, "", "", fmt.Errorf("decode token response: %w", err)
+	}
+
+	// 2. Fetch user profile with the access token
+	profileReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.googleapis.com/oauth2/v3/userinfo", nil)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("create profile request: %w", err)
+	}
+	profileReq.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
+
+	profileResp, err := s.httpClient.Do(profileReq)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%w: %v", ErrOAuthProfileFailed, err)
+	}
+	defer profileResp.Body.Close()
+
+	if profileResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(profileResp.Body)
+		return nil, "", "", fmt.Errorf("%w: status %d (%s)", ErrOAuthProfileFailed, profileResp.StatusCode, string(body))
+	}
+
+	var gUser googleUserInfo
+	if err := json.NewDecoder(profileResp.Body).Decode(&gUser); err != nil {
+		return nil, "", "", fmt.Errorf("decode profile response: %w", err)
+	}
+
+	cleanEmail := strings.ToLower(strings.TrimSpace(gUser.Email))
+	if cleanEmail == "" {
+		return nil, "", "", errors.New("google account has no email address")
+	}
+
+	// Determine default role: seed admin email receives dev superuser role
+	defaultRole := RoleUser
+	if s.cfg.SeedAdminEmail != "" && strings.EqualFold(cleanEmail, s.cfg.SeedAdminEmail) {
+		defaultRole = RoleDev
+	}
+
+	var pic *string
+	if gUser.Picture != "" {
+		pic = &gUser.Picture
+	}
+
+	// 3. Upsert user in database
+	user, err := s.repo.UpsertGoogleUser(ctx, gUser.Sub, cleanEmail, gUser.Name, pic, defaultRole)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("upsert user: %w", err)
 	}
 
 	if !user.IsActive {
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: account %s is deactivated", req.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
+		if s.auditor != nil {
+			s.auditor.Record(ctx, audit.Event{
+				ActorID:     &user.ID,
+				ActorEmail:  &user.Email,
+				Action:      audit.ActionAuthLoginFailure,
+				TargetType:  audit.TargetAuth,
+				TargetID:    &user.ID,
+				Description: fmt.Sprintf("Failed login: account %s is deactivated", user.Email),
+			})
+		}
 		return nil, "", "", ErrInactiveUser
-	}
-
-	if !user.IsPasswordConfigured || user.PasswordHash == nil {
-		return nil, "", "", ErrPasswordNotSet
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
-		metrics.InstrumentAuthEvent("login", false)
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetAuth, &user.ID, fmt.Sprintf("Failed login: invalid password for %s", req.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
-		return nil, "", "", ErrInvalidCredentials
 	}
 
 	// Deduplicate active sessions on this specific device
 	_ = s.repo.RevokeDeviceSessions(ctx, user.ID, deviceID)
 
+	// 4. Create session & JWT
 	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, sanitizedUA, ip)
 	if err != nil {
-		metrics.InstrumentAuthEvent("login", false)
+		metrics.InstrumentAuthEvent("google_login", false)
 		return nil, "", "", err
 	}
 
-	metrics.InstrumentAuthEvent("login", true)
-	s.recordAudit(ctx, audit.ActionAuthLoginSuccess, audit.TargetAuth, &user.ID, fmt.Sprintf("User %s logged in successfully", user.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
+	evs, _ := s.repo.GetUserEvents(ctx, user.ID)
 
-	return toUserResponse(user), accessToken, refreshToken, nil
-}
-
-func (s *Service) SetupPassword(ctx context.Context, req SetupPasswordRequest, deviceID, userAgent, ip string) (*UserResponse, string, string, error) {
-	sanitizedUA := truncateUserAgent(userAgent)
-	tokenHash := utils.HashToken(req.Token)
-	resetToken, err := s.repo.GetResetTokenByHash(ctx, tokenHash, "initial_setup")
-	if err != nil {
-		return nil, "", "", ErrTokenNotFound
+	metrics.InstrumentAuthEvent("google_login", true)
+	if s.auditor != nil {
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     &user.ID,
+			ActorEmail:  &user.Email,
+			ActorRole:   &user.Role,
+			Action:      audit.ActionAuthLoginSuccess,
+			TargetType:  audit.TargetAuth,
+			TargetID:    &user.ID,
+			Description: fmt.Sprintf("User %s authenticated via Google OAuth", user.Email),
+		})
 	}
 
-	if resetToken.UsedAt != nil {
-		return nil, "", "", ErrTokenAlreadyUsed
-	}
-
-	if time.Now().After(resetToken.ExpiresAt) {
-		return nil, "", "", ErrTokenExpired
-	}
-
-	user, err := s.repo.GetUserByID(ctx, resetToken.UserID)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	if !user.IsActive {
-		return nil, "", "", ErrInactiveUser
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("hash password: %w", err)
-	}
-
-	if err := s.repo.UpdatePassword(ctx, user.ID, string(hash)); err != nil {
-		return nil, "", "", err
-	}
-
-	if err := s.repo.MarkResetTokenUsed(ctx, resetToken.ID); err != nil {
-		return nil, "", "", err
-	}
-
-	user.IsPasswordConfigured = true
-	user.TokenVersion++
-
-	accessToken, refreshToken, err := s.createSession(ctx, user, deviceID, nil, nil, sanitizedUA, ip)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	s.recordAudit(ctx, audit.ActionAuthPasswordSetup, audit.TargetUser, &user.ID, fmt.Sprintf("User %s configured their initial password", user.Email), &user.Email, &user.Role, nil, &deviceID, &sanitizedUA, &ip)
-
-	return toUserResponse(user), accessToken, refreshToken, nil
-}
-
-func (s *Service) ForgotPassword(ctx context.Context, email, deviceID, userAgent, ip string) (string, error) {
-	sanitizedUA := truncateUserAgent(userAgent)
-	user, err := s.repo.GetUserByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			// The caller still gets the generic response (no enumeration); the audit trail records the attempt.
-			s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetAuth, nil, fmt.Sprintf("Password reset requested for unknown email %s", email), &email, nil, map[string]any{"account_found": false}, &deviceID, &sanitizedUA, &ip)
-			return "", nil
-		}
-		return "", err
-	}
-
-	if !user.IsActive {
-		s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset requested for deactivated account %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": false}, &deviceID, &sanitizedUA, &ip)
-		return "", nil
-	}
-
-	rawToken, err := utils.GenerateRandomToken(32)
-	if err != nil {
-		return "", err
-	}
-
-	token := &ResetToken{
-		UserID:    user.ID,
-		TokenHash: utils.HashToken(rawToken),
-		Purpose:   "forgot_password",
-		ExpiresAt: time.Now().Add(1 * time.Hour),
-	}
-
-	if err := s.repo.CreateResetToken(ctx, token); err != nil {
-		return "", err
-	}
-
-	if s.emailSender != nil {
-		resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s", s.cfg.FrontendURL, rawToken)
-		_ = s.emailSender.SendResetPasswordEmail(ctx, user.Email, user.Name, resetURL, 1)
-	}
-
-	s.recordAudit(ctx, audit.ActionAuthPasswordForgot, audit.TargetUser, &user.ID, fmt.Sprintf("Password reset link requested for %s", user.Email), &user.Email, &user.Role, map[string]any{"account_found": true, "active": true}, &deviceID, &sanitizedUA, &ip)
-
-	return rawToken, nil
-}
-
-func (s *Service) ResetPassword(ctx context.Context, req ResetPasswordRequest) error {
-	tokenHash := utils.HashToken(req.Token)
-	resetToken, err := s.repo.GetResetTokenByHash(ctx, tokenHash, "forgot_password")
-	if err != nil {
-		return ErrTokenNotFound
-	}
-
-	if resetToken.UsedAt != nil {
-		return ErrTokenAlreadyUsed
-	}
-
-	if time.Now().After(resetToken.ExpiresAt) {
-		return ErrTokenExpired
-	}
-
-	user, err := s.repo.GetUserByID(ctx, resetToken.UserID)
-	if err != nil {
-		return err
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
-	}
-
-	if err := s.repo.UpdatePassword(ctx, user.ID, string(hash)); err != nil {
-		return err
-	}
-
-	if err := s.repo.MarkResetTokenUsed(ctx, resetToken.ID); err != nil {
-		return err
-	}
-
-	// Invalidate all existing refresh sessions for instant logout on password change
-	_ = s.repo.RevokeAllUserTokens(ctx, user.ID)
-
-	s.recordAudit(ctx, audit.ActionAuthPasswordReset, audit.TargetUser, &user.ID, fmt.Sprintf("User %s reset their password", user.Email), &user.Email, &user.Role, nil, nil, nil, nil)
-
-	return nil
+	return toUserResponse(user, evs), accessToken, refreshToken, nil
 }
 
 func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, userAgent, ip string) (string, string, error) {
 	tokenHash := utils.HashToken(rawRefreshToken)
+
 	session, err := s.repo.GetRefreshTokenByHash(ctx, tokenHash)
 	if err != nil {
+		metrics.InstrumentAuthEvent("refresh", false)
 		return "", "", ErrTokenNotFound
 	}
 
-	// Anti-Hijacking check: verify token is being refreshed from the same signed device that received it
-	if session.DeviceID != deviceID {
+	if session.DeviceID != "" && session.DeviceID != deviceID {
 		metrics.InstrumentAuthEvent("refresh", false)
-		metrics.InstrumentSecurityThreat("device_mismatch")
+		metrics.InstrumentSecurityThreat("device_hijack")
 		_ = s.repo.RevokeAllUserTokens(ctx, session.UserID)
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetSession, &session.UserID, "Session hijack detected: refresh token replayed from different device", nil, nil, map[string]any{"session_id": session.ID, "expected_device": session.DeviceID, "actual_device": deviceID}, &deviceID, &userAgent, &ip)
+		if s.auditor != nil {
+			s.auditor.Record(ctx, audit.Event{
+				ActorID:     &session.UserID,
+				Action:      audit.ActionAuthLoginFailure,
+				TargetType:  audit.TargetSession,
+				TargetID:    &session.UserID,
+				Description: "Device mismatch: refresh token used from unrecognized device",
+				Metadata:    map[string]any{"expected_device": session.DeviceID, "actual_device": deviceID},
+			})
+		}
 		return "", "", ErrTokenDeviceMismatch
 	}
 
-	// Replay attack detection: if token is already revoked, compromise detected
 	if session.IsRevoked {
 		metrics.InstrumentAuthEvent("refresh", false)
 		metrics.InstrumentSecurityThreat("token_replay")
 		_ = s.repo.RevokeAllUserTokens(ctx, session.UserID)
-		s.recordAudit(ctx, audit.ActionAuthLoginFailure, audit.TargetSession, &session.UserID, "Token replay detected: revoked refresh token used again", nil, nil, map[string]any{"session_id": session.ID}, &deviceID, &userAgent, &ip)
+		if s.auditor != nil {
+			s.auditor.Record(ctx, audit.Event{
+				ActorID:     &session.UserID,
+				Action:      audit.ActionAuthLoginFailure,
+				TargetType:  audit.TargetSession,
+				TargetID:    &session.UserID,
+				Description: "Token replay detected: revoked refresh token used again",
+				Metadata:    map[string]any{"session_id": session.ID},
+			})
+		}
 		return "", "", ErrTokenReplayDetect
 	}
 
@@ -283,9 +287,14 @@ func (s *Service) RefreshToken(ctx context.Context, rawRefreshToken, deviceID, u
 func (s *Service) Logout(ctx context.Context, rawRefreshToken string) error {
 	tokenHash := utils.HashToken(rawRefreshToken)
 	session, _ := s.repo.GetRefreshTokenByHash(ctx, tokenHash)
-	if session != nil {
-		metrics.InstrumentAuthEvent("logout", true)
-		s.recordAudit(ctx, audit.ActionAuthLogout, audit.TargetSession, &session.UserID, "User logged out session", nil, nil, map[string]any{"session_id": session.ID}, &session.DeviceID, session.UserAgent, session.IPAddress)
+	if session != nil && s.auditor != nil {
+		s.auditor.Record(ctx, audit.Event{
+			ActorID:     &session.UserID,
+			Action:      audit.ActionAuthLogout,
+			TargetType:  audit.TargetSession,
+			TargetID:    &session.UserID,
+			Description: "User logged out",
+		})
 	}
 	return s.repo.RevokeRefreshToken(ctx, tokenHash)
 }
@@ -295,7 +304,8 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*UserResponse, erro
 	if err != nil {
 		return nil, err
 	}
-	return toUserResponse(user), nil
+	evs, _ := s.repo.GetUserEvents(ctx, userID)
+	return toUserResponse(user, evs), nil
 }
 
 func (s *Service) createSession(ctx context.Context, user *User, deviceID string, familyID *string, parentID *string, userAgent, ip string) (string, string, error) {
@@ -336,51 +346,33 @@ func (s *Service) createSession(ctx context.Context, user *User, deviceID string
 	return accessToken, rawRefreshToken, nil
 }
 
-func (s *Service) recordAudit(
-	ctx context.Context,
-	action, targetType string,
-	targetID *string,
-	description string,
-	actorEmail, actorRole *string,
-	metadata map[string]any,
-	deviceID, userAgent, ip *string,
-) {
-	if s.auditor == nil {
-		return
+func toUserResponse(u *User, evs []UserEventRole) *UserResponse {
+	role := u.Role
+	if role != RoleDev && len(evs) > 0 {
+		role = evs[0].Role
 	}
-	s.auditor.Record(ctx, audit.Event{
-		ActorID:     targetID,
-		ActorEmail:  actorEmail,
-		ActorRole:   actorRole,
-		Action:      action,
-		TargetType:  targetType,
-		TargetID:    targetID,
-		Description: description,
-		Metadata:    metadata,
-		DeviceID:    deviceID,
-		UserAgent:   userAgent,
-		IPAddress:   ip,
-	})
-}
+	if evs == nil {
+		evs = make([]UserEventRole, 0)
+	}
 
-func toUserResponse(u *User) *UserResponse {
 	return &UserResponse{
-		ID:                   u.ID,
-		Email:                u.Email,
-		Name:                 u.Name,
-		PhoneNumber:          u.PhoneNumber,
-		Role:                 u.Role,
-		TeamID:               u.TeamID,
-		IsPasswordConfigured: u.IsPasswordConfigured,
-		CreatedAt:            u.CreatedAt,
+		ID:          u.ID,
+		Email:       u.Email,
+		Name:        u.Name,
+		PhoneNumber: u.PhoneNumber,
+		GoogleID:    u.GoogleID,
+		AvatarURL:   u.AvatarURL,
+		Role:        role,
+		Events:      evs,
+		CreatedAt:   u.CreatedAt,
 	}
 }
 
 func truncateUserAgent(ua string) string {
 	const maxUALen = 512
 	cleaned := strings.ReplaceAll(ua, "\x00", "")
-	if len(cleaned) <= maxUALen {
-		return cleaned
+	if len(cleaned) > maxUALen {
+		return cleaned[:maxUALen]
 	}
-	return cleaned[:maxUALen]
+	return cleaned
 }

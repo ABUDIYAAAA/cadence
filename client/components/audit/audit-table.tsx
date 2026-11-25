@@ -3,6 +3,7 @@
 import React from "react";
 import { Eye, Globe, Smartphone } from "lucide-react";
 import { AuditLogResponse } from "@/types/audit";
+import { getAuditActionBadgeVariant } from "@/lib/audit-registry";
 import {
   Table,
   TableBody,
@@ -25,18 +26,50 @@ interface AuditTableProps {
 export function AuditTable({ logs, isLoading, onView }: AuditTableProps) {
   if (isLoading) {
     return (
-      <div className="space-y-3 font-sans">
-        <div className="space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="flex items-center space-x-4 py-2">
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/6" />
-            </div>
-          ))}
-        </div>
+      <div className="w-full overflow-x-auto font-sans">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Timestamp</TableHead>
+              <TableHead>Action</TableHead>
+              <TableHead>Actor</TableHead>
+              <TableHead>Target</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Client / IP</TableHead>
+              <TableHead className="text-right">Inspect</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <TableRow key={i}>
+                <TableCell>
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3.5 w-28" />
+                    <Skeleton className="h-2.5 w-16" />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-32" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-20" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-48" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-24" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Skeleton className="h-7 w-7 rounded-[6px] ml-auto" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     );
   }
@@ -44,21 +77,11 @@ export function AuditTable({ logs, isLoading, onView }: AuditTableProps) {
   if (logs.length === 0) {
     return (
       <EmptyState
-        title="No Audit Records Found"
-        description="No audit logs matched your query parameters. Adjust filters or date boundaries to expand results."
+        title="No audit records found"
+        description="No audit logs matched your current filters. Adjust filters or date boundaries to expand results."
       />
     );
   }
-
-  const getActionBadgeVariant = (action: string) => {
-    if (action.includes("delete") || action.includes("failure") || action.includes("failed") || action.includes("duplicate") || action.includes("rejected")) {
-      return "coral";
-    }
-    if (action.includes("create") || action.includes("success") || action.includes("activate")) {
-      return "blue";
-    }
-    return "subtle";
-  };
 
   return (
     <div className="w-full overflow-x-auto font-sans">
@@ -95,7 +118,7 @@ export function AuditTable({ logs, isLoading, onView }: AuditTableProps) {
 
                 {/* Action */}
                 <TableCell className="whitespace-nowrap">
-                  <Badge variant={getActionBadgeVariant(log.action)} size="sm">
+                  <Badge variant={getAuditActionBadgeVariant(log.action)} size="sm">
                     {log.action}
                   </Badge>
                 </TableCell>

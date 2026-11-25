@@ -1,0 +1,38 @@
+import type { EventRole } from "./auth";
+
+export interface Competition {
+  id: string;
+  event_id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  min_team_size: number;
+  max_team_size: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompetitionResponse extends Competition {
+  my_role?: EventRole | null;
+}
+
+export interface CompetitionListResponse {
+  competitions: Competition[];
+  total: number;
+}
+
+export interface CreateCompetitionRequest {
+  slug: string;
+  name: string;
+  description?: string;
+  min_team_size: number;
+  max_team_size: number;
+}
+
+export interface UpdateCompetitionRequest {
+  slug?: string;
+  name?: string;
+  description?: string;
+  min_team_size?: number;
+  max_team_size?: number;
+}

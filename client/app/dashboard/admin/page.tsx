@@ -21,7 +21,7 @@ import { useUsers } from "@/hooks/use-users";
 import { useTeams } from "@/hooks/use-teams";
 import { useJudgingRounds, useAdminLeaderboard } from "@/hooks/use-judging";
 import { useAuditLogs } from "@/hooks/use-audit";
-import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { DashboardOverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 
 const timeAgo = (iso: string) => {
@@ -96,14 +96,13 @@ function Stat({
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { user, role, isAdmin, isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) router.replace("/login");
-    else if (user.role !== "admin") router.replace(getDashboardRoute(user.role));
-  }, [isLoading, isAuthenticated, user, router]);
+    else if (!isAdmin) router.replace(getDashboardRoute(role ?? user.role));
+  }, [isLoading, isAuthenticated, user, isAdmin, role, router]);
 
   const analytics = useTicketAnalytics();
   const users = useUsers({ page: 1, limit: 1 });
@@ -115,7 +114,7 @@ export default function AdminDashboardPage() {
   const standings = useAdminLeaderboard(liveRoundId);
 
   if (isLoading || !isAdmin) {
-    return <SkeletonCard />;
+    return <DashboardOverviewSkeleton />;
   }
 
   const a = analytics.data;
@@ -187,16 +186,24 @@ export default function AdminDashboardPage() {
           <dl className="grid grid-cols-3 gap-6 text-sm">
             <div>
               <dt className="text-xs text-[var(--ink-secondary)]">Attendance</dt>
-              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)]">{rate}%</dd>
+              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-0.5">
+                {analytics.isLoading ? <Skeleton className="h-6 w-12" /> : `${rate}%`}
+              </dd>
             </div>
             <div>
               <dt className="text-xs text-[var(--ink-secondary)]">Yet to arrive</dt>
-              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)]">{remaining}</dd>
+              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-0.5">
+                {analytics.isLoading ? <Skeleton className="h-6 w-10" /> : remaining}
+              </dd>
             </div>
             <div>
               <dt className="text-xs text-[var(--ink-secondary)]">Teams incomplete</dt>
-              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)]">
-                {(a?.team_completeness || []).filter((t) => t.status !== "complete").length}
+              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-0.5">
+                {analytics.isLoading ? (
+                  <Skeleton className="h-6 w-10" />
+                ) : (
+                  (a?.team_completeness || []).filter((t) => t.status !== "complete").length
+                )}
               </dd>
             </div>
           </dl>
@@ -219,16 +226,16 @@ export default function AdminDashboardPage() {
 
       {/* Totals */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Users" value={users.data?.total_count ?? "—"} note="Manage accounts" href="/dashboard/users" icon={Users} />
-        <Stat label="Teams" value={teams.data?.total_count ?? "—"} note="View rosters" href="/dashboard/teams" icon={Layers} />
+        <Stat label="Users" value={users.isLoading ? <Skeleton className="h-7 w-14" /> : users.data?.total_count ?? "—"} note="Manage accounts" href="/dashboard/users" icon={Users} />
+        <Stat label="Teams" value={teams.isLoading ? <Skeleton className="h-7 w-14" /> : teams.data?.total_count ?? "—"} note="View rosters" href="/dashboard/teams" icon={Layers} />
         <Stat
           label="Judging rounds"
-          value={roundList.length || "—"}
+          value={rounds.isLoading ? <Skeleton className="h-7 w-14" /> : roundList.length}
           note={activeRound ? `Live: ${activeRound.name}` : draftCount ? `${draftCount} in draft` : "None active"}
           href="/dashboard/judging"
           icon={Award}
         />
-        <Stat label="Audit events" value={audit.data?.total_count ?? "—"} note="Full trail" href="/dashboard/audit" icon={FileText} />
+        <Stat label="Audit events" value={audit.isLoading ? <Skeleton className="h-7 w-14" /> : audit.data?.total_count ?? "—"} note="Full trail" href="/dashboard/audit" icon={FileText} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
@@ -260,11 +267,17 @@ export default function AdminDashboardPage() {
           {/* Recent activity */}
           <Panel title="Recent activity" action={{ label: "All events", href: "/dashboard/audit" }}>
             {audit.isLoading ? (
-              <div className="space-y-3">
+              <ul className="divide-y divide-[var(--card-line)] -my-1">
                 {[0, 1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-9 w-full" />
+                  <li key={i} className="flex items-start justify-between gap-4 py-2.5">
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <Skeleton className="h-3.5 w-3/5" />
+                      <Skeleton className="h-3 w-2/5" />
+                    </div>
+                    <Skeleton className="h-3 w-10 shrink-0 mt-0.5" />
+                  </li>
                 ))}
-              </div>
+              </ul>
             ) : (audit.data?.data || []).length === 0 ? (
               <p className="py-4 text-sm text-[var(--ink-secondary)]">Nothing has happened yet.</p>
             ) : (

@@ -7,17 +7,11 @@ import {
   Award,
   Layers,
   ArrowRight,
-  Clock,
   CheckCircle2,
-  Lock,
-  DoorOpen,
-  Play,
-  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { getDashboardRoute } from "@/lib/auth-routes";
 import { useJudgePanels } from "@/hooks/use-judging";
-import { useTeams } from "@/hooks/use-teams";
 import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -25,22 +19,20 @@ import { MetricGrid, Metric } from "@/components/judging/section-shell";
 
 export default function JudgeDashboardPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const isJudge = user?.role === "judge" || user?.role === "admin";
+  const { user, role, isAdmin, isJudge: hasJudgeRole, isAuthenticated, isLoading } = useAuth();
+  const isJudge = hasJudgeRole || isAdmin;
 
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) {
       router.replace("/login");
-    } else if (user.role !== "judge" && user.role !== "admin") {
-      router.replace(getDashboardRoute(user.role));
+    } else if (!isJudge) {
+      router.replace(getDashboardRoute(role ?? user.role));
     }
-  }, [isLoading, isAuthenticated, user, router]);
+  }, [isLoading, isAuthenticated, user, isJudge, role, router]);
 
   const { data: rawPanels, isLoading: panelsLoading } = useJudgePanels();
   const panels = Array.isArray(rawPanels) ? rawPanels : [];
-
-  const { data: teamsData, isLoading: teamsLoading } = useTeams({ page: 1, limit: 1 });
 
   if (isLoading || !isJudge) {
     return <SkeletonCard />;
@@ -203,7 +195,6 @@ export default function JudgeDashboardPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {panels.map((panel) => {
-              const panelDone = panel.total_slots > 0 && panel.completed_slots === panel.total_slots;
               const pct = panel.total_slots > 0 ? Math.round((panel.completed_slots / panel.total_slots) * 100) : 0;
 
               return (

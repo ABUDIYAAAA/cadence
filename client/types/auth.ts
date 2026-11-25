@@ -1,35 +1,28 @@
-export type UserRole = "admin" | "judge" | "volunteer" | "participant";
+export type EventRole = "owner" | "admin" | "judge" | "volunteer" | "participant";
+
+export type AssignableEventRole = "admin" | "judge" | "volunteer" | "participant";
+
+export type UserRole = "dev" | "user" | EventRole;
+
+export interface UserEventRole {
+  event_id: string;
+  event_slug: string;
+  event_name: string;
+  logo_url?: string | null;
+  member_count?: number;
+  role: EventRole;
+}
 
 export interface UserResponse {
   id: string;
   email: string;
   name: string;
   phone_number?: string | null;
+  google_id?: string | null;
+  avatar_url?: string | null;
   role: UserRole;
-  team_id?: string | null;
-  is_password_configured: boolean;
+  events?: UserEventRole[];
   created_at: string;
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface SetupPasswordRequest {
-  token: string;
-  password: string;
-  confirm_password: string;
-}
-
-export interface ForgotPasswordRequest {
-  email: string;
-}
-
-export interface ResetPasswordRequest {
-  token: string;
-  password: string;
-  confirm_password: string;
 }
 
 export interface AuthResponse {

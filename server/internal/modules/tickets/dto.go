@@ -20,11 +20,13 @@ type AttendeeDetails struct {
 
 // CheckInResponse returned on successful first-time check-in.
 type CheckInResponse struct {
-	Success     bool            `json:"success"`
-	Message     string          `json:"message"`
-	TicketCode  string          `json:"ticket_code"`
-	CheckedInAt string          `json:"checked_in_at"`
-	Attendee    AttendeeDetails `json:"attendee"`
+	Success          bool            `json:"success"`
+	Message          string          `json:"message"`
+	TicketCode       string          `json:"ticket_code"`
+	CheckedInAt      string          `json:"checked_in_at"`
+	CheckedInByID    string          `json:"checked_in_by_id,omitempty"`
+	CheckedInByEmail string          `json:"checked_in_by_email,omitempty"`
+	Attendee         AttendeeDetails `json:"attendee"`
 }
 
 // DuplicateCheckInResponse returned with HTTP 409 Conflict when a ticket was already used.
@@ -36,36 +38,67 @@ type DuplicateCheckInResponse struct {
 	Attendee        AttendeeDetails `json:"attendee"`
 }
 
+// SendSingleTicketRequest optionally overrides email subject and sanitized HTML body for a single user ticket send.
+type SendSingleTicketRequest struct {
+	EmailSubject *string `json:"email_subject,omitempty"`
+	EmailHTML    *string `json:"email_html,omitempty"`
+	ForceResend  bool    `json:"force_resend"`
+}
+
 // BulkSendTicketsRequest filters recipients for asynchronous ticket distribution.
 type BulkSendTicketsRequest struct {
 	UserIDs       []string `json:"user_ids"`
 	TeamID        *string  `json:"team_id"`
 	Role          *string  `json:"role"`
 	SkipCheckedIn bool     `json:"skip_checked_in"`
-	// ExcludeDomains lists email domains that must not receive a ticket email.
+	// ExcludeDomains lists email domains (e.g. "@nst.rishihood.edu.in" or "nst.rishihood.edu.in")
+	// that must not receive a ticket email (merged with event settings).
 	ExcludeDomains []string `json:"exclude_domains"`
+	// EmailSubject optionally overrides the event's configured ticket email subject.
+	EmailSubject *string `json:"email_subject,omitempty"`
+	// EmailHTML optionally overrides the event's configured ticket email HTML body (sanitized before sending).
+	EmailHTML *string `json:"email_html,omitempty"`
+	// ForceResend re-emails users even if their ticket email_status is already 'sent' or 'queued'.
+	ForceResend bool `json:"force_resend"`
 }
 
-// BulkSendTicketsResponse summary of enqueued ticket jobs.
+// BulkSendTicketsResponse summary of enqueued ticket jobs and deduplication tracking.
 type BulkSendTicketsResponse struct {
 	TotalProcessed int `json:"total_processed"`
 	Enqueued       int `json:"enqueued"`
+	AlreadyMailed  int `json:"already_mailed"`
+	ExcludedDomain int `json:"excluded_domain"`
 	Skipped        int `json:"skipped"`
 }
 
 // SingleSendTicketResponse returned when single user ticket is dispatched.
 type SingleSendTicketResponse struct {
-	Message    string `json:"message"`
-	UserID     string `json:"user_id"`
-	TicketCode string `json:"ticket_code"`
+	Message     string `json:"message"`
+	UserID      string `json:"user_id"`
+	TicketCode  string `json:"ticket_code"`
+	EmailStatus string `json:"email_status"`
 }
 
-// MyTicketResponse returned to authenticated participants viewing their own entry pass.
+// AttendedSessionSummary represents a scan session (check-in or attendance event) the participant has been recorded in.
+type AttendedSessionSummary struct {
+	SessionID     string  `json:"session_id"`
+	SessionName   string  `json:"session_name"`
+	Kind          string  `json:"kind"`
+	ScannedAt     string  `json:"scanned_at"`
+	ScannedByID   *string `json:"scanned_by_id,omitempty"`
+	ScannedByName *string `json:"scanned_by_name,omitempty"`
+}
+
+// MyTicketResponse returned to authenticated participants viewing their own entry pass and attended scan events.
 type MyTicketResponse struct {
-	TicketCode   string     `json:"ticket_code"`
-	IsCheckedIn  bool       `json:"is_checked_in"`
-	CheckedInAt  *time.Time `json:"checked_in_at,omitempty"`
-	QRCodeBase64 string     `json:"qr_code_base64"`
+	TicketCode       string                   `json:"ticket_code"`
+	IsCheckedIn      bool                     `json:"is_checked_in"`
+	CheckedInAt      *time.Time               `json:"checked_in_at,omitempty"`
+	EmailStatus      string                   `json:"email_status,omitempty"`
+	EmailSentAt      *time.Time               `json:"email_sent_at,omitempty"`
+	ReleasedAt       *time.Time               `json:"released_at,omitempty"`
+	QRCodeBase64     string                   `json:"qr_code_base64"`
+	AttendedSessions []AttendedSessionSummary `json:"attended_sessions"`
 }
 
 // HourlyArrival represents aggregated check-ins per hour.
@@ -83,11 +116,15 @@ type TeamCompletenessSummary struct {
 	Status           string `json:"status"` // "complete", "partial", "absent"
 }
 
-// AnalyticsResponse aggregates live attendance metrics.
+// AnalyticsResponse aggregates live attendance and email delivery metrics.
 type AnalyticsResponse struct {
-	TotalIssued      int                       `json:"total_issued"`
-	CheckedInCount   int                       `json:"checked_in_count"`
-	AttendanceRate   float64                   `json:"attendance_rate"`
-	HourlyArrivals   []HourlyArrival           `json:"hourly_arrivals"`
-	TeamCompleteness []TeamCompletenessSummary `json:"team_completeness"`
+	TotalIssued             int                       `json:"total_issued"`
+	CheckedInCount          int                       `json:"checked_in_count"`
+	AttendanceRate          float64                   `json:"attendance_rate"`
+	EmailSentCount          int                       `json:"email_sent_count"`
+	EmailQueuedCount        int                       `json:"email_queued_count"`
+	EmailFailedCount        int                       `json:"email_failed_count"`
+	EmailSkippedDomainCount int                       `json:"email_skipped_domain_count"`
+	HourlyArrivals          []HourlyArrival           `json:"hourly_arrivals"`
+	TeamCompleteness        []TeamCompletenessSummary `json:"team_completeness"`
 }

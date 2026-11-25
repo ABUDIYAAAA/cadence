@@ -8,11 +8,11 @@ export interface TeamMemberSummary {
   phone_number?: string | null;
   role: UserRole;
   is_leader: boolean;
-  is_password_configured: boolean;
 }
 
 export interface TeamResponse {
   id: string;
+  competition_id?: string;
   name: string;
   /** Hidden from judges. */
   join_code?: string;
@@ -33,6 +33,7 @@ export interface TeamResponse {
 
 export interface TeamDetailResponse {
   id: string;
+  competition_id?: string;
   name: string;
   join_code?: string;
   leader?: TeamMemberSummary | null;
@@ -57,6 +58,10 @@ export interface RenameTeamRequest {
   name: string;
 }
 
+export interface TransferLeadershipRequest {
+  new_leader_id: string;
+}
+
 /** Staff edits. `max_size: 0` clears the per-team override. */
 export interface UpdateTeamRequest {
   name?: string;
@@ -70,11 +75,13 @@ export interface AddMemberRequest {
 
 export interface TeamSettings {
   frozen_all: boolean;
+  min_team_size: number;
   max_team_size: number;
   max_team_size_source: "database" | "environment";
 }
 
 export interface UpdateTeamSettingsRequest {
+  min_team_size?: number;
   max_team_size?: number;
 }
 

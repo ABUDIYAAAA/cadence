@@ -6,18 +6,22 @@ export interface UserDetailResponse {
   email: string;
   name: string;
   phone_number?: string | null;
+  avatar_url?: string | null;
   role: UserRole;
   team_id?: string | null;
   team_name?: string | null;
   is_leader: boolean;
-  is_password_configured: boolean;
   is_active: boolean;
+  token_version?: number;
   created_at: string;
   /** Present on the list endpoint only. */
   checkin_status?: CheckinStatus;
   checked_in_at?: string | null;
-  /** Set when listing removed users (admin only). */
+  /** Set when listing removed users (admin/dev only). */
   deleted_at?: string | null;
+  /** Present on event-scoped user responses. */
+  is_banned?: boolean;
+  banned_at?: string | null;
 }
 
 export type CheckinStatus = "checked_in" | "not_checked_in" | "no_pass";
@@ -27,6 +31,8 @@ export interface CreateUserRequest {
   name: string;
   role?: UserRole;
   phone_number?: string;
+  competition_name?: string;
+  team_name?: string;
 }
 
 export interface BulkCreateUsersRequest {
@@ -36,8 +42,18 @@ export interface BulkCreateUsersRequest {
 export interface BulkCreateResponse {
   total_processed: number;
   total_created: number;
+  total_added?: number;
+  teams_created?: number;
+  teams_assigned?: number;
   skipped_count: number;
   skipped_errors?: string[];
+  missing_users?: Array<{
+    email: string;
+    name?: string;
+    phone_number?: string;
+    competition_name?: string;
+    team_name?: string;
+  }>;
   users: UserDetailResponse[];
 }
 
@@ -52,13 +68,15 @@ export interface UserFilter {
   page?: number;
   limit?: number;
   role?: string;
+  competition_id?: string;
   team_id?: string;
   /** Only users who are not on any team. */
   no_team?: boolean;
   search?: string;
   is_active?: boolean;
+  is_banned?: boolean;
   checkin_status?: CheckinStatus;
-  /** List removed (soft-deleted) users instead of live ones. Admin only. */
+  /** List removed (soft-deleted) users instead of live ones. Dev only. */
   deleted?: boolean;
 }
 

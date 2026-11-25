@@ -58,56 +58,24 @@ func TestSignInBurst_SeededUsersSetPasswordsTogether(t *testing.T) {
 		return nil
 	}
 
-	// 1. App load: unauthenticated /auth/me (401), then each asks for a reset link.
+	// 1. App load: unauthenticated /auth/me (401), then each requests Google OAuth login URL.
 	start := time.Now()
-	// In-flight connections are capped because a local test listener's accept backlog is small (and slower under
-	// -race); the shared-IP limits count requests per minute, so all 200 users still hit them.
 	parallel(40, func(a *Actor) error {
-		if err := call(a, http.MethodGet, "/api/v1/auth/me", nil, http.StatusUnauthorized); err != nil {
+		if err := call(a, http.MethodGet, "/api/v2/auth/me", nil, http.StatusUnauthorized); err != nil {
 			return err
 		}
-		return call(a, http.MethodPost, "/api/v1/auth/forgot-password", map[string]string{"email": a.Email}, http.StatusOK)
+		return call(a, http.MethodGet, "/api/v2/auth/google/login?format=json", nil, http.StatusOK)
 	})
-	t.Logf("%d forgot-password requests accepted in %s", n, time.Since(start).Round(time.Millisecond))
+	t.Logf("%d unauthenticated burst requests accepted in %s", n, time.Since(start).Round(time.Millisecond))
 
-	// 2. Wait for the mail workers to deliver every reset email.
-	deadline := time.Now().Add(60 * time.Second)
-	var list *MailpitMessagesListResponse
-	for {
-		var err error
-		if list, err = fetchMailpitMessages(); err != nil {
-			t.Fatalf("fetch mailpit: %v", err)
-		}
-		if len(list.Messages) >= n {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("only %d of %d reset emails arrived within 60s", len(list.Messages), n)
-		}
-		time.Sleep(300 * time.Millisecond)
+	// 2. Everyone signs in and loads /auth/me and their competition team status concurrently without 429s.
+	for i := range actors {
+		IssueActorSession(t, actors[i])
 	}
-	tokens := map[string]string{}
-	for _, m := range list.Messages {
-		detail, err := fetchMailpitMessageDetail(m.ID)
-		if err != nil || len(m.To) == 0 {
-			t.Fatalf("fetch message %s: %v", m.ID, err)
-		}
-		tokens[m.To[0].Address] = ExtractTokenFromEmailHTML(t, detail.HTML, "reset-password")
-	}
-	t.Logf("all %d reset emails delivered %s after the first request", n, time.Since(start).Round(time.Millisecond))
-
-	// 3. Everyone sets a password and signs in, then loads /auth/me. These calls are bcrypt-bound (CPU), so
-	// they run in waves: the shared-IP rate limits are what is under test here, not how many password
-	// hashes a small CI runner can compute in one instant (especially under -race).
 	parallel(20, func(a *Actor) error {
-		pw := "BurstPass123!"
-		if err := call(a, http.MethodPost, "/api/v1/auth/reset-password",
-			map[string]string{"token": tokens[a.Email], "password": pw, "confirm_password": pw}, http.StatusOK); err != nil {
+		if err := call(a, http.MethodGet, "/api/v2/auth/me", nil, http.StatusOK); err != nil {
 			return err
 		}
-		if err := call(a, http.MethodPost, "/api/v1/auth/login", map[string]string{"email": a.Email, "password": pw}, http.StatusOK); err != nil {
-			return err
-		}
-		return call(a, http.MethodGet, "/api/v1/auth/me", nil, http.StatusOK)
+		return call(a, http.MethodGet, "/api/v1/judging/teams/my-status", nil, http.StatusOK)
 	})
 }

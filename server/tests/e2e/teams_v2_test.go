@@ -38,15 +38,15 @@ func TestTeamsV2_CreateJoinLeaveAndLimits(t *testing.T) {
 
 	// Staff search for people to enroll with no_team: only participants without a team come back.
 	var free struct {
-		TotalCount int `json:"total_count"`
+		Total int64 `json:"total"`
 	}
 	admin.DoJSON(t, http.MethodGet, "/api/v1/users?role=participant&no_team=true", nil, http.StatusOK, &free)
-	if free.TotalCount != 5 {
-		t.Fatalf("expected 5 participants without a team, got %d", free.TotalCount)
+	if free.Total != 5 {
+		t.Fatalf("expected 5 participants without a team, got %d", free.Total)
 	}
 	admin.DoJSON(t, http.MethodGet, "/api/v1/users?role=participant&no_team=true&search=p2", nil, http.StatusOK, &free)
-	if free.TotalCount != 1 {
-		t.Fatalf("expected search to narrow to 1 participant, got %d", free.TotalCount)
+	if free.Total != 1 {
+		t.Fatalf("expected search to narrow to 1 participant, got %d", free.Total)
 	}
 
 	// One team per participant
@@ -222,7 +222,13 @@ func TestTeamsV2_BulkImportIgnoresTeamFields(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
 
-	var bulk users.BulkCreateResponse
+	var bulk struct {
+		TotalCreated int `json:"total_created"`
+		Users        []struct {
+			ID     string  `json:"id"`
+			TeamID *string `json:"team_id"`
+		} `json:"users"`
+	}
 	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{
 			{"email": "tv2.bulk@cadence.local", "name": "Bulk One", "role": "participant", "team_name": "Ghost", "is_leader": true},
@@ -241,7 +247,7 @@ func TestTeamsV2_BulkImportIgnoresTeamFields(t *testing.T) {
 }
 
 // A participant who registered with a wrong email contacts a volunteer, who adds them with the right one.
-// The new participant then sets their own password via "forgot password"; no invite email is ever sent.
+// No invite email is ever sent on creation.
 func TestVolunteerAddsParticipantsOnly(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
@@ -256,8 +262,8 @@ func TestVolunteerAddsParticipantsOnly(t *testing.T) {
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
 		"email": "add.fixed@cadence.local", "name": "Fixed Email",
 	}, http.StatusCreated, &created)
-	if created.Role != "participant" || created.IsPasswordConfigured {
-		t.Fatalf("expected a password-less participant, got %+v", created)
+	if created.Role != "participant" {
+		t.Fatalf("expected a participant, got %+v", created)
 	}
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
 		"email": "add.judge@cadence.local", "name": "Sneaky", "role": "judge",
@@ -270,14 +276,9 @@ func TestVolunteerAddsParticipantsOnly(t *testing.T) {
 	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/bulk", map[string]any{
 		"users": []map[string]any{{"email": "add.bulk@cadence.local", "name": "Bulk"}},
 	}, http.StatusForbidden, nil)
-	volunteer.DoJSON(t, http.MethodPatch, "/api/v1/users/"+created.ID, map[string]any{"role": "admin"}, http.StatusForbidden, nil)
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+created.ID+"/trigger-reset-password", nil, http.StatusForbidden, nil)
+	volunteer.DoJSON(t, http.MethodPatch, "/api/v1/members/"+created.ID, map[string]any{"role": "admin"}, http.StatusForbidden, nil)
 
-	// The invite endpoints are gone.
-	volunteer.DoJSON(t, http.MethodPost, "/api/v1/users/"+created.ID+"/send-invite", nil, http.StatusNotFound, nil)
-	admin.DoJSON(t, http.MethodPost, "/api/v1/users/bulk-send-invite", map[string]any{"all_uninvited": true}, http.StatusMethodNotAllowed, nil)
-
-	// No email until the participant asks for one, then they can sign in.
+	// No email is sent when adding a participant, and they can sign in immediately.
 	time.Sleep(300 * time.Millisecond)
 	if mailpitHasRecipient(t, "add.fixed@cadence.local") {
 		t.Fatal("adding a participant must not send an email")
@@ -288,29 +289,21 @@ func TestVolunteerAddsParticipantsOnly(t *testing.T) {
 	}
 }
 
-// Forgot-password sends email, so a mailbox can only be asked about a handful of times per window,
-// and the answer does not depend on whether the account exists.
-func TestForgotPasswordIsThrottledPerEmail(t *testing.T) {
+// Team join-code guessing is rate-limited per user (10 attempts per minute).
+func TestTeamJoinCodeIsThrottledPerUser(t *testing.T) {
 	ResetState(t)
 	admin := LoginAsAdmin(t)
-	admin.DoJSON(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"email": "throttle.me@cadence.local", "name": "Throttle Me", "role": "participant",
-	}, http.StatusCreated, nil)
+	p := CreateParticipant(t, admin, "throttle.join@cadence.local", "Throttle Join")
+	other := CreateParticipant(t, admin, "other.join@cadence.local", "Other Join")
 
-	for _, email := range []string{"throttle.me@cadence.local", "nobody.here@cadence.local"} {
-		// Fresh devices each time, so only the per-email limit can trigger.
-		for i := 1; i <= 5; i++ {
-			NewActor(t, "T", email).DoJSON(t, http.MethodPost, "/api/v1/auth/forgot-password",
-				map[string]string{"email": email}, http.StatusOK, nil)
-		}
-		resp, _ := NewActor(t, "T", email).DoRaw(t, http.MethodPost, "/api/v1/auth/forgot-password",
-			map[string]string{"email": email}, nil)
-		if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {
-			t.Fatalf("%s: expected 429 with Retry-After on the 6th request, got %d", email, resp.StatusCode)
-		}
+	for i := 1; i <= 10; i++ {
+		p.DoJSON(t, http.MethodPost, "/api/v2/teams/join", map[string]string{"code": "ZZZZZZ"}, http.StatusNotFound, nil)
+	}
+	resp, _ := p.DoRaw(t, http.MethodPost, "/api/v2/teams/join", map[string]string{"code": "ZZZZZZ"}, nil)
+	if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {
+		t.Fatalf("expected 429 with Retry-After on the 11th join attempt, got %d", resp.StatusCode)
 	}
 
-	// Another mailbox is unaffected.
-	NewActor(t, "T", "other@cadence.local").DoJSON(t, http.MethodPost, "/api/v1/auth/forgot-password",
-		map[string]string{"email": "other@cadence.local"}, http.StatusOK, nil)
+	// Another participant is unaffected.
+	other.DoJSON(t, http.MethodPost, "/api/v2/teams/join", map[string]string{"code": "ZZZZZZ"}, http.StatusNotFound, nil)
 }

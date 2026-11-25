@@ -1,1 +1,0 @@
-ALTER TABLE judging_slots ADD COLUMN IF NOT EXISTS pitch_ended_at TIMESTAMPTZ NULL;

@@ -24,7 +24,6 @@ export interface CreatePanelRequest {
 export interface SlotAssignment {
   team_id: string;
   sequence_order: number;
-  submission_links?: Record<string, string>;
 }
 
 export interface ConfigureSlotsRequest {
@@ -64,10 +63,6 @@ export interface RoundPanelSlot {
 export interface UpdateSlotTimingRequest {
   duration_mins: number | null;
   start_time: string | null;
-}
-
-export interface UpdateSlotLinksRequest {
-  submission_links: Record<string, string>;
 }
 
 export interface MoveSlotRequest {
@@ -192,6 +187,7 @@ export interface TeamStatusResponse {
 }
 
 export interface SubmissionGate {
+  round_id?: string | null;
   session_id: string | null;
   session_name?: string | null;
 }

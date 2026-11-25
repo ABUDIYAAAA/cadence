@@ -97,7 +97,7 @@ func TestStage4_RBACPermissionMatrix(t *testing.T) {
 
 		// Volunteer forbidden routes (can read users/teams/rounds & scan tickets, but cannot mutate admin resources or judge)
 		{"Volunteer cannot create a non-participant user", volunteer, http.MethodPost, "/api/v1/users", map[string]any{"email": "v@x.com", "name": "V", "role": "judge"}},
-		{"Volunteer cannot delete user", volunteer, http.MethodDelete, fmt.Sprintf("/api/v1/users/%s", participant.UserID), nil},
+		{"Volunteer cannot delete member", volunteer, http.MethodDelete, fmt.Sprintf("/api/v1/members/%s", participant.UserID), nil},
 		{"Volunteer cannot create team", volunteer, http.MethodPost, "/api/v2/teams", map[string]any{"name": "Vol Team"}},
 		{"Volunteer cannot bulk send tickets", volunteer, http.MethodPost, "/api/v1/tickets/bulk-send", map[string]any{}},
 		{"Volunteer cannot start judging slot", volunteer, http.MethodPost, fmt.Sprintf("/api/v1/judging/slots/%s/start", slotID), nil},
@@ -159,12 +159,8 @@ func TestStage4_TokenReplayAndDeviceHijackProtection(t *testing.T) {
 	user.DoJSON(t, http.MethodPost, "/api/v1/auth/refresh", nil, http.StatusUnauthorized, nil)
 
 	// 2. Device Binding Anti-Hijack Protection
-	// Log back in on Device A
-	deviceA := NewActor(t, "DeviceA", "sec.user@cadence.local")
-	deviceA.DoJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"email":    "sec.user@cadence.local",
-		"password": "SecPass123!",
-	}, http.StatusOK, nil)
+	// Authenticate on Device A
+	deviceA := OnboardUserViaMailpit(t, "DeviceA", "sec.user@cadence.local", "SecPass123!")
 
 	stolenRefreshCookie := deviceA.GetCookieValue(t, "refresh_token")
 
@@ -196,8 +192,8 @@ func TestStage4_InstantRedisBlocklistOnDelete(t *testing.T) {
 	// Confirm target's access_token works before deletion
 	target.DoJSON(t, http.MethodGet, "/api/v1/auth/me", nil, http.StatusOK, nil)
 
-	// Admin deletes target user -> writes blocked:user:{id} to Redis
-	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v1/users/%s", target.UserID), nil, http.StatusOK, nil)
+	// Dev deletes target user globally -> writes blocked:user:{id} to Redis
+	admin.DoJSON(t, http.MethodDelete, fmt.Sprintf("/api/v2/users/%s", target.UserID), nil, http.StatusOK, nil)
 
 	// Target's non-expired access_token must be rejected immediately (<1ms) with 401 Unauthorized
 	target.DoJSON(t, http.MethodGet, "/api/v1/auth/me", nil, http.StatusUnauthorized, nil)

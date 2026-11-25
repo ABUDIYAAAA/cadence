@@ -35,6 +35,11 @@ export function RoundPanelCreateDialog({
   const [room, setRoom] = useState("");
   const [selectedJudgeIds, setSelectedJudgeIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    room?: string;
+    judges?: string;
+  }>({});
 
   if (!round || !open) return null;
 
@@ -49,6 +54,7 @@ export function RoundPanelCreateDialog({
     setRoom("");
     setSelectedJudgeIds([]);
     setError(null);
+    setFieldErrors({});
   };
 
   const handleClose = () => {
@@ -62,18 +68,24 @@ export function RoundPanelCreateDialog({
         ? prev.filter((id) => id !== judgeId)
         : [...prev, judgeId]
     );
+    if (fieldErrors.judges) {
+      setFieldErrors((prev) => ({ ...prev, judges: undefined }));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!panelName.trim() || !room.trim()) {
-      setError("Room name and location are required.");
+    setError(null);
+    const nextErrors: { name?: string; room?: string; judges?: string } = {};
+    if (!panelName.trim()) nextErrors.name = "Required";
+    if (!room.trim()) nextErrors.room = "Required";
+    if (selectedJudgeIds.length === 0) nextErrors.judges = "Select at least one judge";
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       return;
     }
-    if (selectedJudgeIds.length === 0) {
-      setError("Choose at least one judge for this room.");
-      return;
-    }
+    setFieldErrors({});
 
     try {
       await onSubmit({
@@ -134,8 +146,10 @@ export function RoundPanelCreateDialog({
           value={panelName}
           onChange={(e) => {
             setPanelName(e.target.value);
+            if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: undefined }));
             if (error) setError(null);
           }}
+          error={fieldErrors.name}
           disabled={isLoading}
           required
         />
@@ -146,16 +160,25 @@ export function RoundPanelCreateDialog({
           value={room}
           onChange={(e) => {
             setRoom(e.target.value);
+            if (fieldErrors.room) setFieldErrors((prev) => ({ ...prev, room: undefined }));
             if (error) setError(null);
           }}
+          error={fieldErrors.room}
           disabled={isLoading}
           required
         />
 
-        <div className="space-y-1 pt-1 border-t border-[var(--card-line)]">
-          <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-            Judges for this room ({selectedJudgeIds.length} selected) *
-          </label>
+        <div className="space-y-1.5 pt-1 border-t border-[var(--card-line)]">
+          <div className="flex items-baseline justify-between gap-2">
+            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
+              Judges for this room ({selectedJudgeIds.length} selected) *
+            </label>
+            {fieldErrors.judges && (
+              <span role="alert" className="text-[11px] font-medium text-[var(--color-coral)]">
+                {fieldErrors.judges}
+              </span>
+            )}
+          </div>
 
           {usersLoading || assignedLoading ? (
             <div className="text-[var(--ink-tertiary)]">Loading judges...</div>
@@ -166,7 +189,13 @@ export function RoundPanelCreateDialog({
                 : "All judges are already assigned to panels in this round."}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded-[14px] border border-[var(--card-line)] p-2 bg-[var(--card-solid-subtle)]">
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded-[14px] border p-2 bg-[var(--card-solid-subtle)] transition-[border-color,box-shadow] ${
+                fieldErrors.judges
+                  ? "border-[var(--color-coral)] ring-3 ring-[var(--color-coral)]/20"
+                  : "border-[var(--card-line)]"
+              }`}
+            >
               {availableJudges.map((j) => {
                 const isSelected = selectedJudgeIds.includes(j.id);
                 return (

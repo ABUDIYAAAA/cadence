@@ -5,10 +5,14 @@ import "devclubxnst.com/cadence/pkg/audit"
 // Re-export types and constants from pkg/audit
 type Event = audit.Event
 type Recorder = audit.Recorder
+type RequestMeta = audit.RequestMeta
 
 var (
 	SanitizeEvent           = audit.SanitizeEvent
 	SanitizeEventWithReport = audit.SanitizeEventWithReport
+	WithRequestMeta         = audit.WithRequestMeta
+	RequestMetaFromContext  = audit.RequestMetaFromContext
+	RequestMetaMiddleware   = audit.RequestMetaMiddleware
 )
 
 const (

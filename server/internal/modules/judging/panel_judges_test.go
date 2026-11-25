@@ -14,9 +14,15 @@ func TestSetPanelJudges_Rules(t *testing.T) {
 	mk := func(email, role string) string {
 		var id string
 		if err := pool.QueryRow(ctx, `
-			INSERT INTO users (email, name, role, is_active, is_password_configured)
-			VALUES ($1, $1, $2, true, true) RETURNING id`, email, role).Scan(&id); err != nil {
+			INSERT INTO users (email, name, is_active)
+			VALUES ($1, $1, true) RETURNING id`, email).Scan(&id); err != nil {
 			t.Fatalf("seed user: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO user_events (user_id, event_id, role)
+			VALUES ($1, '00000000-0000-0000-0000-000000000001', $2::event_role)
+			ON CONFLICT (event_id, user_id) DO UPDATE SET role = EXCLUDED.role`, id, role); err != nil {
+			t.Fatalf("seed user event role: %v", err)
 		}
 		return id
 	}

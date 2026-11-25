@@ -19,6 +19,8 @@ import (
 	"devclubxnst.com/cadence/internal/mailer"
 	"devclubxnst.com/cadence/internal/modules/audit"
 	"devclubxnst.com/cadence/internal/modules/auth"
+	"devclubxnst.com/cadence/internal/modules/competitions"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/internal/modules/judging"
 	"devclubxnst.com/cadence/internal/modules/notifications"
 	"devclubxnst.com/cadence/internal/modules/teams"
@@ -32,18 +34,18 @@ import (
 
 // Application encapsulates shared resources, background workers, and routing.
 type Application struct {
-	Config        *config.Config
-	DB            *pgxpool.Pool
-	Redis         *redis.Client
-	Mailer        *mailer.Mailer
-	MailQueue     *mailer.Queue
+	Config            *config.Config
+	DB                *pgxpool.Pool
+	Redis             *redis.Client
+	Mailer            *mailer.Mailer
+	MailQueue         *mailer.Queue
 	AuditQueue        *audit.Queue
 	NotificationQueue *notifications.Queue
 	Limiter           *ratelimit.Limiter
-	LoginGuard    *ratelimit.LoginGuard
-	Logger        *slog.Logger
-	Router        *chi.Mux
-	CookieManager *utils.CookieManager
+	LoginGuard        *ratelimit.LoginGuard
+	Logger            *slog.Logger
+	Router            *chi.Mux
+	CookieManager     *utils.CookieManager
 }
 
 // NewApplication boots config, database, redis, rabbitmq queues, structured logger, and module routes.
@@ -111,6 +113,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Base middlewares with structured slog logging
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
+	router.Use(audit.RequestMetaMiddleware)
 	router.Use(logger.HTTPMiddleware(appLogger))
 	router.Use(middleware.Recoverer)
 
@@ -148,32 +151,43 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	// Stateless Redis-backed sliding window rate limiter
 	router.Use(ratelimit.RateLimitMiddleware(limiter, cfg, cookieManager))
 
-	// Auth module initialization with instant Redis blocklist verification and audit recording
-	authRepo := auth.NewRepository(dbPool)
-	authService := auth.NewService(authRepo, cfg, mailQueue, auditQueue)
-	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard, limiter)
-	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
-
-	// Users module initialization
-	usersRepo := users.NewRepository(dbPool)
-	usersService := users.NewService(usersRepo, cfg, mailQueue, redisClient, auditQueue)
-	usersHandler := users.NewHandler(usersService)
-
-	// Teams module initialization
-	teamsRepo := teams.NewRepository(dbPool, cfg.DefaultMaxTeamSize)
+	// Teams module initialization (owns all team roster mutations, evictions, and submissions)
+	teamsRepo := teams.NewRepository(dbPool).WithAuditor(auditQueue)
 	teamsService := teams.NewService(teamsRepo, auditQueue)
 	teamsHandler := teams.NewHandler(teamsService, limiter)
+
+	// Users module initialization (owns all account provisioning, Redis blocklist/token-version sync, and delegates team eviction to teamsRepo)
+	usersRepo := users.NewRepository(dbPool).WithRedis(redisClient, cfg.JWTAccessExpiry).WithTeamEvictor(teamsRepo).WithAuditor(auditQueue)
+	usersService := users.NewService(usersRepo, cfg, redisClient, auditQueue)
+	usersHandler := users.NewHandler(usersService)
+
+	// Auth module initialization with instant Redis blocklist verification, audit recording, and users.Provisioner
+	authRepo := auth.NewRepository(dbPool).WithUserProvisioner(users.NewAuthProvisioner(usersRepo))
+	authService := auth.NewService(authRepo, cfg, auditQueue)
+	authHandler := auth.NewHandler(authService, cookieManager, cfg, loginGuard, limiter)
+	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
 
 	// Audit module initialization
 	auditHandler := audit.NewHandler(auditRepo)
 
 	// Tickets & Attendance module initialization
 	ticketsRepo := tickets.NewRepository(dbPool)
+	if mailQueue != nil {
+		mailQueue.SetDeliveryCallback(func(cbCtx context.Context, ticketID string, delivered bool, errMsg string) {
+			if delivered {
+				appLogger.Info("ticket email delivered via smtp", slog.String("ticket_id", ticketID))
+				_ = ticketsRepo.MarkTicketEmailDelivered(cbCtx, ticketID)
+			} else {
+				appLogger.Error("ticket email delivery failed permanently", slog.String("ticket_id", ticketID), slog.String("error", errMsg))
+				_ = ticketsRepo.MarkTicketEmailFailed(cbCtx, ticketID, errMsg)
+			}
+		})
+	}
 	ticketsService := tickets.NewService(ticketsRepo, cfg, mailQueue, auditQueue)
 	ticketsHandler := tickets.NewHandler(ticketsService)
 
 	// Judging, Scoring & Queue Tracking module initialization
-	judgingRepo := judging.NewRepository(dbPool)
+	judgingRepo := judging.NewRepository(dbPool).WithTeamRosterManager(teamsRepo)
 	judgingService := judging.NewService(judgingRepo, auditQueue)
 	judgingHandler := judging.NewHandler(judgingService)
 
@@ -199,19 +213,32 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		appLogger.Info("database backup disabled: R2 credentials not configured")
 	}
 
-	// Mount API v1
-	router.Route("/api/v1", func(r chi.Router) {
+	// Events & Competitions multi-tenant modules initialization
+	eventsRepo := events.NewRepository(dbPool).WithUserProvisioner(usersRepo).WithTeamRosterManager(teamsRepo).WithAuditor(auditQueue)
+	eventsService := events.NewService(eventsRepo, redisClient, auditQueue)
+	eventsHandler := events.NewHandler(eventsService)
+
+	competitionsRepo := competitions.NewRepository(dbPool).WithUserProvisioner(usersRepo).WithTeamRosterManager(teamsRepo).WithAuditor(auditQueue)
+	competitionsService := competitions.NewService(competitionsRepo, redisClient, auditQueue)
+	competitionsHandler := competitions.NewHandler(competitionsService)
+
+	// Mount unified API v2
+	router.Route("/api/v2", func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMiddleware)
 		users.RegisterRoutes(r, usersHandler, authMiddleware)
-		tickets.RegisterRoutes(r, ticketsHandler, authMiddleware)
-		judging.RegisterRoutes(r, judgingHandler, authMiddleware)
-		notifications.RegisterRoutes(r, notifHandler, authMiddleware)
-		audit.RegisterRoutes(r, auditHandler, authMiddleware)
-	})
+		audit.RegisterGlobalRoutes(r, auditHandler, authMiddleware)
 
-	// Mount API v2 (self-serve teams with join codes and freezing)
-	router.Route("/api/v2", func(r chi.Router) {
-		teams.RegisterRoutes(r, teamsHandler, authMiddleware)
+		events.RegisterRoutes(r, eventsHandler, eventsRepo, redisClient, authMiddleware, func(eventScoped chi.Router) {
+			competitions.RegisterEventScopedRoutes(eventScoped, competitionsHandler, competitionsRepo, redisClient, func(compScoped chi.Router) {
+				compScoped.Route("/teams", func(tr chi.Router) {
+					teams.RegisterScopedRoutes(tr, teamsHandler)
+				})
+				judging.RegisterRoutes(compScoped, judgingHandler, authMiddleware)
+			})
+			tickets.RegisterRoutes(eventScoped, ticketsHandler, authMiddleware)
+			notifications.RegisterRoutes(eventScoped, notifHandler, authMiddleware)
+			audit.RegisterRoutes(eventScoped, auditHandler, authMiddleware)
+		})
 	})
 
 	// Health check endpoint - returns system and dependency health status.
@@ -234,11 +261,11 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		MailQueue:         mailQueue,
 		AuditQueue:        auditQueue,
 		NotificationQueue: notifQueue,
-		Limiter:       limiter,
-		LoginGuard:    loginGuard,
-		Logger:        appLogger,
-		Router:        router,
-		CookieManager: cookieManager,
+		Limiter:           limiter,
+		LoginGuard:        loginGuard,
+		Logger:            appLogger,
+		Router:            router,
+		CookieManager:     cookieManager,
 	}, nil
 }
 

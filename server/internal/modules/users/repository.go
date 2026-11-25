@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"devclubxnst.com/cadence/pkg/audit"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -16,12 +18,48 @@ var (
 	ErrUserAlreadyExists = errors.New("user with this email already exists")
 )
 
+// TeamEvictor encapsulates cross-competition team eviction owned by the teams module.
+type TeamEvictor interface {
+	EvictAndAuditAllTeamsTx(ctx context.Context, tx pgx.Tx, userID string, auditor audit.Recorder) (func(), error)
+}
+
 type Repository struct {
-	db *pgxpool.Pool
+	db       *pgxpool.Pool
+	rdb      *redis.Client
+	tokenTTL time.Duration
+	teams    TeamEvictor
+	auditor  audit.Recorder
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+	return &Repository{
+		db:       db,
+		tokenTTL: 24 * time.Hour,
+	}
+}
+
+// WithRedis configures the Redis client and access-token TTL used to synchronize
+// soft-delete blocklist clearing and monotonic min_token_version updates.
+func (r *Repository) WithRedis(rdb *redis.Client, accessExpiry time.Duration) *Repository {
+	r.rdb = rdb
+	if accessExpiry > 0 {
+		r.tokenTTL = accessExpiry * 2
+	}
+	return r
+}
+
+// WithTeamEvictor configures the teams domain seam used for transactional user eviction.
+func (r *Repository) WithTeamEvictor(evictor TeamEvictor) *Repository {
+	if evictor != nil {
+		r.teams = evictor
+	}
+	return r
+}
+
+// WithAuditor attaches an audit recorder so team dissolutions and leadership transfers during user deletion/blacklisting are audited.
+func (r *Repository) WithAuditor(auditor audit.Recorder) *Repository {
+	r.auditor = auditor
+	return r
 }
 
 func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
@@ -34,16 +72,17 @@ func (r *Repository) CreateUserTx(
 	email, name, role string,
 	phone *string,
 ) (string, error) {
-	// Single statement so a duplicate never aborts the surrounding transaction:
-	// soft-deleted users are reactivated, already-active users yield no row.
+	if role != "dev" {
+		role = "user"
+	}
+
 	query := `
-		INSERT INTO users (email, name, role, phone_number, is_password_configured, is_active)
-		VALUES (LOWER($1), $2, $3, $4, FALSE, TRUE)
+		INSERT INTO users (email, name, phone_number, role, is_active)
+		VALUES (LOWER($1), $2, $3, $4, TRUE)
 		ON CONFLICT (email) DO UPDATE
 		SET name = EXCLUDED.name,
-		    role = EXCLUDED.role,
 		    phone_number = EXCLUDED.phone_number,
-		    is_password_configured = FALSE,
+		    role = EXCLUDED.role,
 		    is_active = TRUE,
 		    deleted_at = NULL,
 		    token_version = users.token_version + 1,
@@ -52,30 +91,26 @@ func (r *Repository) CreateUserTx(
 		RETURNING id
 	`
 	var id string
-	err := tx.QueryRow(ctx, query, email, name, role, phone).Scan(&id)
+	err := tx.QueryRow(ctx, query, email, name, phone, role).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrUserAlreadyExists
 		}
 		return "", fmt.Errorf("insert user: %w", err)
 	}
+
 	return id, nil
 }
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
-		FROM users u
-		LEFT JOIN teams t ON u.team_id = t.id
-		WHERE u.id = $1 AND u.deleted_at IS NULL
+		SELECT id, email, name, phone_number, avatar_url, role, is_active, token_version, created_at
+		FROM users
+		WHERE id = $1 AND deleted_at IS NULL
 	`
 	var u UserDetailResponse
-	var teamName *string
-	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
+		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.AvatarURL, &u.Role, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -83,37 +118,24 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*UserDetailRes
 		}
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
-	u.TeamName = teamName
-	if isLeader != nil {
-		u.IsLeader = *isLeader
-	}
 	return &u, nil
 }
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*UserDetailResponse, error) {
 	query := `
-		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.token_version, u.created_at
-		FROM users u
-		LEFT JOIN teams t ON u.team_id = t.id
-		WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL
+		SELECT id, email, name, phone_number, avatar_url, role, is_active, token_version, created_at
+		FROM users
+		WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL
 	`
 	var u UserDetailResponse
-	var teamName *string
-	var isLeader *bool
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-		&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
+		&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.AvatarURL, &u.Role, &u.IsActive, &u.TokenVersion, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("get user by email: %w", err)
-	}
-	u.TeamName = teamName
-	if isLeader != nil {
-		u.IsLeader = *isLeader
 	}
 	return &u, nil
 }
@@ -124,52 +146,33 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	argIndex := 1
 
 	if filter.Deleted {
-		conditions = append(conditions, "u.deleted_at IS NOT NULL")
+		conditions = append(conditions, "deleted_at IS NOT NULL")
 	} else {
-		conditions = append(conditions, "u.deleted_at IS NULL")
+		conditions = append(conditions, "deleted_at IS NULL")
 	}
 
 	if filter.Role != "" {
-		conditions = append(conditions, fmt.Sprintf("u.role = $%d", argIndex))
+		conditions = append(conditions, fmt.Sprintf("role = $%d", argIndex))
 		args = append(args, filter.Role)
 		argIndex++
 	}
 
-	if filter.TeamID != "" {
-		conditions = append(conditions, fmt.Sprintf("u.team_id = $%d", argIndex))
-		args = append(args, filter.TeamID)
-		argIndex++
-	}
-
-	if filter.NoTeam {
-		conditions = append(conditions, "u.team_id IS NULL")
-	}
-
 	if filter.IsActive != nil {
-		conditions = append(conditions, fmt.Sprintf("u.is_active = $%d", argIndex))
+		conditions = append(conditions, fmt.Sprintf("is_active = $%d", argIndex))
 		args = append(args, *filter.IsActive)
 		argIndex++
 	}
 
 	if filter.Search != "" {
 		searchTerm := "%" + strings.ToLower(filter.Search) + "%"
-		conditions = append(conditions, fmt.Sprintf("(LOWER(u.name) LIKE $%d OR LOWER(u.email) LIKE $%d)", argIndex, argIndex))
+		conditions = append(conditions, fmt.Sprintf("(LOWER(name) LIKE $%d OR LOWER(email) LIKE $%d)", argIndex, argIndex))
 		args = append(args, searchTerm)
 		argIndex++
 	}
 
-	switch filter.CheckinStatus {
-	case "checked_in":
-		conditions = append(conditions, "tk.is_checked_in = true")
-	case "not_checked_in":
-		conditions = append(conditions, "tk.id IS NOT NULL AND tk.is_checked_in = false")
-	case "no_pass":
-		conditions = append(conditions, "tk.id IS NULL")
-	}
-
 	whereClause := strings.Join(conditions, " AND ")
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users u LEFT JOIN tickets tk ON tk.user_id = u.id WHERE %s", whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users WHERE %s", whereClause)
 	var totalCount int64
 	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
@@ -188,24 +191,13 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	}
 	offset := (page - 1) * limit
 
-	// Newest arrivals first when looking at who has checked in
-	orderBy := "u.created_at DESC"
-	if filter.CheckinStatus == "checked_in" {
-		orderBy = "tk.checked_in_at DESC NULLS LAST, u.created_at DESC"
-	}
-
 	query := fmt.Sprintf(`
-		SELECT u.id, u.email, u.name, u.phone_number, u.role, u.team_id, t.name,
-		       (t.leader_id = u.id) AS is_leader, u.is_password_configured, u.is_active, u.created_at,
-		       CASE WHEN tk.id IS NULL THEN 'no_pass' WHEN tk.is_checked_in THEN 'checked_in' ELSE 'not_checked_in' END,
-		       tk.checked_in_at, u.deleted_at
-		FROM users u
-		LEFT JOIN teams t ON u.team_id = t.id
-		LEFT JOIN tickets tk ON tk.user_id = u.id
+		SELECT id, email, name, phone_number, avatar_url, role, is_active, created_at, deleted_at
+		FROM users
 		WHERE %s
-		ORDER BY %s
+		ORDER BY created_at DESC
 		LIMIT $%d OFFSET $%d
-	`, whereClause, orderBy, argIndex, argIndex+1)
+	`, whereClause, argIndex, argIndex+1)
 
 	args = append(args, limit, offset)
 
@@ -218,18 +210,10 @@ func (r *Repository) ListUsers(ctx context.Context, filter UserFilter) ([]UserDe
 	usersList := make([]UserDetailResponse, 0, limit)
 	for rows.Next() {
 		var u UserDetailResponse
-		var teamName *string
-		var isLeader *bool
 		if err := rows.Scan(
-			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID, &teamName,
-			&isLeader, &u.IsPasswordConfigured, &u.IsActive, &u.CreatedAt,
-			&u.CheckinStatus, &u.CheckedInAt, &u.DeletedAt,
+			&u.ID, &u.Email, &u.Name, &u.PhoneNumber, &u.AvatarURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.DeletedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan user row: %w", err)
-		}
-		u.TeamName = teamName
-		if isLeader != nil {
-			u.IsLeader = *isLeader
 		}
 		usersList = append(usersList, u)
 	}
@@ -266,7 +250,6 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		argIndex++
 	}
 
-	// Any role change or deactivation/activation bumps token_version and invalidates previous sessions
 	if req.Role != nil || req.IsActive != nil {
 		sets = append(sets, "token_version = token_version + 1")
 	}
@@ -275,15 +258,15 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		return r.GetUserByID(ctx, id)
 	}
 
-	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
-	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d AND deleted_at IS NULL", strings.Join(sets, ", "), argIndex)
-	args = append(args, id)
-
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin update tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d AND deleted_at IS NULL", strings.Join(sets, ", "), argIndex)
+	args = append(args, id)
 
 	tag, err := tx.Exec(ctx, query, args...)
 	if err != nil {
@@ -293,7 +276,6 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 		return nil, ErrUserNotFound
 	}
 
-	// If role changed or user was deactivated, revoke all outstanding refresh tokens in the same transaction
 	if req.Role != nil || (req.IsActive != nil && !*req.IsActive) {
 		_, err = tx.Exec(ctx, `
 			UPDATE refresh_tokens
@@ -312,58 +294,44 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, req UpdateUserRe
 	return r.GetUserByID(ctx, id)
 }
 
-func (r *Repository) SoftDeleteUser(ctx context.Context, id string) error {
+func (r *Repository) DeleteUser(ctx context.Context, id string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin delete tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// Clear leadership if this user is a team leader
-	_, err = tx.Exec(ctx, "UPDATE teams SET leader_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE leader_id = $1", id)
-	if err != nil {
-		return fmt.Errorf("clear team leadership: %w", err)
+	var postCommitAudit func()
+	if r.teams != nil {
+		postCommitAudit, _ = r.teams.EvictAndAuditAllTeamsTx(ctx, tx, id, r.auditor)
 	}
 
-	// Soft-delete user and detach from team
-	delQuery := `
+	tag, err := tx.Exec(ctx, `
 		UPDATE users
 		SET is_active = FALSE,
 		    deleted_at = CURRENT_TIMESTAMP,
-		    team_id = NULL,
 		    token_version = token_version + 1,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND deleted_at IS NULL
-	`
-	tag, err := tx.Exec(ctx, delQuery, id)
+	`, id)
 	if err != nil {
-		return fmt.Errorf("soft delete user: %w", err)
+		return fmt.Errorf("delete user: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound
 	}
-
-	// Revoke all refresh tokens
-	_, err = tx.Exec(ctx, `
+	_, _ = tx.Exec(ctx, `
 		UPDATE refresh_tokens
 		SET is_revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
 		WHERE user_id = $1 AND is_revoked = FALSE
 	`, id)
-	if err != nil {
-		return fmt.Errorf("revoke refresh tokens on delete: %w", err)
+	_, _ = tx.Exec(ctx, `DELETE FROM user_events WHERE user_id = $1`, id)
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
 	}
-
-	return tx.Commit(ctx)
-}
-
-func (r *Repository) CreateResetOrSetupToken(ctx context.Context, userID, tokenHash, purpose string, expiresAt time.Time) error {
-	query := `
-		INSERT INTO password_reset_tokens (user_id, token_hash, purpose, expires_at)
-		VALUES ($1, $2, $3, $4)
-	`
-	_, err := r.db.Exec(ctx, query, userID, tokenHash, purpose, expiresAt)
-	if err != nil {
-		return fmt.Errorf("insert reset/setup token: %w", err)
+	if postCommitAudit != nil {
+		postCommitAudit()
 	}
 	return nil
 }
@@ -383,6 +351,30 @@ func (r *Repository) RestoreUser(ctx context.Context, id string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound
+	}
+	return nil
+}
+
+// EvictUserFromAnyTeam delegates to the teams module to evict a user from all teams across all competitions.
+func (r *Repository) EvictUserFromAnyTeam(ctx context.Context, userID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin evict team tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var postCommitAudit func()
+	if r.teams != nil {
+		postCommitAudit, err = r.teams.EvictAndAuditAllTeamsTx(ctx, tx, userID, r.auditor)
+		if err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if postCommitAudit != nil {
+		postCommitAudit()
 	}
 	return nil
 }

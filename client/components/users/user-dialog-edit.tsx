@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 interface UserEditDialogProps {
   user: UserDetailResponse | null;
   open: boolean;
+  mode?: "event" | "platform";
+  canAssignAdmin?: boolean;
   onClose: () => void;
   onSubmit: (id: string, data: UpdateUserRequest) => Promise<void>;
   isLoading: boolean;
@@ -18,26 +20,40 @@ interface UserEditDialogProps {
 
 function UserEditForm({
   user,
+  mode,
+  canAssignAdmin,
   onClose,
   onSubmit,
   isLoading,
 }: {
   user: UserDetailResponse;
+  mode: "event" | "platform";
+  canAssignAdmin: boolean;
   onClose: () => void;
   onSubmit: (id: string, data: UpdateUserRequest) => Promise<void>;
   isLoading: boolean;
 }) {
   const [name, setName] = useState(user.name);
   const [phoneNumber, setPhoneNumber] = useState(user.phone_number || "");
-  const [role, setRole] = useState<UserRole>(user.role);
-  const [isActive, setIsActive] = useState(user.is_active);
+  const [role, setRole] = useState<string>(
+    mode === "platform"
+      ? user.role === "dev"
+        ? "dev"
+        : "user"
+      : user.role === "owner"
+      ? "admin"
+      : user.role
+  );
+  const [isActive, setIsActive] = useState(
+    mode === "event" ? !user.is_banned : user.is_active
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
-    if (!name.trim()) {
+    if (mode === "platform" && !name.trim()) {
       newErrors.name = "Name cannot be empty";
     }
 
@@ -47,12 +63,20 @@ function UserEditForm({
     }
 
     try {
-      await onSubmit(user.id, {
-        name: name.trim(),
-        phone_number: phoneNumber.trim() || undefined,
-        role,
-        is_active: isActive,
-      });
+      await onSubmit(
+        user.id,
+        mode === "event"
+          ? {
+              role: role as UserRole,
+              is_active: isActive,
+            }
+          : {
+              name: name.trim(),
+              phone_number: phoneNumber.trim() || undefined,
+              role: role as UserRole,
+              is_active: isActive,
+            }
+      );
       onClose();
     } catch (err: unknown) {
       if (err && typeof err === "object" && "details" in err) {
@@ -62,42 +86,66 @@ function UserEditForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 font-mono">
-      <Input
-        label="Full Name *"
-        value={name}
-        onChange={(e) => {
-          setName(e.target.value);
-          if (errors.name) setErrors((prev) => ({ ...prev, name: "" }));
-        }}
-        error={errors.name}
-        disabled={isLoading}
-        required
-      />
+    <form onSubmit={handleSubmit} className="space-y-3 font-sans">
+      {mode === "platform" ? (
+        <Input
+          label="Full Name *"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (errors.name) setErrors((prev) => ({ ...prev, name: "" }));
+          }}
+          error={errors.name}
+          disabled={isLoading}
+          required
+        />
+      ) : (
+        <div className="rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3 text-xs font-sans space-y-0.5">
+          <div className="font-semibold text-[var(--ink-primary)]">
+            {user.name}
+          </div>
+          <div className="font-mono text-[11px] text-[var(--ink-secondary)]">
+            {user.email}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Select
-          label="System Role"
+          label={mode === "event" ? "Event Role" : "Platform Role"}
           value={role}
-          onChange={(e) => setRole(e.target.value as UserRole)}
+          onChange={(e) => setRole(e.target.value)}
           disabled={isLoading}
         >
-          <option value="participant">Participant</option>
-          <option value="judge">Judge</option>
-          <option value="volunteer">Volunteer</option>
-          <option value="admin">Admin</option>
+          {mode === "platform" ? (
+            <>
+              <option value="user">User</option>
+              <option value="dev">Dev</option>
+            </>
+          ) : (
+            <>
+              <option value="participant">Participant</option>
+              <option value="judge">Judge</option>
+              <option value="volunteer">Volunteer</option>
+              {(canAssignAdmin ||
+                user.role === "admin" ||
+                user.role === "owner") && <option value="admin">Admin</option>}
+            </>
+          )}
         </Select>
 
-        <Input
-          label="Phone Number"
-          type="tel"
-          value={phoneNumber}
-          onChange={(e) => setPhoneNumber(e.target.value)}
-          disabled={isLoading}
-        />
+        {mode === "platform" && (
+          <Input
+            label="Phone Number"
+            type="tel"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            disabled={isLoading}
+          />
+        )}
       </div>
 
-      <div className="pt-2 border-t border-[var(--card-line)] text-xs">
+      <div className="pt-2 border-t border-[var(--card-line)] text-xs font-sans">
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -107,11 +155,13 @@ function UserEditForm({
             className="accent-[#83A2DB] h-4 w-4 rounded"
           />
           <span className="font-semibold text-[var(--ink-primary)]">
-            Account Active Status
+            {mode === "event" ? "Allowed in Event (Not Banned)" : "User Active Status"}
           </span>
         </label>
         <p className="mt-1 text-[11px] text-[var(--ink-secondary)]">
-          Deactivating an account prevents future logins.
+          {mode === "event"
+            ? "Unchecking bans this member from accessing this event and its competitions."
+            : "Unchecking blacklists this user from signing in across Cadence."}
         </p>
       </div>
 
@@ -141,6 +191,8 @@ function UserEditForm({
 export function UserEditDialog({
   user,
   open,
+  mode = "event",
+  canAssignAdmin = true,
   onClose,
   onSubmit,
   isLoading,
@@ -151,12 +203,14 @@ export function UserEditDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Edit User Record"
+      title={mode === "event" ? "Update Event Member" : "Edit User Record"}
       description={`Editing ${user.email}`}
     >
       <UserEditForm
-        key={user.id}
+        key={`${user.id}-${mode}`}
         user={user}
+        mode={mode}
+        canAssignAdmin={canAssignAdmin}
         onClose={onClose}
         onSubmit={onSubmit}
         isLoading={isLoading}

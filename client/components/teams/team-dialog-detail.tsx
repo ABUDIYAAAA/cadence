@@ -6,11 +6,12 @@ import {
   Crown,
   UserPlus,
   Trash2,
-  CheckCircle2,
-  Clock,
   Layers,
+  RefreshCw,
 } from "lucide-react";
-import { useTeam } from "@/hooks/use-teams";
+import { useRegenerateTeamCode, useTeam } from "@/hooks/use-teams";
+import { useToast } from "@/providers/toast-provider";
+import { apiErrorMessage } from "@/lib/utils";
 import { UserDetailResponse } from "@/types/users";
 import { ParticipantPicker } from "./participant-picker";
 import { Dialog } from "@/components/ui/dialog";
@@ -45,7 +46,9 @@ export function TeamDetailDialog({
   onSetLeader,
   canManage = true,
 }: TeamDetailDialogProps) {
+  const toast = useToast();
   const { data: team, isLoading } = useTeam(teamId || "");
+  const regenerateCode = useRegenerateTeamCode();
   const [selectedUser, setSelectedUser] = useState<UserDetailResponse | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [actionInProgressUserId, setActionInProgressUserId] = useState<string | null>(null);
@@ -98,6 +101,18 @@ export function TeamDetailDialog({
     }
   };
 
+  const handleRegenerateCode = async () => {
+    try {
+      const updated = await regenerateCode.mutateAsync(teamId);
+      toast.success(
+        `New join code for "${updated.name}": ${updated.join_code}`,
+        "Join code regenerated"
+      );
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to regenerate join code"), "Error");
+    }
+  };
+
   return (
     <Dialog
       open={open}
@@ -136,8 +151,24 @@ export function TeamDetailDialog({
                   </Badge>
                 )}
                 {team.join_code && (
-                  <span className="font-mono tracking-widest text-[11px] text-[var(--ink-secondary)]">
-                    {team.join_code}
+                  <span className="inline-flex items-center gap-1 font-mono tracking-widest text-[11px] text-[var(--ink-secondary)]">
+                    <span>{team.join_code}</span>
+                    {canManage && !team.effective_frozen && (
+                      <button
+                        type="button"
+                        onClick={handleRegenerateCode}
+                        disabled={regenerateCode.isPending}
+                        title="Regenerate join code"
+                        aria-label="Regenerate join code"
+                        className="p-1 rounded-[5px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid)] disabled:opacity-50 cursor-pointer"
+                      >
+                        <RefreshCw
+                          className={`h-3 w-3 ${
+                            regenerateCode.isPending ? "animate-spin" : ""
+                          }`}
+                        />
+                      </button>
+                    )}
                   </span>
                 )}
               </div>
@@ -211,7 +242,6 @@ export function TeamDetailDialog({
                     <TableRow>
                       <TableHead>Member</TableHead>
                       <TableHead>Role</TableHead>
-                      <TableHead>Password Setup</TableHead>
                       {canManage && <TableHead className="text-right">Manage</TableHead>}
                     </TableRow>
                   </TableHeader>
@@ -253,21 +283,6 @@ export function TeamDetailDialog({
                             <Badge variant="subtle" size="sm">
                               {member.role}
                             </Badge>
-                          </TableCell>
-
-                          {/* Password configured */}
-                          <TableCell>
-                            {member.is_password_configured ? (
-                              <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-blue)] font-medium">
-                                <CheckCircle2 className="h-3 w-3" />
-                                Configured
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-tertiary)]">
-                                <Clock className="h-3 w-3" />
-                                Pending
-                              </span>
-                            )}
                           </TableCell>
 
                           {/* Manage actions */}

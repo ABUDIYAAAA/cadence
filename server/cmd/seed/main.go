@@ -8,7 +8,6 @@ import (
 
 	"devclubxnst.com/cadence/internal/config"
 	"devclubxnst.com/cadence/internal/database"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -30,52 +29,59 @@ func main() {
 	}
 	defer pool.Close()
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.SeedAdminPassword), bcrypt.DefaultCost)
-	if err != nil {
-		log.Fatalf("[SEED ERROR] Failed to hash password: %v", err)
-	}
-
+	var userID string
 	var existingID string
 	checkQuery := `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`
 	err = pool.QueryRow(ctx, checkQuery, cfg.SeedAdminEmail).Scan(&existingID)
 
 	if err == nil {
+		userID = existingID
 		updateQuery := `
 			UPDATE users
-			SET password_hash = $1,
-			    name = $2,
-			    role = 'admin',
-			    is_password_configured = TRUE,
+			SET name = $1,
+			    role = 'dev',
 			    is_active = TRUE,
 			    updated_at = CURRENT_TIMESTAMP
-			WHERE id = $3
+			WHERE id = $2
 		`
-		if _, err := pool.Exec(ctx, updateQuery, string(hash), cfg.SeedAdminName, existingID); err != nil {
+		if _, err := pool.Exec(ctx, updateQuery, cfg.SeedAdminName, existingID); err != nil {
 			log.Fatalf("[SEED ERROR] Failed to update existing admin user: %v", err)
 		}
-		fmt.Println("==================================================")
-		fmt.Println(" [SEED] Admin user updated successfully")
-		fmt.Printf(" Email : %s\n", cfg.SeedAdminEmail)
-		fmt.Printf(" Name  : %s\n", cfg.SeedAdminName)
-		fmt.Println(" Role  : admin")
-		fmt.Println(" Status: password configured & active")
-		fmt.Println("==================================================")
-		return
+	} else {
+		insertQuery := `
+			INSERT INTO users (email, name, role, is_active)
+			VALUES ($1, $2, 'dev', TRUE)
+			RETURNING id
+		`
+		if err := pool.QueryRow(ctx, insertQuery, cfg.SeedAdminEmail, cfg.SeedAdminName).Scan(&userID); err != nil {
+			log.Fatalf("[SEED ERROR] Failed to insert admin user: %v", err)
+		}
 	}
 
-	insertQuery := `
-		INSERT INTO users (email, password_hash, name, role, is_password_configured, is_active)
-		VALUES ($1, $2, $3, 'admin', TRUE, TRUE)
+	// Ensure default event and competition exist and map admin to default event in user_events
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO events (id, slug, name)
+		VALUES ('00000000-0000-0000-0000-000000000001', 'devclub-event', 'DevClub Event')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO competitions (id, event_id, slug, name)
+		VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'devclub-hack', 'DevClub Hackathon')
+		ON CONFLICT (id) DO UPDATE SET event_id = '00000000-0000-0000-0000-000000000001'
+	`)
+	eventRoleQuery := `
+		INSERT INTO user_events (user_id, event_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'owner')
+		ON CONFLICT (event_id, user_id) 
+		DO UPDATE SET role = 'owner', updated_at = CURRENT_TIMESTAMP
 	`
-	if _, err := pool.Exec(ctx, insertQuery, cfg.SeedAdminEmail, string(hash), cfg.SeedAdminName); err != nil {
-		log.Fatalf("[SEED ERROR] Failed to insert admin user: %v", err)
-	}
+	_, _ = pool.Exec(ctx, eventRoleQuery, userID)
 
 	fmt.Println("==================================================")
-	fmt.Println(" [SEED] New admin user seeded successfully")
+	fmt.Println(" [SEED] Admin user seeded successfully")
 	fmt.Printf(" Email : %s\n", cfg.SeedAdminEmail)
 	fmt.Printf(" Name  : %s\n", cfg.SeedAdminName)
-	fmt.Println(" Role  : admin")
+	fmt.Println(" Role  : dev (global) / owner (in default event)")
 	fmt.Println(" Status: password configured & active")
 	fmt.Println("==================================================")
 }

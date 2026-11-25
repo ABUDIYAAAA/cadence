@@ -1,11 +1,14 @@
+import React, { Suspense } from "react";
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/providers/query-provider";
 import { AuthProvider } from "@/providers/auth-provider";
+import { TenantProvider } from "@/providers/tenant-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 import { NotificationProvider } from "@/providers/notification-provider";
 import { Navbar } from "@/components/layout/navbar";
+import { AppShell } from "@/components/layout/app-shell";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-sans",
@@ -61,12 +64,18 @@ export default function RootLayout({
       >
         <QueryProvider>
           <AuthProvider>
-            <ToastProvider>
-              <NotificationProvider>
-                <Navbar />
-                <main className="flex-1">{children}</main>
-              </NotificationProvider>
-            </ToastProvider>
+            <TenantProvider>
+              <ToastProvider>
+                <NotificationProvider>
+                  <Suspense fallback={<header className="app-header h-14" />}>
+                    <Navbar />
+                  </Suspense>
+                  <Suspense fallback={<main className="flex-1 min-h-[calc(100vh-3.5rem)]" />}>
+                    <AppShell>{children}</AppShell>
+                  </Suspense>
+                </NotificationProvider>
+              </ToastProvider>
+            </TenantProvider>
           </AuthProvider>
         </QueryProvider>
       </body>

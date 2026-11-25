@@ -17,6 +17,11 @@ type RenameTeamRequest struct {
 	Name string `json:"name" validate:"required,min=2,max=100"`
 }
 
+// TransferLeadershipRequest is sent by a team leader to transfer leadership to another member.
+type TransferLeadershipRequest struct {
+	NewLeaderID string `json:"new_leader_id" validate:"required,uuid"`
+}
+
 // UpdateTeamRequest defines staff-editable team properties.
 // MaxSize of 0 clears the per-team override.
 type UpdateTeamRequest struct {
@@ -30,16 +35,17 @@ type AddMemberRequest struct {
 	UserID string `json:"user_id" validate:"required,uuid"`
 }
 
-// UpdateSettingsRequest changes global team settings.
+// UpdateSettingsRequest changes competition team settings.
 type UpdateSettingsRequest struct {
+	MinTeamSize *int `json:"min_team_size,omitempty" validate:"omitempty,min=1,max=100"`
 	MaxTeamSize *int `json:"max_team_size,omitempty" validate:"omitempty,min=1,max=100"`
 }
 
-// SettingsResponse describes global team settings.
+// SettingsResponse describes competition team settings.
 type SettingsResponse struct {
-	FrozenAll   bool `json:"frozen_all"`
-	MaxTeamSize int  `json:"max_team_size"`
-	// MaxTeamSizeSource is "database" once an admin saved a value, otherwise "environment".
+	FrozenAll         bool   `json:"frozen_all"`
+	MinTeamSize       int    `json:"min_team_size"`
+	MaxTeamSize       int    `json:"max_team_size"`
 	MaxTeamSizeSource string `json:"max_team_size_source"`
 }
 
@@ -51,12 +57,12 @@ type TeamMemberSummary struct {
 	PhoneNumber          *string `json:"phone_number,omitempty"`
 	Role                 string  `json:"role"`
 	IsLeader             bool    `json:"is_leader"`
-	IsPasswordConfigured bool    `json:"is_password_configured"`
 }
 
 // TeamResponse represents the summary view of a team in listing endpoints.
 type TeamResponse struct {
 	ID               string    `json:"id"`
+	CompetitionID    string    `json:"competition_id"`
 	Name             string    `json:"name"`
 	JoinCode         string    `json:"join_code,omitempty"`
 	LeaderID         *string   `json:"leader_id,omitempty"`
@@ -74,6 +80,7 @@ type TeamResponse struct {
 // TeamDetailResponse represents the full team view with all members.
 type TeamDetailResponse struct {
 	ID               string              `json:"id"`
+	CompetitionID    string              `json:"competition_id"`
 	Name             string              `json:"name"`
 	JoinCode         string              `json:"join_code,omitempty"`
 	Leader           *TeamMemberSummary  `json:"leader,omitempty"`
@@ -88,9 +95,10 @@ type TeamDetailResponse struct {
 
 // TeamFilter defines pagination and search options for teams.
 type TeamFilter struct {
-	Page   int    `json:"page"`
-	Limit  int    `json:"limit"`
-	Search string `json:"search"`
+	CompetitionID *string `json:"-"`
+	Page          int     `json:"page"`
+	Limit         int     `json:"limit"`
+	Search        string  `json:"search"`
 	// JudgeID restricts results to teams scheduled in panels this judge is assigned to.
 	JudgeID *string `json:"-"`
 }

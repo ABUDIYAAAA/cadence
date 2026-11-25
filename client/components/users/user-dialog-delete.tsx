@@ -9,6 +9,7 @@ import { AlertTriangle } from "lucide-react";
 interface UserDeleteDialogProps {
   user: UserDetailResponse | null;
   open: boolean;
+  mode?: "event" | "platform";
   onClose: () => void;
   onConfirm: (id: string) => Promise<void>;
   isLoading: boolean;
@@ -17,18 +18,25 @@ interface UserDeleteDialogProps {
 export function UserDeleteDialog({
   user,
   open,
+  mode = "event",
   onClose,
   onConfirm,
   isLoading,
 }: UserDeleteDialogProps) {
   if (!user) return null;
 
+  const isEventMode = mode === "event";
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      title="Confirm User Deletion"
-      description="Irreversible administrative action"
+      title={isEventMode ? "Remove Member from Event" : "Confirm User Deletion"}
+      description={
+        isEventMode
+          ? "Remove this user's membership from the active event"
+          : "Irreversible platform-wide administrative action"
+      }
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -45,7 +53,7 @@ export function UserDeleteDialog({
             onClick={() => onConfirm(user.id)}
             isLoading={isLoading}
           >
-            Permanently Remove User
+            {isEventMode ? "Remove from Event" : "Permanently Remove User"}
           </Button>
         </div>
       }
@@ -55,12 +63,14 @@ export function UserDeleteDialog({
           <AlertTriangle className="h-5 w-5 text-[var(--color-coral)] shrink-0 mt-0.5" />
           <div className="space-y-1">
             <p className="font-bold text-[var(--color-coral)]">
-              Immediate Session Eviction & Soft Deletion
+              {isEventMode
+                ? "Event Membership Removal"
+                : "Immediate Session Eviction & Soft Deletion"}
             </p>
             <p className="text-[var(--color-coral)] leading-relaxed">
-              Deleting this account will immediately revoke all active JWT tokens
-              via the distributed Redis blocklist (&lt;1ms). The user will be
-              instantly disconnected.
+              {isEventMode
+                ? "Removing this member revokes their role and access to this event and its competitions. Their user record in other events is unaffected."
+                : "Deleting this user will immediately revoke all active JWT tokens via the distributed Redis blocklist (<1ms)."}
             </p>
           </div>
         </div>
@@ -72,11 +82,15 @@ export function UserDeleteDialog({
           </div>
           <div>
             <span className="text-[var(--ink-secondary)]">Target Email: </span>
-            <strong className="text-[var(--ink-primary)] font-mono">{user.email}</strong>
+            <strong className="text-[var(--ink-primary)] font-mono">
+              {user.email}
+            </strong>
           </div>
           <div>
             <span className="text-[var(--ink-secondary)]">Role: </span>
-            <span className="uppercase font-semibold text-[var(--ink-primary)]">{user.role}</span>
+            <span className="uppercase font-semibold text-[var(--ink-primary)]">
+              {user.role}
+            </span>
           </div>
         </div>
       </div>

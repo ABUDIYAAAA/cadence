@@ -128,10 +128,21 @@ func TestStage7_TeamLeaderScanMarksTeam(t *testing.T) {
 		admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/check-in", map[string]string{"ticket_code": code(e)}, http.StatusOK, nil)
 	}
 
+	var compID string
+	if err := testApp.DB.QueryRow(context.Background(),
+		`SELECT id FROM competitions WHERE event_id = $1 AND slug = $2`, DefaultTestEventID, admin.CompetitionSlug).Scan(&compID); err != nil {
+		t.Fatalf("resolve active competition id: %v", err)
+	}
+
 	var sess tickets.ScanSession
-	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/sessions", map[string]string{"name": "Round 1", "kind": "attendance"}, http.StatusCreated, &sess)
+	admin.DoJSON(t, http.MethodPost, "/api/v1/tickets/sessions", map[string]any{
+		"name":           "Round 1",
+		"kind":           "attendance",
+		"mark_team":      true,
+		"competition_id": compID,
+	}, http.StatusCreated, &sess)
 	if !sess.MarkTeam {
-		t.Fatalf("attendance sessions should mark teams by default: %+v", sess)
+		t.Fatalf("attendance sessions with mark_team should mark teams: %+v", sess)
 	}
 
 	var resp tickets.SessionScanResponse

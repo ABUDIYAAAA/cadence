@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,65 +15,40 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
-type User struct {
-	ID                   string
-	Email                string
-	PasswordHash         *string
-	Name                 string
-	PhoneNumber          *string
-	Role                 string
-	TeamID               *string
-	IsPasswordConfigured bool
-	IsActive             bool
-	TokenVersion         int
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-}
-
-type RefreshToken struct {
-	ID        string
-	UserID    string
-	DeviceID  string
-	TokenHash string
-	FamilyID  string
-	ParentID  *string
-	UserAgent *string
-	IPAddress *string
-	IsRevoked bool
-	ExpiresAt time.Time
-	CreatedAt time.Time
-	RevokedAt *time.Time
-}
-
-type ResetToken struct {
-	ID        string
-	UserID    string
-	TokenHash string
-	Purpose   string
-	ExpiresAt time.Time
-	UsedAt    *time.Time
-	CreatedAt time.Time
+// UserProvisioner encapsulates account provisioning and role updates owned by the users module.
+type UserProvisioner interface {
+	UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultRole string) (*User, error)
+	SetRole(ctx context.Context, userID, role string) error
 }
 
 type Repository struct {
-	db *pgxpool.Pool
+	db          *pgxpool.Pool
+	provisioner UserProvisioner
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
+// WithUserProvisioner configures the users domain seam for OAuth user provisioning and role updates.
+func (r *Repository) WithUserProvisioner(p UserProvisioner) *Repository {
+	if p != nil {
+		r.provisioner = p
+	}
+	return r
+}
+
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, email, password_hash, name, phone_number, role, team_id,
-		       is_password_configured, is_active, token_version, created_at, updated_at
+		SELECT id, email, name, google_id, avatar_url, role, phone_number,
+		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE LOWER(email) = LOWER($1)
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID,
-		&u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
+		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -87,15 +61,15 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) {
 	query := `
-		SELECT id, email, password_hash, name, phone_number, role, team_id,
-		       is_password_configured, is_active, token_version, created_at, updated_at
+		SELECT id, email, name, google_id, avatar_url, role, phone_number,
+		       is_active, token_version, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	var u User
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.PhoneNumber, &u.Role, &u.TeamID,
-		&u.IsPasswordConfigured, &u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
+		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -106,20 +80,75 @@ func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) 
 	return &u, nil
 }
 
-func (r *Repository) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+func (r *Repository) GetUserByGoogleID(ctx context.Context, googleID string) (*User, error) {
 	query := `
-		UPDATE users
-		SET password_hash = $1, is_password_configured = TRUE, token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $2
+		SELECT id, email, name, google_id, avatar_url, role, phone_number,
+		       is_active, token_version, created_at, updated_at
+		FROM users
+		WHERE google_id = $1
 	`
-	tag, err := r.db.Exec(ctx, query, passwordHash, userID)
+	var u User
+	err := r.db.QueryRow(ctx, query, googleID).Scan(
+		&u.ID, &u.Email, &u.Name, &u.GoogleID, &u.AvatarURL, &u.Role, &u.PhoneNumber,
+		&u.IsActive, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt,
+	)
 	if err != nil {
-		return fmt.Errorf("update password: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("get user by google id: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrUserNotFound
+	return &u, nil
+}
+
+// UpsertGoogleUser delegates Google OAuth account provisioning to users.Provisioner.
+// Never overwrites is_active = FALSE (a blacklisted or soft-deleted user remains inactive until restored by an admin/dev).
+func (r *Repository) UpsertGoogleUser(ctx context.Context, googleID, email, name string, avatarURL *string, defaultRole string) (*User, error) {
+	if r.provisioner == nil {
+		return nil, errors.New("user provisioner not configured")
 	}
-	return nil
+	return r.provisioner.UpsertGoogleUser(ctx, googleID, email, name, avatarURL, defaultRole)
+}
+
+// GetUserEvents retrieves all non-banned events and associated roles for a user.
+// Platform devs automatically see all events with 'owner' role unless explicitly assigned another non-banned role.
+func (r *Repository) GetUserEvents(ctx context.Context, userID string) ([]UserEventRole, error) {
+	query := `
+		SELECT e.id, e.slug, e.name, e.logo_url,
+		       (SELECT COUNT(*) FROM user_events ue_c JOIN users u_c ON u_c.id = ue_c.user_id WHERE ue_c.event_id = e.id AND ue_c.is_banned = FALSE AND u_c.deleted_at IS NULL) AS member_count,
+		       COALESCE(ue.role::text, 'owner') AS role
+		FROM events e
+		JOIN users u ON u.id = $1
+		LEFT JOIN user_events ue ON ue.event_id = e.id AND ue.user_id = u.id
+		WHERE (u.role = 'dev' OR ue.user_id IS NOT NULL)
+		  AND COALESCE(ue.is_banned, FALSE) = FALSE
+		ORDER BY e.created_at DESC
+	`
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user events: %w", err)
+	}
+	defer rows.Close()
+
+	evs := make([]UserEventRole, 0)
+	for rows.Next() {
+		var item UserEventRole
+		if err := rows.Scan(&item.EventID, &item.EventSlug, &item.EventName, &item.LogoURL, &item.MemberCount, &item.Role); err != nil {
+			return nil, fmt.Errorf("scan user event: %w", err)
+		}
+		evs = append(evs, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user events: %w", err)
+	}
+	return evs, nil
+}
+
+func (r *Repository) SetRole(ctx context.Context, userID, role string) error {
+	if r.provisioner == nil {
+		return errors.New("user provisioner not configured")
+	}
+	return r.provisioner.SetRole(ctx, userID, role)
 }
 
 func (r *Repository) CreateRefreshToken(ctx context.Context, s *RefreshToken) error {
@@ -193,51 +222,6 @@ func (r *Repository) RevokeAllUserTokens(ctx context.Context, userID string) err
 	_, err := r.db.Exec(ctx, query, userID)
 	if err != nil {
 		return fmt.Errorf("revoke all user tokens: %w", err)
-	}
-	return nil
-}
-
-func (r *Repository) CreateResetToken(ctx context.Context, t *ResetToken) error {
-	query := `
-		INSERT INTO password_reset_tokens (user_id, token_hash, purpose, expires_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at
-	`
-	err := r.db.QueryRow(ctx, query, t.UserID, t.TokenHash, t.Purpose, t.ExpiresAt).Scan(&t.ID, &t.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("insert reset token: %w", err)
-	}
-	return nil
-}
-
-func (r *Repository) GetResetTokenByHash(ctx context.Context, tokenHash, purpose string) (*ResetToken, error) {
-	query := `
-		SELECT id, user_id, token_hash, purpose, expires_at, used_at, created_at
-		FROM password_reset_tokens
-		WHERE token_hash = $1 AND purpose = $2
-	`
-	var t ResetToken
-	err := r.db.QueryRow(ctx, query, tokenHash, purpose).Scan(
-		&t.ID, &t.UserID, &t.TokenHash, &t.Purpose, &t.ExpiresAt, &t.UsedAt, &t.CreatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrTokenNotFound
-		}
-		return nil, fmt.Errorf("get reset token by hash: %w", err)
-	}
-	return &t, nil
-}
-
-func (r *Repository) MarkResetTokenUsed(ctx context.Context, id string) error {
-	query := `
-		UPDATE password_reset_tokens
-		SET used_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
-	_, err := r.db.Exec(ctx, query, id)
-	if err != nil {
-		return fmt.Errorf("mark reset token used: %w", err)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/events"
 	"devclubxnst.com/cadence/pkg/utils"
 )
 
@@ -128,13 +129,18 @@ func (h *Handler) parseFilter(r *http.Request) AuditLogFilter {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
 	filter := AuditLogFilter{
-		Page:       page,
-		Limit:      limit,
-		Action:     q.Get("action"),
-		ActorID:    q.Get("actor_id"),
-		TargetType: q.Get("target_type"),
-		TargetID:   q.Get("target_id"),
-		Search:     q.Get("search"),
+		Page:          page,
+		Limit:         limit,
+		EventID:       q.Get("event_id"),
+		CompetitionID: q.Get("competition_id"),
+		Action:        q.Get("action"),
+		ActorID:       q.Get("actor_id"),
+		TargetType:    q.Get("target_type"),
+		TargetID:      q.Get("target_id"),
+		Search:        q.Get("search"),
+	}
+	if evCtx, ok := events.FromContext(r.Context()); ok && evCtx != nil && evCtx.EventID != "" {
+		filter.EventID = evCtx.EventID
 	}
 
 	if fromStr := q.Get("from_date"); fromStr != "" {

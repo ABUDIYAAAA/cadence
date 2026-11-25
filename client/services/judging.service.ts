@@ -27,7 +27,6 @@ import {
   RoundSummary,
   SubmitScoresRequest,
   TeamStatusResponse,
-  UpdateSlotLinksRequest,
   VolunteerPanelSchedule,
 } from "@/types/judging";
 import { MessageResponse } from "@/types/auth";
@@ -36,17 +35,6 @@ export const judgingService = {
   // Participant
   async getMyTeamStatus(): Promise<TeamStatusResponse> {
     const { data } = await apiClient.get<TeamStatusResponse>("/judging/teams/my-status");
-    return data;
-  },
-
-  async updateSlotLinks(
-    slotId: string,
-    payload: UpdateSlotLinksRequest
-  ): Promise<MessageResponse> {
-    const { data } = await apiClient.patch<MessageResponse>(
-      `/judging/slots/${slotId}/links`,
-      payload
-    );
     return data;
   },
 
@@ -197,14 +185,20 @@ export const judgingService = {
     return data;
   },
 
-  async getSubmissionGate(): Promise<SubmissionGate> {
-    const { data } = await apiClient.get<SubmissionGate>("/judging/submission-gate");
+  async getSubmissionGate(roundId?: string | null): Promise<SubmissionGate> {
+    const { data } = await apiClient.get<SubmissionGate>("/judging/submission-gate", {
+      params: roundId ? { round_id: roundId } : undefined,
+    });
     return data;
   },
 
-  async setSubmissionGate(sessionId: string | null): Promise<SubmissionGate> {
+  async setSubmissionGate(payload: {
+    roundId?: string | null;
+    sessionId: string | null;
+  }): Promise<SubmissionGate> {
     const { data } = await apiClient.put<SubmissionGate>("/judging/submission-gate", {
-      session_id: sessionId,
+      round_id: payload.roundId || undefined,
+      session_id: payload.sessionId,
     });
     return data;
   },

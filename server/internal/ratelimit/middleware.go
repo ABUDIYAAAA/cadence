@@ -129,7 +129,7 @@ func RateLimitMiddleware(
 			// require both a valid signed refresh_token cookie AND a verified signed _did cookie,
 			// and enforce BOTH a refresh-token bucket and a stable refresh-session bucket (keyed by verified device_id)
 			// so token rotation cannot bypass the limit while protecting session renewal from unauthenticated IP floods.
-			if key == "" && r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/refresh" && cookieManager != nil {
+			if key == "" && r.Method == http.MethodPost && (r.URL.Path == "/api/v1/auth/refresh" || r.URL.Path == "/api/v2/auth/refresh") && cookieManager != nil {
 				if refreshStr, err := cookieManager.GetSignedCookie(r, "refresh_token"); err == nil && refreshStr != "" && IsDeviceIDVerified(ctx) {
 					deviceID := GetDeviceID(ctx)
 					if deviceID != "" && deviceID != "anonymous" {

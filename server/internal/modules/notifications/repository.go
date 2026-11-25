@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"devclubxnst.com/cadence/internal/modules/events"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,6 +25,16 @@ type Repository struct {
 
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
+}
+
+func resolveEventID(ctx context.Context) string {
+	if evCtx, ok := events.FromContext(ctx); ok && evCtx != nil && evCtx.EventID != "" {
+		return evCtx.EventID
+	}
+	if ev, ok := events.GetEvent(ctx); ok && ev != nil && ev.ID != "" {
+		return ev.ID
+	}
+	return events.DefaultEventID
 }
 
 // UpsertSubscription inserts or updates a client's push endpoint and cryptographic keys.
@@ -72,48 +83,113 @@ func (r *Repository) DeleteSubscription(ctx context.Context, endpoint string) er
 	return nil
 }
 
-// GetEligibleRecipientIDs resolves target user IDs based on broadcast target type.
+// GetEligibleRecipientIDs resolves target user IDs in the active event based on broadcast target type:
+// - "event" or "broadcast": all non-banned active users in the event
+// - "competition": all non-banned active team members in the specified competition of this event (by competition ID or slug)
+// - "team": all non-banned active members of the specified team in this event
+// - "user": a single non-banned active user in this event
+// - "role": all non-banned active users with the specified event role
+// - "attendance_present" / "attendance_absent": attendees present/absent in the specified scan session
 func (r *Repository) GetEligibleRecipientIDs(ctx context.Context, targetType string, targetID *string) ([]string, error) {
+	eventID := resolveEventID(ctx)
 	var query string
 	var args []any
 
 	switch targetType {
-	case "broadcast":
-		query = `SELECT id::text FROM users WHERE deleted_at IS NULL;`
+	case "event", "broadcast":
+		query = `
+			SELECT u.id::text
+			FROM user_events ue
+			JOIN users u ON u.id = ue.user_id
+			WHERE ue.event_id = $1 AND ue.is_banned = FALSE AND u.deleted_at IS NULL;`
+		args = append(args, eventID)
+	case "competition":
+		if targetID == nil || *targetID == "" {
+			return nil, fmt.Errorf("competition target_id is required")
+		}
+		var compID string
+		err := r.db.QueryRow(ctx, `
+			SELECT id::text
+			FROM competitions
+			WHERE event_id = $1 AND (id::text = $2 OR LOWER(slug) = LOWER($2))
+			LIMIT 1
+		`, eventID, *targetID).Scan(&compID)
+		if err != nil {
+			return nil, fmt.Errorf("competition not found in this event")
+		}
+		query = `
+			SELECT DISTINCT u.id::text
+			FROM team_members tm
+			JOIN users u ON u.id = tm.user_id
+			LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $2
+			WHERE tm.competition_id = $1::uuid
+			  AND COALESCE(ue.is_banned, FALSE) = FALSE
+			  AND u.deleted_at IS NULL;`
+		args = append(args, compID, eventID)
 	case "team":
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("team target_id is required")
 		}
-		query = `SELECT id::text FROM users WHERE team_id = $1 AND deleted_at IS NULL;`
-		args = append(args, *targetID)
+		var exists bool
+		if err := r.db.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM teams t
+				JOIN competitions c ON c.id = t.competition_id
+				WHERE t.id::text = $1 AND c.event_id = $2
+			)
+		`, *targetID, eventID).Scan(&exists); err != nil || !exists {
+			return nil, fmt.Errorf("team not found in this event")
+		}
+		query = `
+			SELECT DISTINCT u.id::text
+			FROM team_members tm
+			JOIN teams t ON t.id = tm.team_id
+			JOIN competitions c ON c.id = t.competition_id
+			JOIN users u ON u.id = tm.user_id
+			LEFT JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = c.event_id
+			WHERE tm.team_id = $1::uuid
+			  AND c.event_id = $2
+			  AND COALESCE(ue.is_banned, FALSE) = FALSE
+			  AND u.deleted_at IS NULL;`
+		args = append(args, *targetID, eventID)
 	case "role":
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("role target_id is required")
 		}
-		query = `SELECT id::text FROM users WHERE role = $1::user_role AND deleted_at IS NULL;`
-		args = append(args, *targetID)
+		query = `
+			SELECT u.id::text
+			FROM user_events ue
+			JOIN users u ON u.id = ue.user_id
+			WHERE ue.event_id = $1 AND ue.role = $2::event_role AND ue.is_banned = FALSE AND u.deleted_at IS NULL;`
+		args = append(args, eventID, *targetID)
 	case "user":
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("user target_id is required")
 		}
-		query = `SELECT id::text FROM users WHERE id = $1 AND deleted_at IS NULL;`
-		args = append(args, *targetID)
+		query = `
+			SELECT u.id::text
+			FROM users u
+			JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $2
+			WHERE u.id::text = $1 AND ue.is_banned = FALSE AND u.deleted_at IS NULL;`
+		args = append(args, *targetID, eventID)
 	case "attendance_present", "attendance_absent":
 		if targetID == nil || *targetID == "" {
 			return nil, fmt.Errorf("attendance session target_id is required")
 		}
-		// Ticket holders are the people an attendance session expects; present = scanned in it.
 		cond := "EXISTS"
 		if targetType == "attendance_absent" {
 			cond = "NOT EXISTS"
 		}
 		query = `
 			SELECT u.id::text FROM users u
-			JOIN tickets t ON t.user_id = u.id
+			JOIN user_events ue ON ue.user_id = u.id AND ue.event_id = $2
+			LEFT JOIN tickets t ON t.user_id = u.id AND t.event_id = $2
 			WHERE u.deleted_at IS NULL
-			  AND EXISTS (SELECT 1 FROM scan_sessions ss WHERE ss.id = $1 AND ss.kind = 'attendance')
-			  AND ` + cond + ` (SELECT 1 FROM scan_events e WHERE e.ticket_id = t.id AND e.session_id = $1);`
-		args = append(args, *targetID)
+			  AND ue.role = 'participant'
+			  AND ue.is_banned = FALSE
+			  AND EXISTS (SELECT 1 FROM scan_sessions ss WHERE ss.id::text = $1 AND ss.event_id = $2)
+			  AND ` + cond + ` (SELECT 1 FROM scan_events e WHERE e.ticket_id = t.id AND e.session_id::text = $1);`
+		args = append(args, *targetID, eventID)
 	default:
 		return nil, fmt.Errorf("unknown target type: %s", targetType)
 	}
@@ -145,6 +221,7 @@ func (r *Repository) CreateNotification(
 	createdBy *string,
 	recipientIDs []string,
 ) (string, error) {
+	eventID := resolveEventID(ctx)
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("begin tx: %w", err)
@@ -153,11 +230,11 @@ func (r *Repository) CreateNotification(
 
 	var notifID string
 	insertNotifQuery := `
-		INSERT INTO notifications (title, body, action_url, icon_url, target_type, target_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO notifications (event_id, title, body, action_url, icon_url, target_type, target_id, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id;
 	`
-	err = tx.QueryRow(ctx, insertNotifQuery, title, body, actionURL, iconURL, targetType, targetID, createdBy).Scan(&notifID)
+	err = tx.QueryRow(ctx, insertNotifQuery, eventID, title, body, actionURL, iconURL, targetType, targetID, createdBy).Scan(&notifID)
 	if err != nil {
 		return "", fmt.Errorf("insert notification: %w", err)
 	}
@@ -208,8 +285,9 @@ func (r *Repository) GetPushSubscriptionsForUsers(ctx context.Context, userIDs [
 	return subs, nil
 }
 
-// GetUserInbox fetches paginated inbox items for the user, plus total and unread counts.
+// GetUserInbox fetches paginated inbox items for the user in the active event, plus total and unread counts.
 func (r *Repository) GetUserInbox(ctx context.Context, userID string, page, limit int) (*InboxResponse, error) {
+	eventID := resolveEventID(ctx)
 	if page <= 0 {
 		page = 1
 	}
@@ -219,13 +297,21 @@ func (r *Repository) GetUserInbox(ctx context.Context, userID string, page, limi
 	offset := (page - 1) * limit
 
 	var unreadCount int
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM notification_recipients WHERE user_id = $1 AND is_read = false;`, userID).Scan(&unreadCount)
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM notification_recipients nr
+		JOIN notifications n ON n.id = nr.notification_id
+		WHERE nr.user_id = $1 AND n.event_id = $2 AND nr.is_read = false;`, userID, eventID).Scan(&unreadCount)
 	if err != nil {
 		return nil, fmt.Errorf("count unread: %w", err)
 	}
 
 	var totalCount int
-	err = r.db.QueryRow(ctx, `SELECT COUNT(*) FROM notification_recipients WHERE user_id = $1;`, userID).Scan(&totalCount)
+	err = r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM notification_recipients nr
+		JOIN notifications n ON n.id = nr.notification_id
+		WHERE nr.user_id = $1 AND n.event_id = $2;`, userID, eventID).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("count total: %w", err)
 	}
@@ -234,11 +320,11 @@ func (r *Repository) GetUserInbox(ctx context.Context, userID string, page, limi
 		SELECT n.id, n.title, n.body, n.action_url, n.icon_url, nr.is_read, nr.read_at, n.created_at
 		FROM notification_recipients nr
 		JOIN notifications n ON n.id = nr.notification_id
-		WHERE nr.user_id = $1
+		WHERE nr.user_id = $1 AND n.event_id = $2
 		ORDER BY n.created_at DESC
-		LIMIT $2 OFFSET $3;
+		LIMIT $3 OFFSET $4;
 	`
-	rows, err := r.db.Query(ctx, query, userID, limit, offset)
+	rows, err := r.db.Query(ctx, query, userID, eventID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("query inbox items: %w", err)
 	}
@@ -280,22 +366,25 @@ func (r *Repository) MarkAsRead(ctx context.Context, userID, notificationID stri
 	return nil
 }
 
-// MarkAllAsRead marks all notifications as read for the user.
+// MarkAllAsRead marks all notifications in the active event as read for the user.
 func (r *Repository) MarkAllAsRead(ctx context.Context, userID string) error {
+	eventID := resolveEventID(ctx)
 	query := `
-		UPDATE notification_recipients
+		UPDATE notification_recipients nr
 		SET is_read = true, read_at = CURRENT_TIMESTAMP
-		WHERE user_id = $1 AND is_read = false;
+		FROM notifications n
+		WHERE nr.notification_id = n.id AND nr.user_id = $1 AND n.event_id = $2 AND nr.is_read = false;
 	`
-	_, err := r.db.Exec(ctx, query, userID)
+	_, err := r.db.Exec(ctx, query, userID, eventID)
 	if err != nil {
 		return fmt.Errorf("mark all notifications as read: %w", err)
 	}
 	return nil
 }
 
-// GetAdminHistory retrieves sent notifications with recipient and read counts.
+// GetAdminHistory retrieves sent notifications in the active event with recipient and read counts.
 func (r *Repository) GetAdminHistory(ctx context.Context, page, limit int) (*AdminHistoryResponse, error) {
+	eventID := resolveEventID(ctx)
 	if page <= 0 {
 		page = 1
 	}
@@ -305,7 +394,7 @@ func (r *Repository) GetAdminHistory(ctx context.Context, page, limit int) (*Adm
 	offset := (page - 1) * limit
 
 	var totalCount int
-	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM notifications;`).Scan(&totalCount); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM notifications WHERE event_id = $1;`, eventID).Scan(&totalCount); err != nil {
 		return nil, fmt.Errorf("count notifications: %w", err)
 	}
 
@@ -319,11 +408,12 @@ func (r *Repository) GetAdminHistory(ctx context.Context, page, limit int) (*Adm
 		FROM notifications n
 		LEFT JOIN users u ON u.id = n.created_by
 		LEFT JOIN notification_recipients nr ON nr.notification_id = n.id
+		WHERE n.event_id = $1
 		GROUP BY n.id, u.email
 		ORDER BY n.created_at DESC
-		LIMIT $1 OFFSET $2;
+		LIMIT $2 OFFSET $3;
 	`
-	rows, err := r.db.Query(ctx, query, limit, offset)
+	rows, err := r.db.Query(ctx, query, eventID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("query admin history: %w", err)
 	}

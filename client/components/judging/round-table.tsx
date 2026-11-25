@@ -58,18 +58,53 @@ export function RoundTable({
 }: RoundTableProps) {
   if (isLoading) {
     return (
-      <div className="space-y-3 font-sans">
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-center space-x-4 py-2">
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/6" />
-            </div>
-          ))}
-        </div>
+      <div className="w-full overflow-x-auto font-sans">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Round Name</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>On deck</TableHead>
+              <TableHead>Time per team</TableHead>
+              <TableHead>Rooms</TableHead>
+              <TableHead>Slots</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <TableRow key={i}>
+                <TableCell>
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3.5 w-36" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-14" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-16" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-12" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-12" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <Skeleton className="h-7 w-7 rounded-[6px]" />
+                    <Skeleton className="h-7 w-7 rounded-[6px]" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     );
   }
@@ -77,8 +112,9 @@ export function RoundTable({
   if (rounds.length === 0) {
     return (
       <EmptyState
-        title="No Judging Rounds Found"
-        description="No judging rounds have been established yet. Click 'Create Judging Round' to configure scoring criteria, rooms, and team allocations."
+        icon={Layers}
+        title="No judging rounds yet"
+        description="Create a judging round to configure scoring criteria, rooms, and team allocations."
       />
     );
   }

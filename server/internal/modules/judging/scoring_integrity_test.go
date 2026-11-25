@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"devclubxnst.com/cadence/internal/modules/competitions"
+	"devclubxnst.com/cadence/internal/modules/events"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -112,11 +114,17 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 	// Seed a judge and a team
 	var judgeID, teamID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.a@cadence.local', 'Judge A', 'judge', true, true)
+		INSERT INTO users (email, name, is_active)
+		VALUES ('judge.a@cadence.local', 'Judge A', true)
 		RETURNING id`,
 	).Scan(&judgeID); err != nil {
 		t.Fatalf("seed judge: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_events (user_id, event_id, role)
+		VALUES ($1, '00000000-0000-0000-0000-000000000001', 'judge')
+		ON CONFLICT (event_id, user_id) DO UPDATE SET role = 'judge'`, judgeID); err != nil {
+		t.Fatalf("seed user event: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO teams (name, join_code) VALUES ('Team Alpha', 'ALPHA001') RETURNING id`,
@@ -341,123 +349,349 @@ func TestScoringIntegrity_ForeignCriteriaAndDatabaseEnforcement(t *testing.T) {
 	})
 }
 
-func TestScoringIntegrity_LegacyDataMigrationAndIsolation(t *testing.T) {
-	// Apply migrations up to 000013 (before 000014 database constraints) to simulate legacy corrupted data
-	pool, _ := newTestJudgingPool(t, 13)
-	// Per-team criteria columns/roster are independent of the teams v2 schema.
-	applyMigrationsRange(t, context.Background(), pool, 17, 18)
+func TestMultiTenantCompetitionIsolationAndSettings(t *testing.T) {
+	pool, _ := newTestJudgingPool(t, 20)
 	repo := NewRepository(pool)
-	ctx := context.Background()
+	svc := NewService(repo, nil)
+	baseCtx := context.Background()
 
-	var judgeID, teamID string
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, is_active, is_password_configured)
-		VALUES ('judge.legacy@cadence.local', 'Judge Legacy', 'judge', true, true)
-		RETURNING id`,
-	).Scan(&judgeID); err != nil {
-		t.Fatalf("seed judge: %v", err)
+	var eventAID, eventBID, compA1ID, compA2ID, compB1ID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO events (slug, name) VALUES ('event-a', 'Event A') RETURNING id`).Scan(&eventAID); err != nil {
+		t.Fatalf("create event A: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO teams (name) VALUES ('Team Legacy') RETURNING id`,
-	).Scan(&teamID); err != nil {
-		t.Fatalf("seed team: %v", err)
+	if err := pool.QueryRow(baseCtx, `INSERT INTO events (slug, name) VALUES ('event-b', 'Event B') RETURNING id`).Scan(&eventBID); err != nil {
+		t.Fatalf("create event B: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-a1', 'Comp A1') RETURNING id`, eventAID).Scan(&compA1ID); err != nil {
+		t.Fatalf("create comp A1: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-a2', 'Comp A2') RETURNING id`, eventAID).Scan(&compA2ID); err != nil {
+		t.Fatalf("create comp A2: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-b1', 'Comp B1') RETURNING id`, eventBID).Scan(&compB1ID); err != nil {
+		t.Fatalf("create comp B1: %v", err)
 	}
 
-	roundAID, err := repo.CreateRound(ctx, CreateRoundRequest{
-		Name:             "Legacy Round A",
+	var judgeID, teamA1ID, teamA2ID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO users (email, name, is_active) VALUES ('judge.multi@cadence.local', 'Judge Multi', true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatalf("create judge: %v", err)
+	}
+	for _, evID := range []string{eventAID, eventBID} {
+		if _, err := pool.Exec(baseCtx, `INSERT INTO user_events (user_id, event_id, role) VALUES ($1, $2, 'judge')`, judgeID, evID); err != nil {
+			t.Fatalf("assign judge to event: %v", err)
+		}
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO teams (competition_id, name, join_code) VALUES ($1, 'Team A1', 'TEAMA1') RETURNING id`, compA1ID).Scan(&teamA1ID); err != nil {
+		t.Fatalf("create team A1: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO teams (competition_id, name, join_code) VALUES ($1, 'Team A2', 'TEAMA2') RETURNING id`, compA2ID).Scan(&teamA2ID); err != nil {
+		t.Fatalf("create team A2: %v", err)
+	}
+
+	ctxCompA1 := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventAID, Slug: "event-a", Name: "Event A", UserID: judgeID, Role: "owner"}),
+		&competitions.Context{CompetitionID: compA1ID, EventID: eventAID, Slug: "comp-a1", Name: "Comp A1", UserID: judgeID, Role: "owner"},
+	)
+	ctxCompA2 := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventAID, Slug: "event-a", Name: "Event A", UserID: judgeID, Role: "owner"}),
+		&competitions.Context{CompetitionID: compA2ID, EventID: eventAID, Slug: "comp-a2", Name: "Comp A2", UserID: judgeID, Role: "owner"},
+	)
+	ctxCompB1 := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventBID, Slug: "event-b", Name: "Event B", UserID: judgeID, Role: "owner"}),
+		&competitions.Context{CompetitionID: compB1ID, EventID: eventBID, Slug: "comp-b1", Name: "Comp B1", UserID: judgeID, Role: "owner"},
+	)
+
+	// Create and activate round in Comp A1
+	roundA1ID, err := repo.CreateRound(ctxCompA1, CreateRoundRequest{
+		Name:             "Round A1",
 		BufferSize:       2,
 		SlotDurationMins: 10,
 		Criteria: []CreateCriteriaRequest{
-			{Name: "Crit A1", MinScore: 0, MaxScore: 10, Weight: 50, OrderIndex: 1},
-			{Name: "Crit A2", MinScore: 0, MaxScore: 10, Weight: 50, OrderIndex: 2},
+			{Name: "Impact", MinScore: 0, MaxScore: 10, Weight: 100, OrderIndex: 1},
 		},
 	})
 	if err != nil {
-		t.Fatalf("create round A: %v", err)
+		t.Fatalf("create round A1: %v", err)
 	}
-	if err := repo.ActivateRound(ctx, roundAID); err != nil {
-		t.Fatalf("activate round A: %v", err)
+	panelA1ID, err := repo.CreatePanel(ctxCompA1, CreatePanelRequest{
+		RoundID:  roundA1ID,
+		Name:     "Panel A1",
+		Room:     "Room A1",
+		JudgeIDs: []string{judgeID},
+	})
+	if err != nil {
+		t.Fatalf("create panel A1: %v", err)
 	}
-	roundACrit, _ := repo.GetRoundCriteria(ctx, roundAID)
+	if err := repo.ConfigureSlots(ctxCompA1, panelA1ID, []SlotAssignment{
+		{TeamID: teamA1ID, SequenceOrder: 1},
+	}, false); err != nil {
+		t.Fatalf("configure slots A1: %v", err)
+	}
+	if err := repo.ActivateRound(ctxCompA1, roundA1ID); err != nil {
+		t.Fatalf("activate round A1: %v", err)
+	}
+	var slotA1ID string
+	if err := pool.QueryRow(baseCtx, `SELECT id FROM judging_slots WHERE panel_id = $1`, panelA1ID).Scan(&slotA1ID); err != nil {
+		t.Fatalf("get slot A1: %v", err)
+	}
 
-	roundBID, err := repo.CreateRound(ctx, CreateRoundRequest{
-		Name:             "Legacy Round B",
+	t.Run("cross-competition and cross-event GetJudgePanels and GetVolunteerSchedule do not leak active rounds", func(t *testing.T) {
+		panelsInA2, err := repo.GetJudgePanels(ctxCompA2, judgeID)
+		if err != nil {
+			t.Fatalf("GetJudgePanels in A2: %v", err)
+		}
+		if len(panelsInA2) != 0 {
+			t.Fatalf("expected 0 judge panels in Comp A2, got %d", len(panelsInA2))
+		}
+		panelsInB1, err := repo.GetJudgePanels(ctxCompB1, judgeID)
+		if err != nil {
+			t.Fatalf("GetJudgePanels in B1: %v", err)
+		}
+		if len(panelsInB1) != 0 {
+			t.Fatalf("expected 0 judge panels in Event B Comp B1, got %d", len(panelsInB1))
+		}
+		schedInB1, err := repo.GetVolunteerSchedule(ctxCompB1, nil)
+		if err != nil {
+			t.Fatalf("GetVolunteerSchedule in B1: %v", err)
+		}
+		if len(schedInB1) != 0 {
+			t.Fatalf("expected 0 volunteer schedule panels in Event B Comp B1, got %d", len(schedInB1))
+		}
+	})
+
+	t.Run("cross-competition access to Round, Panel, Slot returns 404 NotFound errors", func(t *testing.T) {
+		if _, _, _, _, _, err := repo.GetRound(ctxCompA2, roundA1ID); !errors.Is(err, ErrRoundNotFound) {
+			t.Fatalf("expected ErrRoundNotFound for cross-competition GetRound, got %v", err)
+		}
+		if err := repo.EndRound(ctxCompA2, roundA1ID, true); !errors.Is(err, ErrRoundNotFound) {
+			t.Fatalf("expected ErrRoundNotFound for cross-competition EndRound, got %v", err)
+		}
+		if _, err := repo.GetAdminLeaderboard(ctxCompB1, roundA1ID); !errors.Is(err, ErrRoundNotFound) {
+			t.Fatalf("expected ErrRoundNotFound for cross-event GetAdminLeaderboard, got %v", err)
+		}
+		if err := repo.ConfigureSlots(ctxCompA2, panelA1ID, []SlotAssignment{{TeamID: teamA2ID, SequenceOrder: 1}}, false); !errors.Is(err, ErrPanelNotFound) {
+			t.Fatalf("expected ErrPanelNotFound for cross-competition ConfigureSlots, got %v", err)
+		}
+		if err := repo.ConfigureSlots(ctxCompA1, panelA1ID, []SlotAssignment{{TeamID: teamA2ID, SequenceOrder: 2}}, true); !errors.Is(err, ErrUnknownTeam) {
+			t.Fatalf("expected ErrUnknownTeam when slotting a team from Comp A2 into Comp A1, got %v", err)
+		}
+		if err := repo.StartSlot(ctxCompA2, slotA1ID); !errors.Is(err, ErrSlotNotFound) {
+			t.Fatalf("expected ErrSlotNotFound for cross-competition StartSlot, got %v", err)
+		}
+	})
+
+	t.Run("event owner and dev can update slot links without 403 Forbidden", func(t *testing.T) {
+		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "owner", map[string]string{"github": "https://github.com/owner/repo"}); err != nil {
+			t.Fatalf("expected owner to update slot links, got: %v", err)
+		}
+		if err := svc.UpdateSlotLinks(ctxCompA1, slotA1ID, judgeID, "dev", map[string]string{"github": "https://github.com/dev/repo"}); err != nil {
+			t.Fatalf("expected dev to update slot links, got: %v", err)
+		}
+	})
+
+	t.Run("submission_gate_session is isolated per competition within the same event", func(t *testing.T) {
+		var sessID string
+		if err := pool.QueryRow(baseCtx, `INSERT INTO scan_sessions (event_id, name, kind) VALUES ($1, 'Gate A1', 'attendance') RETURNING id`, eventAID).Scan(&sessID); err != nil {
+			t.Fatalf("create scan session: %v", err)
+		}
+		if _, err := repo.SetSubmissionGate(ctxCompA1, "", &sessID, judgeID); err != nil {
+			t.Fatalf("set submission gate on Comp A1: %v", err)
+		}
+		gateA1, err := repo.GetSubmissionGate(ctxCompA1, "")
+		if err != nil || gateA1.SessionID == nil || *gateA1.SessionID != sessID {
+			t.Fatalf("expected Comp A1 gate=%s, got %+v (err=%v)", sessID, gateA1, err)
+		}
+		gateA2, err := repo.GetSubmissionGate(ctxCompA2, "")
+		if err != nil {
+			t.Fatalf("get submission gate on Comp A2: %v", err)
+		}
+		if gateA2.SessionID != nil {
+			t.Fatalf("expected Comp A2 submission gate to remain unset (nil), got %v", *gateA2.SessionID)
+		}
+	})
+}
+
+func TestSubmissionSingleSourceOfTruthAndGateConsistency(t *testing.T) {
+	pool, _ := newTestJudgingPool(t, 20)
+	repo := NewRepository(pool)
+	svc := NewService(repo, nil)
+	baseCtx := context.Background()
+
+	// 1. Verify redundant judging_slots.submission_links column is dropped from the schema
+	var colCount int
+	if err := pool.QueryRow(baseCtx, `
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'judging_slots' AND column_name = 'submission_links'
+	`).Scan(&colCount); err != nil {
+		t.Fatalf("check judging_slots.submission_links column: %v", err)
+	}
+	if colCount != 0 {
+		t.Fatalf("expected judging_slots.submission_links column to be dropped (0 rows), got %d", colCount)
+	}
+
+	var eventID, compID, judgeID, leaderID, teamID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO events (slug, name) VALUES ('ev-sub', 'Event Sub') RETURNING id`).Scan(&eventID); err != nil {
+		t.Fatalf("create event: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO competitions (event_id, slug, name) VALUES ($1, 'comp-sub', 'Comp Sub') RETURNING id`, eventID).Scan(&compID); err != nil {
+		t.Fatalf("create comp: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO users (email, name, is_active) VALUES ('judge.sub@cadence.local', 'Judge Sub', true) RETURNING id`).Scan(&judgeID); err != nil {
+		t.Fatalf("create judge: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO users (email, name, is_active) VALUES ('lead.sub@cadence.local', 'Lead Sub', true) RETURNING id`).Scan(&leaderID); err != nil {
+		t.Fatalf("create leader: %v", err)
+	}
+	if _, err := pool.Exec(baseCtx, `INSERT INTO user_events (user_id, event_id, role) VALUES ($1, $2, 'judge'), ($3, $2, 'participant')`, judgeID, eventID, leaderID); err != nil {
+		t.Fatalf("assign event roles: %v", err)
+	}
+	if err := pool.QueryRow(baseCtx, `INSERT INTO teams (competition_id, name, join_code, leader_id) VALUES ($1, 'Team Sub', 'SUB001', $2) RETURNING id`, compID, leaderID).Scan(&teamID); err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	if _, err := pool.Exec(baseCtx, `INSERT INTO team_members (team_id, user_id, competition_id) VALUES ($1, $2, $3)`, teamID, leaderID, compID); err != nil {
+		t.Fatalf("insert team member: %v", err)
+	}
+
+	ctxComp := competitions.WithCompetitionContext(
+		events.WithEventContext(baseCtx, &events.Context{EventID: eventID, Slug: "ev-sub", Name: "Event Sub", UserID: leaderID, Role: "participant"}),
+		&competitions.Context{CompetitionID: compID, EventID: eventID, Slug: "comp-sub", Name: "Comp Sub", UserID: leaderID, Role: "participant"},
+	)
+
+	roundID, err := repo.CreateRound(ctxComp, CreateRoundRequest{
+		Name:             "Round Sub",
 		BufferSize:       2,
 		SlotDurationMins: 10,
 		Criteria: []CreateCriteriaRequest{
-			{Name: "Foreign Crit B1", MinScore: 0, MaxScore: 10, Weight: 100, OrderIndex: 1},
+			{Name: "Code", MinScore: 0, MaxScore: 10, Weight: 100, OrderIndex: 1},
 		},
 	})
 	if err != nil {
-		t.Fatalf("create round B: %v", err)
+		t.Fatalf("create round: %v", err)
 	}
-	roundBCrit, _ := repo.GetRoundCriteria(ctx, roundBID)
-
-	panelAID, err := repo.CreatePanel(ctx, CreatePanelRequest{
-		RoundID:  roundAID,
-		Name:     "Legacy Panel A",
-		Room:     "Room 202",
+	panelID, err := repo.CreatePanel(ctxComp, CreatePanelRequest{
+		RoundID:  roundID,
+		Name:     "Panel Sub",
+		Room:     "Room 201",
 		JudgeIDs: []string{judgeID},
 	})
 	if err != nil {
 		t.Fatalf("create panel: %v", err)
 	}
-	if err := repo.ConfigureSlots(ctx, panelAID, []SlotAssignment{
-		{TeamID: teamID, SequenceOrder: 1},
+	if err := repo.ConfigureSlots(ctxComp, panelID, []SlotAssignment{
+		{TeamID: teamID, SequenceOrder: 1, SubmissionLinks: map[string]string{"github": "https://github.com/cadence/seeded"}},
 	}, false); err != nil {
 		t.Fatalf("configure slots: %v", err)
 	}
+	// 1b. While the round is still a draft (not published), submissions must remain closed.
+	draftSub, err := svc.GetMySubmission(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetMySubmission (draft): %v", err)
+	}
+	if draftSub.CanSubmit {
+		t.Fatalf("expected CanSubmit=false while round is still draft, got true")
+	}
+
+	if err := repo.ActivateRound(ctxComp, roundID); err != nil {
+		t.Fatalf("activate round: %v", err)
+	}
 	var slotID string
-	if err := pool.QueryRow(ctx, `SELECT id FROM judging_slots WHERE panel_id = $1`, panelAID).Scan(&slotID); err != nil {
-		t.Fatalf("get slot: %v", err)
-	}
-	if err := repo.StartSlot(ctx, slotID); err != nil {
-		t.Fatalf("start slot: %v", err)
+	if err := pool.QueryRow(baseCtx, `SELECT id FROM judging_slots WHERE panel_id = $1`, panelID).Scan(&slotID); err != nil {
+		t.Fatalf("get slot id: %v", err)
 	}
 
-	// Simulate pre-migration legacy state: 1 valid Round A criterion + 1 foreign Round B criterion with score 500
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO judging_scores (slot_id, judge_id, criterion_id, score, is_locked)
-		VALUES ($1, $2, $3, 5, true), ($1, $2, $4, 500, true)`,
-		slotID, judgeID, roundACrit[0].ID, roundBCrit[0].ID,
-	); err != nil {
-		t.Fatalf("insert legacy rows: %v", err)
-	}
-
-	// Even before migration 000014 runs, application queries must ignore the foreign criterion:
-	// 1. CheckAllPanelJudgesLocked must be false (only 1 of 2 Round A criteria is locked)
-	locked, err := repo.CheckAllPanelJudgesLocked(ctx, slotID)
+	// 2. When no attendance gate session is configured on the active round (optional gate),
+	// BOTH GetTeamStatusForUser and GetMySubmission must report CanSubmit == true immediately!
+	statusResp, err := svc.GetTeamStatusForUser(ctxComp, leaderID)
 	if err != nil {
-		t.Fatalf("CheckAllPanelJudgesLocked: %v", err)
+		t.Fatalf("GetTeamStatusForUser: %v", err)
 	}
-	if locked {
-		t.Fatal("expected CheckAllPanelJudgesLocked=false when 2nd criterion is from a foreign round")
-	}
-
-	// 2. Leaderboard must not include the foreign criterion's score (500)
-	lb, err := repo.GetAdminLeaderboard(ctx, roundAID)
+	mySub, err := svc.GetMySubmission(ctxComp, leaderID)
 	if err != nil {
-		t.Fatalf("GetAdminLeaderboard: %v", err)
+		t.Fatalf("GetMySubmission: %v", err)
 	}
-	if len(lb.Leaderboard) != 1 {
-		t.Fatalf("expected 1 leaderboard entry, got %d", len(lb.Leaderboard))
-	}
-	// Only Crit A1 (score 5 / 10 * weight 50 = 25) should be counted, not Foreign Crit B1
-	if lb.Leaderboard[0].TotalWeightedScore != 25 {
-		t.Fatalf("expected TotalWeightedScore=25.00 (ignoring foreign criterion), got %.2f", lb.Leaderboard[0].TotalWeightedScore)
+	if !statusResp.CanSubmit || !mySub.CanSubmit {
+		t.Fatalf("expected both statusResp.CanSubmit and mySub.CanSubmit to be true when no gate session is set; got status=%v (%q), mySub=%v (%q)",
+			statusResp.CanSubmit, statusResp.SubmitBlockedReason, mySub.CanSubmit, mySub.SubmitBlockedReason)
 	}
 
-	// 3. Now apply migration 000014 and verify the foreign row was purged and constraints are active
-	applyMigrationsRange(t, ctx, pool, 14, 14)
-
-	var remainingForeign int
-	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM judging_scores WHERE slot_id = $1 AND criterion_id = $2`,
-		slotID, roundBCrit[0].ID,
-	).Scan(&remainingForeign); err != nil {
-		t.Fatalf("count remaining foreign rows: %v", err)
+	// 2b. Once an optional attendance gate IS set on the active round, an unscanned team is blocked
+	// consistently across both GetTeamStatusForUser and GetMySubmission.
+	var gateSessID string
+	if err := pool.QueryRow(baseCtx, `INSERT INTO scan_sessions (event_id, name, kind) VALUES ($1, 'Night 1 Gate', 'attendance') RETURNING id`, eventID).Scan(&gateSessID); err != nil {
+		t.Fatalf("create gate scan session: %v", err)
 	}
-	if remainingForeign != 0 {
-		t.Fatalf("expected migration 000014 to purge foreign score row, found %d", remainingForeign)
+	if _, err := repo.SetSubmissionGate(ctxComp, roundID, &gateSessID, judgeID); err != nil {
+		t.Fatalf("set round submission gate: %v", err)
+	}
+	statusBlocked, err := svc.GetTeamStatusForUser(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetTeamStatusForUser (gated): %v", err)
+	}
+	mySubBlocked, err := svc.GetMySubmission(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetMySubmission (gated): %v", err)
+	}
+	if statusBlocked.CanSubmit || mySubBlocked.CanSubmit {
+		t.Fatalf("expected both CanSubmit=false when round gate is set and team not scanned; got status=%v, mySub=%v", statusBlocked.CanSubmit, mySubBlocked.CanSubmit)
+	}
+	if statusBlocked.SubmitBlockedReason == "" || statusBlocked.SubmitBlockedReason != mySubBlocked.SubmitBlockedReason {
+		t.Fatalf("expected identical non-empty SubmitBlockedReason, got status=%q vs mySub=%q",
+			statusBlocked.SubmitBlockedReason, mySubBlocked.SubmitBlockedReason)
+	}
+	// Clearing the gate re-opens submissions immediately.
+	if _, err := repo.SetSubmissionGate(ctxComp, roundID, nil, judgeID); err != nil {
+		t.Fatalf("clear round submission gate: %v", err)
+	}
+
+	// 3. Updating slot links via UpdateSlotLinks (as admin) writes to teams and is immediately reflected in:
+	//    - GetMySubmission
+	//    - ListSubmissions (CSV export)
+	//    - GetJudgeSlotDetails
+	//    - GetVolunteerSchedule
+	//    - GetTeamStatusForUser
+	if err := svc.UpdateSlotLinks(ctxComp, slotID, judgeID, "admin", map[string]string{
+		"project_name": "Unified Project",
+		"github":       "https://github.com/cadence/unified-repo",
+		"demo":         "https://demo.cadence.local",
+		"arbitrary":    "https://ignored.invalid",
+	}); err != nil {
+		t.Fatalf("UpdateSlotLinks: %v", err)
+	}
+
+	mySubAfter, err := svc.GetMySubmission(ctxComp, leaderID)
+	if err != nil {
+		t.Fatalf("GetMySubmission after UpdateSlotLinks: %v", err)
+	}
+	if mySubAfter.ProjectName != "Unified Project" || mySubAfter.Links["github"] != "https://github.com/cadence/unified-repo" || mySubAfter.Links["demo"] != "https://demo.cadence.local" {
+		t.Fatalf("expected GetMySubmission to reflect UpdateSlotLinks on teams table, got %+v", mySubAfter)
+	}
+	if _, hasArbitrary := mySubAfter.Links["arbitrary"]; hasArbitrary {
+		t.Fatalf("expected UpdateSlotLinks to filter out disallowed link keys, got %+v", mySubAfter.Links)
+	}
+
+	exportResp, err := svc.ListSubmissions(ctxComp)
+	if err != nil {
+		t.Fatalf("ListSubmissions: %v", err)
+	}
+	if len(exportResp.Submissions) != 1 || exportResp.Submissions[0].ProjectName != "Unified Project" || exportResp.Submissions[0].Repository != "https://github.com/cadence/unified-repo" {
+		t.Fatalf("expected ListSubmissions CSV export to reflect UpdateSlotLinks, got %+v", exportResp.Submissions)
+	}
+
+	slotDetails, err := svc.GetJudgeSlotDetails(ctxComp, slotID, judgeID)
+	if err != nil {
+		t.Fatalf("GetJudgeSlotDetails: %v", err)
+	}
+	if slotDetails.SubmissionLinks["github"] != "https://github.com/cadence/unified-repo" || slotDetails.SubmissionLinks["project_name"] != "Unified Project" {
+		t.Fatalf("expected GetJudgeSlotDetails to join submission_links from teams, got %+v", slotDetails.SubmissionLinks)
+	}
+
+	volSched, err := svc.GetVolunteerSchedule(ctxComp, nil)
+	if err != nil || len(volSched) != 1 || len(volSched[0].QueuedTeams) != 1 {
+		t.Fatalf("GetVolunteerSchedule: err=%v sched=%+v", err, volSched)
+	}
+	if volSched[0].QueuedTeams[0].SubmissionLinks["github"] != "https://github.com/cadence/unified-repo" || volSched[0].QueuedTeams[0].SubmissionLinks["project_name"] != "Unified Project" {
+		t.Fatalf("expected GetVolunteerSchedule to join submission_links from teams, got %+v", volSched[0].QueuedTeams[0].SubmissionLinks)
 	}
 }
+

@@ -30,10 +30,23 @@ func GetCompetition(ctx context.Context) (*Competition, bool) {
 	return c, ok
 }
 
+type competitionResolver interface {
+	GetCompetitionBySlug(ctx context.Context, eventID, slug string) (*Competition, error)
+	GetMemberRole(ctx context.Context, compID, userID string) (role string, isBanned bool, err error)
+}
+
 // ResolveCompetition middleware extracts the competitionSlug path parameter within an event context,
-// verifies the competition exists in that event (using Redis cache with DB fallback), and binds both
-// Competition and CompetitionContext (inheriting the caller's validated role from EventContext).
+// verifies the competition exists in that event (using Redis cache with DB fallback), enforces
+// competition_members ban status and role overrides, and binds both Competition and CompetitionContext.
 func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) http.Handler {
+	var resolver competitionResolver
+	if repo != nil {
+		resolver = repo
+	}
+	return resolveCompetitionWithStore(resolver, rdb)
+}
+
+func resolveCompetitionWithStore(store competitionResolver, rdb *redis.Client) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			slug := chi.URLParam(r, "competitionSlug")
@@ -44,6 +57,7 @@ func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) 
 
 			var eventID string
 			var userID, role string
+			var isDev bool
 			if evCtx, ok := events.FromContext(r.Context()); ok && evCtx != nil {
 				eventID = evCtx.EventID
 				userID = evCtx.UserID
@@ -55,70 +69,79 @@ func ResolveCompetition(repo *Repository, rdb *redis.Client) func(http.Handler) 
 				if userID == "" {
 					userID = claims.UserID
 				}
-				if role == "" {
-					if claims.Role == "dev" {
-						role = "owner"
-					} else {
-						role = claims.Role
-					}
+				if claims.Role == "dev" {
+					isDev = true
+					role = "owner"
+				} else if role == "" {
+					role = claims.Role
 				}
 			}
 
-			// If competition is already present in context matching the slug, ensure CompetitionContext is set and pass through
-			if existing, ok := GetCompetition(r.Context()); ok && existing != nil && existing.Slug == slug && (eventID == "" || existing.EventID == eventID) {
-				ctx := r.Context()
-				if _, hasCompCtx := FromContext(ctx); !hasCompCtx && userID != "" {
-					ctx = WithCompetitionContext(ctx, &Context{
-						CompetitionID: existing.ID,
-						EventID:       existing.EventID,
-						Slug:          existing.Slug,
-						Name:          existing.Name,
-						UserID:        userID,
-						Role:          role,
-					})
-				}
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-
-			if eventID == "" {
-				eventID = events.DefaultEventID
-			}
-
-			cacheKey := fmt.Sprintf("event:%s:comp:slug:%s", eventID, slug)
+			// Resolve Competition entity (context fast-path -> Redis cache -> Postgres)
 			var comp *Competition
-
-			// 1. Check Redis cache (<1ms)
-			if rdb != nil {
-				if cached, err := rdb.Get(r.Context(), cacheKey).Bytes(); err == nil && len(cached) > 0 {
-					var c Competition
-					if err := json.Unmarshal(cached, &c); err == nil {
-						comp = &c
-					}
-				}
+			if existing, ok := GetCompetition(r.Context()); ok && existing != nil && existing.Slug == slug && (eventID == "" || existing.EventID == eventID) {
+				comp = existing
 			}
 
-			// 2. Query Postgres on cache miss
 			if comp == nil {
-				if repo == nil {
-					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
-					return
+				if eventID == "" {
+					eventID = events.DefaultEventID
 				}
-				dbComp, err := repo.GetCompetitionBySlug(r.Context(), eventID, slug)
-				if err != nil {
-					if errors.Is(err, ErrCompetitionNotFound) {
-						utils.ErrorJSON(w, http.StatusNotFound, fmt.Sprintf("competition '%s' not found in this event", slug))
+				cacheKey := fmt.Sprintf("event:%s:comp:slug:%s", eventID, slug)
+
+				// 1. Check Redis cache (<1ms)
+				if rdb != nil {
+					if cached, err := rdb.Get(r.Context(), cacheKey).Bytes(); err == nil && len(cached) > 0 {
+						var c Competition
+						if err := json.Unmarshal(cached, &c); err == nil {
+							comp = &c
+						}
+					}
+				}
+
+				// 2. Query Postgres on cache miss
+				if comp == nil {
+					if store == nil {
+						utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
 						return
 					}
-					utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
-					return
-				}
-				comp = dbComp
+					dbComp, err := store.GetCompetitionBySlug(r.Context(), eventID, slug)
+					if err != nil {
+						if errors.Is(err, ErrCompetitionNotFound) {
+							utils.ErrorJSON(w, http.StatusNotFound, fmt.Sprintf("competition '%s' not found in this event", slug))
+							return
+						}
+						utils.ErrorJSON(w, http.StatusInternalServerError, "failed to resolve competition")
+						return
+					}
+					comp = dbComp
 
-				// 3. Cache in Redis (1h TTL)
-				if rdb != nil {
-					if data, err := json.Marshal(comp); err == nil {
-						_ = rdb.Set(r.Context(), cacheKey, data, time.Hour)
+					// 3. Cache in Redis (1h TTL)
+					if rdb != nil {
+						if data, err := json.Marshal(comp); err == nil {
+							_ = rdb.Set(r.Context(), cacheKey, data, time.Hour)
+						}
+					}
+				}
+			}
+
+			// Resolve explicit competition_members role and ban status (unless platform dev).
+			// If a membership row exists, its ban status and role take precedence over the event role.
+			if userID != "" && !isDev && store != nil {
+				memberRole, isBanned, err := store.GetMemberRole(r.Context(), comp.ID, userID)
+				if err != nil {
+					if !errors.Is(err, ErrMemberNotFound) {
+						utils.ErrorJSON(w, http.StatusInternalServerError, "failed to verify competition membership")
+						return
+					}
+					// No explicit competition_members row: fall back to the caller's event role.
+				} else {
+					if isBanned {
+						utils.ErrorJSON(w, http.StatusForbidden, "you are banned from this competition")
+						return
+					}
+					if memberRole != "" {
+						role = memberRole
 					}
 				}
 			}

@@ -117,6 +117,113 @@ func TestRequireCompetitionRoles(t *testing.T) {
 	})
 }
 
+type stubCompetitionResolver struct {
+	comps   map[string]*Competition
+	members map[string]struct {
+		role   string
+		banned bool
+	}
+}
+
+func (s *stubCompetitionResolver) GetCompetitionBySlug(_ context.Context, eventID, slug string) (*Competition, error) {
+	c, ok := s.comps[eventID+":"+slug]
+	if !ok {
+		return nil, ErrCompetitionNotFound
+	}
+	return c, nil
+}
+
+func (s *stubCompetitionResolver) GetMemberRole(_ context.Context, compID, userID string) (string, bool, error) {
+	m, ok := s.members[compID+":"+userID]
+	if !ok {
+		return "", false, ErrMemberNotFound
+	}
+	return m.role, m.banned, nil
+}
+
+func TestResolveCompetitionEnforcesMembershipRoleAndBan(t *testing.T) {
+	store := &stubCompetitionResolver{
+		comps: map[string]*Competition{
+			"ev-1:comp-a": {ID: "comp-a-id", EventID: "ev-1", Slug: "comp-a", Name: "Comp A"},
+		},
+		members: map[string]struct {
+			role   string
+			banned bool
+		}{
+			"comp-a-id:user-banned": {role: "participant", banned: true},
+			"comp-a-id:user-judge":  {role: "judge", banned: false},
+		},
+	}
+
+	r := chi.NewRouter()
+	r.Route("/c/{competitionSlug}", func(r chi.Router) {
+		r.Use(resolveCompetitionWithStore(store, nil))
+		r.With(RequireCompetitionRoles("participant")).Get("/team-route", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		r.With(auth.RequireRoles("judge")).Get("/judge-route", func(w http.ResponseWriter, r *http.Request) {
+			compCtx, _ := FromContext(r.Context())
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(compCtx.Role))
+		})
+	})
+
+	doReq := func(path, userID, eventRole, platformRole string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		ctx := auth.WithUserClaims(req.Context(), &utils.AccessTokenClaims{
+			UserID: userID,
+			Email:  userID + "@cadence.local",
+			Role:   platformRole,
+		})
+		ctx = events.WithEventContext(ctx, &events.Context{
+			EventID: "ev-1",
+			Slug:    "fest-2026",
+			UserID:  userID,
+			Role:    eventRole,
+		})
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req.WithContext(ctx))
+		return rec
+	}
+
+	t.Run("competition-banned event participant is blocked with 403", func(t *testing.T) {
+		rec := doReq("/c/comp-a/team-route", "user-banned", "participant", "user")
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 for competition-banned user, got %d (%s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("competition-specific judge role overrides event participant role on judging and team routes", func(t *testing.T) {
+		rec := doReq("/c/comp-a/judge-route", "user-judge", "participant", "user")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 on judge route for competition judge, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if rec.Body.String() != "judge" {
+			t.Fatalf("expected resolved role 'judge', got %q", rec.Body.String())
+		}
+
+		// No longer allowed on participant-only team route in this competition.
+		recTeam := doReq("/c/comp-a/team-route", "user-judge", "participant", "user")
+		if recTeam.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 on participant-only team route for competition judge, got %d", recTeam.Code)
+		}
+	})
+
+	t.Run("user without explicit competition_members row falls back to event role", func(t *testing.T) {
+		rec := doReq("/c/comp-a/team-route", "user-plain", "participant", "user")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 via event role fallback, got %d (%s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("platform dev bypasses competition ban", func(t *testing.T) {
+		rec := doReq("/c/comp-a/team-route", "user-banned", "owner", "dev")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for platform dev bypass, got %d (%s)", rec.Code, rec.Body.String())
+		}
+	})
+}
+
 func TestSlugRegexValidation(t *testing.T) {
 	validSlugs := []string{
 		"hack-2026",

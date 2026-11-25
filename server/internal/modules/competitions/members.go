@@ -405,6 +405,25 @@ func (r *Repository) BanCompetitionMember(ctx context.Context, compID, actorRole
 	return nil
 }
 
+// GetMemberRole returns the user's explicit competition membership role and ban flag.
+// Returns ErrMemberNotFound when the user has no explicit row in competition_members.
+func (r *Repository) GetMemberRole(ctx context.Context, compID, userID string) (string, bool, error) {
+	var role string
+	var isBanned bool
+	err := r.db.QueryRow(ctx, `
+		SELECT role::text, is_banned
+		FROM competition_members
+		WHERE competition_id = $1 AND user_id = $2
+	`, compID, userID).Scan(&role, &isBanned)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, ErrMemberNotFound
+		}
+		return "", false, fmt.Errorf("get competition member role: %w", err)
+	}
+	return role, isBanned, nil
+}
+
 // UnbanCompetitionMember clears the ban flag on a competition member.
 func (r *Repository) UnbanCompetitionMember(ctx context.Context, compID, targetUserID string) error {
 	tag, err := r.db.Exec(ctx, `

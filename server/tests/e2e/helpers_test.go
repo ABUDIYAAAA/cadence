@@ -312,8 +312,10 @@ func CreateTestCompetition(t *testing.T, admin *Actor, slug, name string) compet
 	t.Helper()
 	var comp competitions.Competition
 	admin.DoJSON(t, http.MethodPost, fmt.Sprintf("/api/v2/e/%s/competitions", admin.EventSlug), map[string]any{
-		"slug": slug,
-		"name": name,
+		"slug":          slug,
+		"name":          name,
+		"min_team_size": 1,
+		"max_team_size": 4,
 	}, http.StatusCreated, &comp)
 	setActiveCompetitionSlug(comp.Slug)
 	admin.CompetitionSlug = comp.Slug

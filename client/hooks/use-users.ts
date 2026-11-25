@@ -1,6 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { resolveEventUserFilters } from "@/lib/competition-utils";
 import { useTenant } from "@/providers/tenant-provider";
 import { usersService } from "@/services/users.service";
@@ -29,6 +34,7 @@ export function useUsers(
     queryKey: [...USERS_QUERY_KEY, "list", eventSlug, effectiveFilters],
     queryFn: () => usersService.list(effectiveFilters),
     enabled: options?.enabled ?? true,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -40,6 +46,7 @@ export function usePlatformUsers(
     queryKey: [...USERS_QUERY_KEY, "platform", filters],
     queryFn: () => usersService.listPlatform(filters),
     enabled: options?.enabled ?? true,
+    placeholderData: keepPreviousData,
   });
 }
 

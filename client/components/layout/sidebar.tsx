@@ -37,20 +37,27 @@ interface NavItem {
 	external?: boolean;
 }
 
-// Fixed geometry so one indicator can glide between rows with a single transform.
+interface NavGroup {
+	label?: string;
+	items: NavItem[];
+}
+
+// Fixed geometry so one indicator can glide smoothly across groups with a single transform.
 const ITEM_H = 44;
 const ITEM_GAP = 4;
+const GROUP_HEADER_H = 28;
+const GROUP_GAP = 8;
 const EASE_DRAWER = 'ease-[cubic-bezier(0.32,0.72,0,1)]';
 
 interface NavListProps {
-	items: NavItem[];
-	activeIndex: number;
+	groups: NavGroup[];
+	activeHref: string | null;
 	/** Labels always visible (mobile drawer). Otherwise revealed by rail hover/focus. */
 	pinned?: boolean;
 	onNavigate?: () => void;
 }
 
-function NavList({ items, activeIndex, pinned, onNavigate }: NavListProps) {
+function NavList({ groups, activeHref, pinned, onNavigate }: NavListProps) {
 	const labelCls = cn(
 		'whitespace-nowrap text-[13px] transition-opacity duration-200 motion-reduce:transition-none',
 		pinned
@@ -58,11 +65,21 @@ function NavList({ items, activeIndex, pinned, onNavigate }: NavListProps) {
 			: 'opacity-0 group-hover/rail:opacity-100 group-has-[:focus-visible]/rail:opacity-100',
 	);
 
+	let cursorY = 0;
+	let activeY: number | null = null;
+	for (let g = 0; g < groups.length; g++) {
+		if (g > 0) cursorY += GROUP_GAP;
+		if (groups[g].label) cursorY += GROUP_HEADER_H;
+		for (let i = 0; i < groups[g].items.length; i++) {
+			if (groups[g].items[i].href === activeHref) {
+				activeY = cursorY;
+			}
+			cursorY += ITEM_H + (i < groups[g].items.length - 1 ? ITEM_GAP : 0);
+		}
+	}
+
 	return (
-		<nav
-			className='relative flex flex-col'
-			style={{ gap: ITEM_GAP }}
-			aria-label='Primary'>
+		<nav className='relative flex flex-col' aria-label='Primary'>
 			{/* Single gliding indicator */}
 			<span
 				aria-hidden='true'
@@ -70,73 +87,103 @@ function NavList({ items, activeIndex, pinned, onNavigate }: NavListProps) {
 					'absolute left-0 top-0 w-full rounded-[14px] bg-[var(--color-dark)] shadow-[0_6px_16px_-6px_rgba(10,14,24,0.45)]',
 					'transition-[transform,opacity] duration-300 motion-reduce:transition-none',
 					EASE_DRAWER,
-					activeIndex < 0 ? 'opacity-0' : 'opacity-100',
+					activeY === null ? 'opacity-0' : 'opacity-100',
 				)}
 				style={{
 					height: ITEM_H,
-					transform: `translateY(${Math.max(activeIndex, 0) * (ITEM_H + ITEM_GAP)}px)`,
+					transform: `translateY(${activeY ?? 0}px)`,
 				}}
 			/>
 
-			{items.map((item, i) => {
-				const active = i === activeIndex;
-				const Icon = item.icon;
-				const base = cn(
-					'relative z-10 flex items-center rounded-[14px] outline-none',
-					'focus-visible:ring-2 focus-visible:ring-[var(--color-blue)] focus-visible:ring-offset-0',
-					'transition-[color,background-color,transform] duration-150 active:scale-[0.97]',
-					active
-						? 'text-[var(--ink-inverse)]'
-						: 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)]',
-				);
-
-				const inner = (
-					<>
-						<span
-							className='grid place-items-center shrink-0'
-							style={{ width: ITEM_H, height: ITEM_H }}>
-							<Icon className='h-[18px] w-[18px]' />
-						</span>
-						<span
-							className={cn(
-								labelCls,
-								active ? 'font-semibold' : 'font-medium',
-							)}>
-							{item.label}
-						</span>
-						{item.external && (
-							<ArrowUpRight
+			{groups.map((group, groupIdx) => (
+				<div
+					key={group.label ?? `group-${groupIdx}`}
+					style={groupIdx > 0 ? { marginTop: GROUP_GAP } : undefined}>
+					{group.label && (
+						<div
+							className='relative flex items-center'
+							style={{ height: GROUP_HEADER_H }}>
+							{!pinned && (
+								<span
+									aria-hidden='true'
+									className='absolute left-1/2 -translate-x-1/2 h-px w-6 bg-[var(--card-line)] transition-opacity duration-200 opacity-100 group-hover/rail:opacity-0 group-has-[:focus-visible]/rail:opacity-0 motion-reduce:transition-none'
+								/>
+							)}
+							<span
 								className={cn(
-									'ml-auto mr-3 h-3.5 w-3.5 shrink-0',
-									labelCls,
-								)}
-							/>
-						)}
-					</>
-				);
+									'px-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-tertiary)] whitespace-nowrap transition-opacity duration-200 motion-reduce:transition-none',
+									pinned
+										? 'opacity-100'
+										: 'opacity-0 group-hover/rail:opacity-100 group-has-[:focus-visible]/rail:opacity-100',
+								)}>
+								{group.label}
+							</span>
+						</div>
+					)}
 
-				return item.external ? (
-					<a
-						key={item.href}
-						href={item.href}
-						target='_blank'
-						rel='noopener noreferrer'
-						className={base}
-						style={{ height: ITEM_H }}>
-						{inner}
-					</a>
-				) : (
-					<Link
-						key={item.href}
-						href={item.href}
-						onClick={onNavigate}
-						aria-current={active ? 'page' : undefined}
-						className={base}
-						style={{ height: ITEM_H }}>
-						{inner}
-					</Link>
-				);
-			})}
+					<div className='flex flex-col' style={{ gap: ITEM_GAP }}>
+						{group.items.map((item) => {
+							const active = item.href === activeHref;
+							const Icon = item.icon;
+							const base = cn(
+								'relative z-10 flex items-center rounded-[14px] outline-none',
+								'focus-visible:ring-2 focus-visible:ring-[var(--color-blue)] focus-visible:ring-offset-0',
+								'transition-[color,background-color,transform] duration-150 active:scale-[0.97]',
+								active
+									? 'text-[var(--ink-inverse)]'
+									: 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--card-solid-subtle)]',
+							);
+
+							const inner = (
+								<>
+									<span
+										className='grid place-items-center shrink-0'
+										style={{ width: ITEM_H, height: ITEM_H }}>
+										<Icon className='h-[18px] w-[18px]' />
+									</span>
+									<span
+										className={cn(
+											labelCls,
+											active ? 'font-semibold' : 'font-medium',
+										)}>
+										{item.label}
+									</span>
+									{item.external && (
+										<ArrowUpRight
+											className={cn(
+												'ml-auto mr-3 h-3.5 w-3.5 shrink-0',
+												labelCls,
+											)}
+										/>
+									)}
+								</>
+							);
+
+							return item.external ? (
+								<a
+									key={item.href}
+									href={item.href}
+									target='_blank'
+									rel='noopener noreferrer'
+									className={base}
+									style={{ height: ITEM_H }}>
+									{inner}
+								</a>
+							) : (
+								<Link
+									key={item.href}
+									href={item.href}
+									onClick={onNavigate}
+									aria-current={active ? 'page' : undefined}
+									className={base}
+									style={{ height: ITEM_H }}>
+									{inner}
+								</Link>
+							);
+						})}
+					</div>
+				</div>
+			))}
 		</nav>
 	);
 }
@@ -359,7 +406,9 @@ export function Sidebar() {
 		return () => window.removeEventListener('keydown', onKey);
 	}, [isOpenMobile]);
 
-	const isPlatformDevMode = isDev && !eventSlug;
+	const isPlatformDevMode =
+		isDev &&
+		(!eventSlug || pathname === '/events' || pathname === '/dashboard/dev');
 	const effectiveRole = isPlatformDevMode
 		? 'dev'
 		: (authEffectiveRole ?? role ?? user?.role);
@@ -369,74 +418,107 @@ export function Sidebar() {
 		? getDashboardRoute(effectiveRole)
 		: '/dashboard';
 
-	const devNavItems: NavItem[] = [
-		{ label: 'Overview', href: '/dashboard/dev', icon: LayoutDashboard },
-		{ label: 'Global users', href: '/dashboard/users', icon: Users },
-		{ label: 'Events', href: '/events', icon: Calendar },
-		{ label: 'Audit log', href: '/dashboard/audit', icon: FileText },
+	const devNavGroups: NavGroup[] = [
 		{
-			label: 'Metrics',
-			href: 'https://grafana.cadence.devclubxnst.com/',
-			icon: Activity,
-			external: true,
+			items: [
+				{ label: 'Overview', href: '/dashboard/dev', icon: LayoutDashboard },
+			],
+		},
+		{
+			label: 'Platform',
+			items: [
+				{ label: 'Events', href: '/events', icon: Calendar },
+				{ label: 'Global users', href: '/dashboard/users', icon: Users },
+			],
+		},
+		{
+			label: 'Operations',
+			items: [
+				{ label: 'Audit log', href: '/dashboard/audit', icon: FileText },
+				{
+					label: 'Metrics',
+					href: 'https://grafana.cadence.devclubxnst.com/',
+					icon: Activity,
+					external: true,
+				},
+			],
 		},
 	];
 
-	const allNavItems: NavItem[] = [
-		{ label: 'Overview', href: dashboardHref, icon: LayoutDashboard },
+	const eventNavGroups: NavGroup[] = [
 		{
-			label: 'Competitions',
-			href: '/dashboard/competitions',
-			icon: Trophy,
-			roles: ['owner', 'admin', 'volunteer', 'judge', 'participant'],
+			items: [
+				{ label: 'Overview', href: dashboardHref, icon: LayoutDashboard },
+			],
 		},
 		{
-			label: 'Users',
-			href: '/dashboard/users',
-			icon: Users,
-			roles: ['owner', 'admin', 'volunteer'],
+			label: 'Competition',
+			items: [
+				{
+					label: 'Competitions',
+					href: '/dashboard/competitions',
+					icon: Trophy,
+					roles: ['owner', 'admin', 'volunteer', 'judge', 'participant'],
+				},
+				{
+					label: 'Teams',
+					href: '/dashboard/teams',
+					icon: Layers,
+					roles: ['owner', 'admin', 'volunteer', 'judge'],
+				},
+				{
+					label: 'Judging',
+					href: '/dashboard/judging',
+					icon: Award,
+					roles: ['owner', 'admin', 'judge', 'volunteer', 'participant'],
+				},
+			],
 		},
 		{
-			label: 'Teams',
-			href: '/dashboard/teams',
-			icon: Layers,
-			roles: ['owner', 'admin', 'volunteer', 'judge'],
-		},
-		{
-			label: 'Broadcasts',
-			href: '/dashboard/admin/notifications',
-			icon: Bell,
-			roles: ['owner', 'admin'],
-		},
-		{
-			label: 'Judging',
-			href: '/dashboard/judging',
-			icon: Award,
-			roles: ['owner', 'admin', 'judge', 'volunteer', 'participant'],
-		},
-		{
-			label: 'Tickets',
-			href: '/dashboard/tickets',
-			icon: Ticket,
-			roles: ['owner', 'admin', 'volunteer', 'participant'],
-		},
-		{
-			label: 'Audit log',
-			href: '/dashboard/audit',
-			icon: FileText,
-			roles: ['owner', 'admin'],
+			label: 'Event',
+			items: [
+				{
+					label: 'Users',
+					href: '/dashboard/users',
+					icon: Users,
+					roles: ['owner', 'admin', 'volunteer'],
+				},
+				{
+					label: 'Tickets',
+					href: '/dashboard/tickets',
+					icon: Ticket,
+					roles: ['owner', 'admin', 'volunteer', 'participant'],
+				},
+				{
+					label: 'Broadcasts',
+					href: '/dashboard/admin/notifications',
+					icon: Bell,
+					roles: ['owner', 'admin'],
+				},
+				{
+					label: 'Audit log',
+					href: '/dashboard/audit',
+					icon: FileText,
+					roles: ['owner', 'admin'],
+				},
+			],
 		},
 	];
 
-	const visibleNavItems = isPlatformDevMode
-		? devNavItems
-		: allNavItems.filter(
-				(item) =>
-					!item.roles ||
-					isDev ||
-					(effectiveRole && item.roles.includes(effectiveRole)) ||
-					(isAdmin && item.roles.includes('admin')),
-			);
+	const visibleNavGroups: NavGroup[] = isPlatformDevMode
+		? devNavGroups
+		: eventNavGroups
+				.map((group) => ({
+					...group,
+					items: group.items.filter(
+						(item) =>
+							!item.roles ||
+							isDev ||
+							(effectiveRole && item.roles.includes(effectiveRole)) ||
+							(isAdmin && item.roles.includes('admin')),
+					),
+				}))
+				.filter((group) => group.items.length > 0);
 
 	const isActive = (item: NavItem) => {
 		if (item.external) return false;
@@ -444,7 +526,8 @@ export function Sidebar() {
 			return pathname === item.href;
 		return pathname.startsWith(item.href);
 	};
-	const activeIndex = visibleNavItems.findIndex(isActive);
+	const activeHref =
+		visibleNavGroups.flatMap((g) => g.items).find(isActive)?.href ?? null;
 
 	return (
 		<>
@@ -487,8 +570,8 @@ export function Sidebar() {
 						isOpenMobile ? 'translate-x-0' : '-translate-x-full',
 					)}>
 					<NavList
-						items={visibleNavItems}
-						activeIndex={activeIndex}
+						groups={visibleNavGroups}
+						activeHref={activeHref}
 						pinned
 						onNavigate={() => setIsOpenMobile(false)}
 					/>
@@ -519,8 +602,8 @@ export function Sidebar() {
 						isUserMenuOpen && 'w-[232px] shadow-[12px_0_32px_-16px_rgba(10,14,24,0.25)]',
 					)}>
 					<NavList
-						items={visibleNavItems}
-						activeIndex={activeIndex}
+						groups={visibleNavGroups}
+						activeHref={activeHref}
 						pinned={isUserMenuOpen}
 					/>
 					{user && (

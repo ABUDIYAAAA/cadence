@@ -42,7 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
 import { Alert } from "@/components/ui/alert";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { AdminTablePageSkeleton, Skeleton } from "@/components/ui/skeleton";
 import {
   UserFilters,
   UserTable,
@@ -93,6 +93,8 @@ export default function UsersPage() {
   const usersResponse = activeQuery.data;
   const usersLoading = activeQuery.isLoading;
   const isFetching = activeQuery.isFetching;
+  const usersError = activeQuery.isError;
+  const usersErrorObj = activeQuery.error;
   const refetch = activeQuery.refetch;
 
   // Event mutations
@@ -147,11 +149,7 @@ export default function UsersPage() {
   }, [authLoading, currentUser, router]);
 
   if (authLoading || !currentUser) {
-    return (
-      <div className="font-sans">
-        <SkeletonCard />
-      </div>
-    );
+    return <AdminTablePageSkeleton showMetrics />;
   }
 
   if (!isAdmin && !isVolunteer && !isDev) {
@@ -428,14 +426,25 @@ export default function UsersPage() {
         </div>
       </div>
 
+      {usersError && (
+        <Alert variant="error" title="Could not load users">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span>{apiErrorMessage(usersErrorObj, "Failed to fetch users from the server.")}</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="h-8 px-3 text-xs shrink-0">
+              Try again
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       {/* Operational Metrics Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
           <span className="text-[11px] font-medium text-[var(--ink-secondary)]">
             {mode === "event" ? "Total event members" : "Total platform users"}
           </span>
-          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">
-            {metrics.total}
+          <div className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
+            {usersLoading ? <Skeleton className="h-7 w-12" /> : metrics.total}
           </div>
         </div>
         <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
@@ -445,8 +454,8 @@ export default function UsersPage() {
             </span>
             <span className="h-2 w-2 rounded-full bg-[var(--color-emerald)]" />
           </div>
-          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">
-            {metrics.active}
+          <div className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
+            {usersLoading ? <Skeleton className="h-7 w-12" /> : metrics.active}
           </div>
         </div>
         <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
@@ -456,8 +465,8 @@ export default function UsersPage() {
             </span>
             <span className="h-2 w-2 rounded-full bg-[var(--color-coral)]" />
           </div>
-          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">
-            {metrics.restricted}
+          <div className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
+            {usersLoading ? <Skeleton className="h-7 w-12" /> : metrics.restricted}
           </div>
         </div>
         <div className="p-3.5 rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid)] shadow-xs">
@@ -467,8 +476,8 @@ export default function UsersPage() {
             </span>
             <span className="h-2 w-2 rounded-full bg-[var(--color-blue)]" />
           </div>
-          <div className="text-xl font-bold text-[var(--ink-primary)] mt-1">
-            {metrics.staff}
+          <div className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-1">
+            {usersLoading ? <Skeleton className="h-7 w-12" /> : metrics.staff}
           </div>
         </div>
       </div>

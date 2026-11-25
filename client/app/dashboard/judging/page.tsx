@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
 	Plus,
 	RefreshCw,
 	Search,
+	Trophy,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { useTenant } from '@/providers/tenant-provider';
@@ -32,8 +34,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Alert } from '@/components/ui/alert';
+import { EmptyState } from '@/components/ui/empty-state';
 import { apiErrorMessage } from '@/lib/utils';
-import { SkeletonCard } from '@/components/ui/skeleton';
+import { AdminTablePageSkeleton, Skeleton } from '@/components/ui/skeleton';
 import {
 	RoundTable,
 	RoundCreateDialog,
@@ -75,6 +78,8 @@ export default function JudgingPage() {
 		data: rounds = [],
 		isLoading: roundsLoading,
 		isFetching,
+		isError: roundsError,
+		error: roundsErrorObj,
 		refetch,
 	} = useJudgingRounds({ enabled: isAdmin });
 
@@ -150,20 +155,39 @@ export default function JudgingPage() {
 	}, [authLoading, user, router]);
 
 	if (authLoading || !user || isLoadingCompetitions) {
-		return (
-			<div className='font-mono space-y-4'>
-				<SkeletonCard />
-				<SkeletonCard />
-			</div>
-		);
+		return <AdminTablePageSkeleton showMetrics />;
 	}
 
 	if (!competitionSlug) {
 		return (
-			<div className='font-sans space-y-4'>
-				<Alert variant='info' title='No competition active'>
-					This event does not have a competition yet. Judging rounds, panels, and submissions are scoped to a competition.
-				</Alert>
+			<div className='space-y-6 font-sans'>
+				<div>
+					<h1 className='text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]'>
+						Judging
+					</h1>
+					<p className='text-sm text-[var(--ink-secondary)] mt-1'>
+						Manage judging rounds, evaluation panels, room slots, and live leaderboards.
+					</p>
+				</div>
+				<div className='bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5'>
+					<EmptyState
+						icon={Trophy}
+						title='No competition in this event yet'
+						description='Judging rounds, panels, and submissions are scoped to a competition. Create a competition first to configure judging.'
+						action={
+							isAdmin ? (
+								<Link href='/dashboard/competitions'>
+									<Button
+										variant='primary'
+										size='sm'
+										className='h-9 px-4 text-xs font-semibold'>
+										Go to competitions
+									</Button>
+								</Link>
+							) : undefined
+						}
+					/>
+				</div>
 			</div>
 		);
 	}
@@ -457,54 +481,74 @@ export default function JudgingPage() {
 						</div>
 					</div>
 
+					{roundsError && (
+						<Alert variant='error' title='Could not load judging rounds'>
+							<div className='flex flex-col sm:flex-row sm:items-center justify-between gap-2'>
+								<span>
+									{apiErrorMessage(
+										roundsErrorObj,
+										'Failed to fetch judging rounds from the server.',
+									)}
+								</span>
+								<Button
+									variant='outline'
+									size='sm'
+									onClick={() => refetch()}
+									className='h-8 px-3 text-xs shrink-0'>
+									Try again
+								</Button>
+							</div>
+						</Alert>
+					)}
+
 					{/* Metrics Banner */}
 					<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3'>
 						<div className='rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5'>
 							<div className='text-xs text-[var(--ink-secondary)] font-medium'>
 								Total rounds
 							</div>
-							<div className='text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1'>
-								{stats.total}
+							<div className='text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-1'>
+								{roundsLoading ? <Skeleton className='h-7 w-10' /> : stats.total}
 							</div>
 						</div>
 						<div className='rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5'>
 							<div className='text-xs text-[var(--ink-secondary)] font-medium'>
 								Active
 							</div>
-							<div className='text-2xl font-bold font-mono text-[var(--color-blue)] mt-1'>
-								{stats.active}
+							<div className='text-2xl font-bold tabular-nums text-[var(--color-blue)] mt-1'>
+								{roundsLoading ? <Skeleton className='h-7 w-10' /> : stats.active}
 							</div>
 						</div>
 						<div className='rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5'>
 							<div className='text-xs text-[var(--ink-secondary)] font-medium'>
 								Draft
 							</div>
-							<div className='text-2xl font-bold font-mono text-[var(--ink-secondary)] mt-1'>
-								{stats.draft}
+							<div className='text-2xl font-bold tabular-nums text-[var(--ink-secondary)] mt-1'>
+								{roundsLoading ? <Skeleton className='h-7 w-10' /> : stats.draft}
 							</div>
 						</div>
 						<div className='rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5'>
 							<div className='text-xs text-[var(--ink-secondary)] font-medium'>
 								Completed
 							</div>
-							<div className='text-2xl font-bold font-mono text-[#2EB88A] mt-1'>
-								{stats.completed}
+							<div className='text-2xl font-bold tabular-nums text-[var(--color-emerald)] mt-1'>
+								{roundsLoading ? <Skeleton className='h-7 w-10' /> : stats.completed}
 							</div>
 						</div>
 						<div className='rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5'>
 							<div className='text-xs text-[var(--ink-secondary)] font-medium'>
 								Total panels
 							</div>
-							<div className='text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1'>
-								{stats.totalPanels}
+							<div className='text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-1'>
+								{roundsLoading ? <Skeleton className='h-7 w-10' /> : stats.totalPanels}
 							</div>
 						</div>
 						<div className='rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid)] p-3.5'>
 							<div className='text-xs text-[var(--ink-secondary)] font-medium'>
 								Total slots
 							</div>
-							<div className='text-2xl font-bold font-mono text-[var(--ink-primary)] mt-1'>
-								{stats.totalSlots}
+							<div className='text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-1'>
+								{roundsLoading ? <Skeleton className='h-7 w-10' /> : stats.totalSlots}
 							</div>
 						</div>
 					</div>

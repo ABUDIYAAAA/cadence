@@ -84,6 +84,8 @@ export default function CompetitionsPage() {
     data: competitions = [],
     isLoading: competitionsLoading,
     isFetching,
+    isError: competitionsError,
+    error: competitionsErrorObj,
     refetch,
   } = useCompetitions(eventSlug, {
     enabled: isAuthenticated && Boolean(eventSlug),
@@ -107,6 +109,7 @@ export default function CompetitionsPage() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [description, setDescription] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; slug?: string }>({});
 
   // Delete confirmation Dialog state
   const [deletingCompetition, setDeletingCompetition] =
@@ -137,6 +140,7 @@ export default function CompetitionsPage() {
     setSlugTouched(false);
     setDescription("");
     setFormError(null);
+    setFieldErrors({});
     setDialogMode("create");
   };
 
@@ -147,6 +151,7 @@ export default function CompetitionsPage() {
     setSlugTouched(true);
     setDescription(comp.description || "");
     setFormError(null);
+    setFieldErrors({});
     setDialogMode("edit");
   };
 
@@ -155,6 +160,7 @@ export default function CompetitionsPage() {
     setDialogMode(null);
     setEditingCompetition(null);
     setFormError(null);
+    setFieldErrors({});
   };
 
   const handleSelectCompetition = (comp: Competition) => {
@@ -177,9 +183,21 @@ export default function CompetitionsPage() {
       description: trimmedDescription,
     });
     if (validationError) {
-      setFormError(validationError);
+      const nextErrors: { name?: string; slug?: string } = {};
+      if (!trimmedName || trimmedName.length < 2) {
+        nextErrors.name = trimmedName ? "At least 2 characters" : "Required";
+      }
+      if (!trimmedSlug || validationError.toLowerCase().includes("slug")) {
+        nextErrors.slug = trimmedSlug ? validationError : "Required";
+      }
+      if (Object.keys(nextErrors).length > 0) {
+        setFieldErrors(nextErrors);
+      } else {
+        setFormError(validationError);
+      }
       return;
     }
+    setFieldErrors({});
 
     try {
       if (dialogMode === "create") {
@@ -316,6 +334,17 @@ export default function CompetitionsPage() {
           )}
         </div>
       </header>
+
+      {competitionsError && (
+        <Alert variant="error" title="Could not load competitions">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span>{apiErrorMessage(competitionsErrorObj, "Failed to fetch competitions from the server.")}</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="h-8 px-3 text-xs shrink-0">
+              Try again
+            </Button>
+          </div>
+        </Alert>
+      )}
 
       {/* Search Bar (shown when there are multiple competitions) */}
       {competitions.length > 1 && (
@@ -557,10 +586,13 @@ export default function CompetitionsPage() {
             onChange={(e) => {
               const val = e.target.value;
               setName(val);
+              if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: undefined }));
               if (!slugTouched) {
                 setSlug(slugify(val));
+                if (fieldErrors.slug) setFieldErrors((prev) => ({ ...prev, slug: undefined }));
               }
             }}
+            error={fieldErrors.name}
             disabled={
               createCompetition.isPending || updateCompetition.isPending
             }
@@ -574,7 +606,9 @@ export default function CompetitionsPage() {
               onChange={(e) => {
                 setSlugTouched(true);
                 setSlug(e.target.value.toLowerCase());
+                if (fieldErrors.slug) setFieldErrors((prev) => ({ ...prev, slug: undefined }));
               }}
+              error={fieldErrors.slug}
               disabled={
                 createCompetition.isPending || updateCompetition.isPending
               }

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   RefreshCw,
@@ -8,6 +9,7 @@ import {
   ShieldCheck,
   UserCheck,
   Hash,
+  Trophy,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useTenant } from "@/providers/tenant-provider";
@@ -29,7 +31,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
 import { Alert } from "@/components/ui/alert";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { AdminTablePageSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { apiErrorMessage } from "@/lib/utils";
 import {
   TeamFilters,
   TeamTable,
@@ -57,6 +61,8 @@ export default function TeamsPage() {
     data: teamsResponse,
     isLoading: teamsLoading,
     isFetching,
+    isError: teamsError,
+    error: teamsErrorObj,
     refetch,
   } = useTeams(filters);
 
@@ -79,19 +85,36 @@ export default function TeamsPage() {
   }, [authLoading, user, router]);
 
   if (authLoading || isLoadingCompetitions || !user) {
-    return (
-      <div className="font-mono">
-        <SkeletonCard />
-      </div>
-    );
+    return <AdminTablePageSkeleton showMetrics />;
   }
 
   if (!competitionSlug) {
     return (
-      <div className="font-sans space-y-4">
-        <Alert variant="info" title="No competition active">
-          This event does not have a competition yet. Teams are scoped to a competition.
-        </Alert>
+      <div className="space-y-6 font-sans">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
+            {isJudge && !isAdmin ? "My Teams" : "Teams"}
+          </h1>
+          <p className="text-sm text-[var(--ink-secondary)] mt-1">
+            Participants create their own teams and share a join code. Freeze, edit or review them here.
+          </p>
+        </div>
+        <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5">
+          <EmptyState
+            icon={Trophy}
+            title="No competition in this event yet"
+            description="Teams are scoped to a competition. Create a competition first to enable team registration."
+            action={
+              isAdmin ? (
+                <Link href="/dashboard/competitions">
+                  <Button variant="primary" size="sm" className="h-9 px-4 text-xs font-semibold">
+                    Go to competitions
+                  </Button>
+                </Link>
+              ) : undefined
+            }
+          />
+        </div>
       </div>
     );
   }
@@ -261,6 +284,17 @@ export default function TeamsPage() {
         </div>
       </div>
 
+      {teamsError && (
+        <Alert variant="error" title="Could not load teams">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span>{apiErrorMessage(teamsErrorObj, "Failed to fetch teams from the server.")}</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="h-8 px-3 text-xs shrink-0">
+              Try again
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       {canManage && <TeamSettingsCard canEditSize={isAdmin} />}
 
       {/* Metrics Row (Canvas Level) */}
@@ -270,8 +304,8 @@ export default function TeamsPage() {
             <span>Total squads</span>
             <Users className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
-          <div className="text-2xl font-bold text-[var(--ink-primary)] mt-2">
-            {totalTeams}
+          <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
+            {teamsLoading ? <Skeleton className="h-7 w-12" /> : totalTeams}
           </div>
           <p className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
             Registered event groups
@@ -283,8 +317,8 @@ export default function TeamsPage() {
             <span>Squads with lead</span>
             <UserCheck className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
-          <div className="text-2xl font-bold text-[var(--ink-primary)] mt-2">
-            {teamsWithLead}
+          <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
+            {teamsLoading ? <Skeleton className="h-7 w-12" /> : teamsWithLead}
           </div>
           <p className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
             On this page
@@ -296,8 +330,8 @@ export default function TeamsPage() {
             <span>Rostered members</span>
             <ShieldCheck className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
-          <div className="text-2xl font-bold text-[var(--ink-primary)] mt-2">
-            {totalMembersInView}
+          <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
+            {teamsLoading ? <Skeleton className="h-7 w-12" /> : totalMembersInView}
           </div>
           <p className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
             On this page
@@ -309,8 +343,8 @@ export default function TeamsPage() {
             <span>Avg squad size</span>
             <Hash className="h-4 w-4 text-[var(--ink-tertiary)]" />
           </div>
-          <div className="text-2xl font-bold text-[var(--ink-primary)] mt-2">
-            {avgMembers}
+          <div className="text-2xl font-bold tabular-nums text-[var(--ink-primary)] mt-2">
+            {teamsLoading ? <Skeleton className="h-7 w-12" /> : avgMembers}
           </div>
           <p className="text-[11px] text-[var(--ink-tertiary)] mt-0.5">
             Members per squad

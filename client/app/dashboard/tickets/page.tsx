@@ -21,7 +21,7 @@ import { BulkSendTicketsRequest } from "@/types/tickets";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { AdminTablePageSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { attendancePercent } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
@@ -78,11 +78,7 @@ export default function TicketsPage() {
   }, [authLoading, user, router]);
 
   if (authLoading || !user) {
-    return (
-      <div className="font-mono">
-        <SkeletonCard />
-      </div>
-    );
+    return <AdminTablePageSkeleton />;
   }
 
   // 1. PARTICIPANT VIEW: Show their personal QR pass if issued

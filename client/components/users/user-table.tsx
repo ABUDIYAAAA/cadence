@@ -54,22 +54,60 @@ export function UserTable({
   actionInProgressId,
 }: UserTableProps) {
   if (isLoading) {
+    const { showTeam, showCheckIn } = getUserTableColumnVisibility(mode);
     return (
-      <div className="space-y-3 font-sans">
-        <div className="space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center space-x-4 py-3 px-4 border-b border-[var(--card-line)]"
-            >
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/4" />
-            </div>
-          ))}
-        </div>
+      <div className="w-full overflow-x-auto font-sans">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{mode === "event" ? "Member" : "User"}</TableHead>
+              <TableHead>Role</TableHead>
+              {showTeam && <TableHead>Team</TableHead>}
+              {showCheckIn && <TableHead>Check-in</TableHead>}
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <TableRow key={i}>
+                <TableCell>
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3.5 w-32" />
+                    <Skeleton className="h-3 w-44" />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </TableCell>
+                {showTeam && (
+                  <TableCell>
+                    <Skeleton className="h-3.5 w-24" />
+                  </TableCell>
+                )}
+                {showCheckIn && (
+                  <TableCell>
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                  </TableCell>
+                )}
+                <TableCell>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-20" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <Skeleton className="h-7 w-7 rounded-[6px]" />
+                    <Skeleton className="h-7 w-7 rounded-[6px]" />
+                    <Skeleton className="h-7 w-7 rounded-[6px]" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     );
   }

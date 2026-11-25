@@ -226,6 +226,9 @@ export function Navbar() {
   );
 
   const isDashboard = pathname.startsWith("/dashboard");
+  const hasSidebar =
+    isDashboard ||
+    (pathname === "/events" && (isDev || Boolean(eventSlug)));
   const displayEventName =
     eventDetail?.name || activeEvent?.event_name || eventSlug;
 
@@ -235,7 +238,7 @@ export function Navbar() {
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-4 sm:px-6">
           {/* Left: Brand, Mobile Sidebar Trigger, and Event/Competition Switcher */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            {isAuthenticated && user && isDashboard && (
+            {isAuthenticated && user && hasSidebar && (
               <button
                 type="button"
                 onClick={() =>
@@ -260,7 +263,7 @@ export function Navbar() {
               </span>
             </Link>
 
-            {isAuthenticated && isDashboard && eventSlug && (
+            {isAuthenticated && hasSidebar && eventSlug && (
               <div className="hidden sm:flex items-center gap-1.5 min-w-0 pl-2 border-l border-[var(--card-line)]">
                 <Link
                   href="/events"
@@ -309,7 +312,7 @@ export function Navbar() {
               <>
                 {eventSlug && <NotificationBell />}
 
-                {!pathname.startsWith("/dashboard") && (
+                {!hasSidebar && (
                 <div className="relative" ref={dropdownRef}>
                   <button
                     type="button"

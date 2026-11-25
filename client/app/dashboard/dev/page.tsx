@@ -16,7 +16,7 @@ import { getDashboardRoute } from "@/lib/auth-routes";
 import { usePlatformUsers } from "@/hooks/use-users";
 import { useEvents } from "@/hooks/use-events";
 import { useAuditLogs } from "@/hooks/use-audit";
-import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { DashboardOverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 const timeAgo = (iso: string) => {
   const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -120,7 +120,7 @@ export default function DevDashboardPage() {
   const audit = useAuditLogs({ page: 1, limit: 6 });
 
   if (isLoading || !isDev) {
-    return <SkeletonCard />;
+    return <DashboardOverviewSkeleton />;
   }
 
   const totalUsers = users.data?.total_count ?? 0;
@@ -189,20 +189,20 @@ export default function DevDashboardPage() {
           <dl className="grid grid-cols-3 gap-6 text-sm">
             <div>
               <dt className="text-xs text-[var(--ink-secondary)]">Active</dt>
-              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)]">
-                {activeUsers.isLoading ? "—" : activeCount}
+              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-0.5">
+                {activeUsers.isLoading ? <Skeleton className="h-6 w-10" /> : activeCount}
               </dd>
             </div>
             <div>
               <dt className="text-xs text-[var(--ink-secondary)]">Developers</dt>
-              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)]">
-                {devUsers.isLoading ? "—" : devCount}
+              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-0.5">
+                {devUsers.isLoading ? <Skeleton className="h-6 w-10" /> : devCount}
               </dd>
             </div>
             <div>
               <dt className="text-xs text-[var(--ink-secondary)]">Events</dt>
-              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)]">
-                {eventsQuery.isLoading ? "—" : eventList.length}
+              <dd className="text-xl font-bold tabular-nums text-[var(--ink-primary)] mt-0.5">
+                {eventsQuery.isLoading ? <Skeleton className="h-6 w-10" /> : eventList.length}
               </dd>
             </div>
           </dl>
@@ -227,21 +227,21 @@ export default function DevDashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat
           label="Global users"
-          value={users.isLoading ? "—" : totalUsers}
+          value={users.isLoading ? <Skeleton className="h-7 w-14" /> : totalUsers}
           note="Manage platform accounts"
           href="/dashboard/users"
           icon={Users}
         />
         <Stat
           label="Events"
-          value={eventsQuery.isLoading ? "—" : eventList.length}
+          value={eventsQuery.isLoading ? <Skeleton className="h-7 w-14" /> : eventList.length}
           note="Create & enter workspaces"
           href="/events"
           icon={Calendar}
         />
         <Stat
           label="Audit logs"
-          value={audit.isLoading ? "—" : audit.data?.total_count ?? "—"}
+          value={audit.isLoading ? <Skeleton className="h-7 w-14" /> : audit.data?.total_count ?? "—"}
           note="Platform security trail"
           href="/dashboard/audit"
           icon={FileText}
@@ -256,11 +256,20 @@ export default function DevDashboardPage() {
             action={{ label: "All logs", href: "/dashboard/audit" }}
           >
             {audit.isLoading ? (
-              <div className="space-y-3">
+              <ul className="divide-y divide-[var(--card-line)] -my-1">
                 {[0, 1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-9 w-full" />
+                  <li
+                    key={i}
+                    className="flex items-start justify-between gap-4 py-2.5"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <Skeleton className="h-3.5 w-3/5" />
+                      <Skeleton className="h-3 w-2/5" />
+                    </div>
+                    <Skeleton className="h-3 w-10 shrink-0 mt-0.5" />
+                  </li>
                 ))}
-              </div>
+              </ul>
             ) : (audit.data?.data || []).length === 0 ? (
               <p className="py-4 text-sm text-[var(--ink-secondary)]">
                 Nothing has happened yet.
@@ -294,11 +303,23 @@ export default function DevDashboardPage() {
           {/* Events */}
           <Panel title="Events" action={{ label: "Manage", href: "/events" }}>
             {eventsQuery.isLoading ? (
-              <div className="space-y-3">
+              <ul className="divide-y divide-[var(--card-line)] -my-1">
                 {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-10 w-full" />
+                  <li
+                    key={i}
+                    className="flex items-center justify-between gap-3 py-2.5"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <Skeleton className="h-8 w-8 shrink-0 rounded-[6px]" />
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <Skeleton className="h-3.5 w-2/3" />
+                        <Skeleton className="h-3 w-1/3" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-4 w-4 shrink-0" />
+                  </li>
                 ))}
-              </div>
+              </ul>
             ) : eventList.length === 0 ? (
               <p className="py-4 text-sm text-[var(--ink-secondary)]">
                 No events created yet.

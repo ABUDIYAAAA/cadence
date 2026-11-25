@@ -16,7 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
 import { Alert } from "@/components/ui/alert";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { apiErrorMessage } from "@/lib/utils";
+import { AdminTablePageSkeleton } from "@/components/ui/skeleton";
 import {
   AuditFilters,
   AuditTable,
@@ -46,6 +47,8 @@ export default function AuditLogsPage() {
     data: auditResponse,
     isLoading: auditLoading,
     isFetching,
+    isError: auditError,
+    error: auditErrorObj,
     refetch,
   } = useAuditLogs(filters);
 
@@ -62,11 +65,7 @@ export default function AuditLogsPage() {
   }, [authLoading, user, router]);
 
   if (authLoading || !user) {
-    return (
-      <div className="font-mono">
-        <SkeletonCard />
-      </div>
-    );
+    return <AdminTablePageSkeleton />;
   }
 
   if (!isAdmin) {
@@ -171,6 +170,17 @@ export default function AuditLogsPage() {
           </Button>
         </div>
       </div>
+
+      {auditError && (
+        <Alert variant="error" title="Could not load audit log">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span>{apiErrorMessage(auditErrorObj, "Failed to fetch audit records from the server.")}</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="h-8 px-3 text-xs shrink-0">
+              Try again
+            </Button>
+          </div>
+        </Alert>
+      )}
 
       {/* Primary Surface: Filters + Table + Pagination */}
       <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">

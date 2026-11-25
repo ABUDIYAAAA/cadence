@@ -7,6 +7,7 @@ import { TenantProvider } from "@/providers/tenant-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 import { NotificationProvider } from "@/providers/notification-provider";
 import { Navbar } from "@/components/layout/navbar";
+import { AppShell } from "@/components/layout/app-shell";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-sans",
@@ -66,7 +67,7 @@ export default function RootLayout({
               <ToastProvider>
                 <NotificationProvider>
                   <Navbar />
-                  <main className="flex-1">{children}</main>
+                  <AppShell>{children}</AppShell>
                 </NotificationProvider>
               </ToastProvider>
             </TenantProvider>

@@ -24,21 +24,35 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
 
     return (
       <div className="w-full space-y-1.5 text-left font-sans">
-        {label && (
-          <label
-            htmlFor={selectId}
-            className="block text-xs font-semibold text-[var(--ink-primary)]"
-          >
-            {label}
-          </label>
+        {(label || error) && (
+          <div className="flex items-baseline justify-between gap-2">
+            {label && (
+              <label
+                htmlFor={selectId}
+                className="block text-xs font-semibold text-[var(--ink-primary)]"
+              >
+                {label}
+              </label>
+            )}
+            {error && (
+              <span
+                role="alert"
+                className="ml-auto text-right text-[11px] font-medium text-[var(--color-coral)]"
+              >
+                {error}
+              </span>
+            )}
+          </div>
         )}
         <div className="relative">
           <select
             id={selectId}
             ref={ref}
+            aria-invalid={Boolean(error) || undefined}
             className={cn(
               "flex h-[42px] w-full rounded-[14px] border border-[var(--card-line)] bg-[var(--card-solid)] px-3.5 pr-8 text-xs text-[var(--ink-primary)] transition-[border-color,box-shadow,background-color] duration-150 ease-out appearance-none focus:border-[var(--color-blue)] focus:outline-none focus:ring-3 focus:ring-[var(--color-blue)]/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
-              error && "border-[var(--color-coral)] ring-3 ring-[var(--color-coral)]/20",
+              error &&
+                "border-[var(--color-coral)] ring-3 ring-[var(--color-coral)]/20 focus:border-[var(--color-coral)] focus:ring-[var(--color-coral)]/25",
               className
             )}
             {...props}
@@ -57,10 +71,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             </svg>
           </div>
         </div>
-        {error && (
-          <p className="text-xs text-[var(--color-coral)] font-medium pt-0.5">{error}</p>
-        )}
-        {helperText && !error && (
+        {helperText && (
           <p className="text-xs text-[var(--ink-secondary)]">{helperText}</p>
         )}
       </div>

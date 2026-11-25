@@ -32,8 +32,9 @@ import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { AdminTablePageSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { apiErrorMessage } from "@/lib/utils";
 import { ApiError } from "@/types/api";
 
 export default function AdminNotificationsPage() {
@@ -70,6 +71,8 @@ export default function AdminNotificationsPage() {
   const {
     data: historyData,
     isLoading: historyLoading,
+    isError: historyError,
+    error: historyErrorObj,
     refetch: refetchHistory,
     isRefetching: historyRefetching,
   } = useAdminNotificationHistory(page, limit);
@@ -106,7 +109,7 @@ export default function AdminNotificationsPage() {
   );
 
   if (authLoading) {
-    return <SkeletonCard />;
+    return <AdminTablePageSkeleton />;
   }
 
   if (!isAdmin) {
@@ -616,10 +619,64 @@ export default function AdminNotificationsPage() {
             </CardHeader>
 
             <CardContent>
-              {historyLoading ? (
-                <div className="p-8 text-center text-xs text-[var(--ink-secondary)]">
-                  Loading history...
-                </div>
+              {historyError ? (
+                <Alert variant="error" title="Could not load notification history">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span>
+                      {apiErrorMessage(
+                        historyErrorObj,
+                        "Failed to fetch notification history."
+                      )}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => refetchHistory()}
+                      className="h-8 px-3 text-xs shrink-0"
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                </Alert>
+              ) : historyLoading ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Audience</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Sender</TableHead>
+                      <TableHead className="text-right">Read rate</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell>
+                          <div className="space-y-1.5">
+                            <Skeleton className="h-3.5 w-20" />
+                            <Skeleton className="h-3 w-12" />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-5 w-18 rounded-full" />
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1.5">
+                            <Skeleton className="h-3.5 w-40" />
+                            <Skeleton className="h-3 w-56" />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-3.5 w-32" />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Skeleton className="h-3.5 w-16 ml-auto" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               ) : !historyData?.items || historyData.items.length === 0 ? (
                 <EmptyState
                   title="No notifications sent"

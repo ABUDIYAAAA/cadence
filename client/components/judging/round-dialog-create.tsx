@@ -259,9 +259,13 @@ export function RoundCreateDialog({
     selectedTeamIds,
   ]);
   const [stepNotice, setStepNotice] = useState<{ message: string; key: string } | null>(null);
+  const [fieldNotice, setFieldNotice] = useState<{ errors: Record<string, string>; key: string } | null>(null);
   const stepErrors = stepNotice && stepNotice.key === formKey ? stepNotice.message : null;
+  const fieldErrors = fieldNotice && fieldNotice.key === formKey ? fieldNotice.errors : {};
   const setStepErrors = (message: string | null) =>
     setStepNotice(message ? { message, key: formKey } : null);
+  const setFieldErrors = (errors: Record<string, string>) =>
+    setFieldNotice(Object.keys(errors).length > 0 ? { errors, key: formKey } : null);
 
   // Filtered Evaluators for Step 2
   const filteredEvaluators = useMemo(() => {
@@ -303,6 +307,7 @@ export function RoundCreateDialog({
     setSelectedTeamIds([]);
     setCsvResetKey((k) => k + 1);
     setStepErrors(null);
+    setFieldErrors({});
     setEvaluatorSearchQuery("");
     setTeamSearchQuery("");
   };
@@ -496,18 +501,45 @@ export function RoundCreateDialog({
 
   // --- Step Validation ---
   const validateStep1 = (): boolean => {
+    const errors: Record<string, string> = {};
     if (!roundName.trim()) {
-      setStepErrors("Please provide a name for this judging round.");
-      return false;
+      errors.roundName = "Required";
     }
     if (bufferSize < 1) {
-      setStepErrors("Staging buffer depth must be at least 1 team.");
-      return false;
+      errors.bufferSize = "Must be at least 1";
     }
     if (slotDurationMins < 1) {
-      setStepErrors("Slot duration must be at least 1 minute.");
+      errors.slotDurationMins = "Must be at least 1 min";
+    }
+    for (let i = 0; i < criteria.length; i++) {
+      const c = criteria[i];
+      if (!c.name.trim()) {
+        errors[`criterion-${i}-name`] = "Required";
+      }
+      if (!c.max_score || c.max_score < 1) {
+        errors[`criterion-${i}-max`] = "Min 1";
+      }
+      if (c.weight === undefined || c.weight <= 0) {
+        errors[`criterion-${i}-weight`] = "Must be > 0";
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const firstId = Object.keys(errors)[0];
+      const el = document.getElementById(
+        firstId === "roundName"
+          ? "round-title"
+          : firstId === "bufferSize"
+          ? "queue-buffer-depth"
+          : firstId === "slotDurationMins"
+          ? "slot-duration"
+          : firstId
+      );
+      el?.focus();
       return false;
     }
+
     if (criteria.length === 0) {
       setStepErrors("Please specify at least one scoring criterion.");
       return false;
@@ -515,21 +547,6 @@ export function RoundCreateDialog({
     if (teamCsv.status === "invalid") {
       setStepErrors(teamCsv.message);
       return false;
-    }
-    for (let i = 0; i < criteria.length; i++) {
-      const c = criteria[i];
-      if (!c.name.trim()) {
-        setStepErrors(`Criterion #${i + 1} requires a valid title.`);
-        return false;
-      }
-      if (!c.max_score || c.max_score < 1) {
-        setStepErrors(`Criterion "${c.name}" must have a maximum score of at least 1.`);
-        return false;
-      }
-      if (c.weight === undefined || c.weight <= 0) {
-        setStepErrors(`Criterion "${c.name}" must have a positive weight multiplier (> 0).`);
-        return false;
-      }
     }
     return true;
   };
@@ -542,22 +559,25 @@ export function RoundCreateDialog({
       return false;
     }
 
+    const errors: Record<string, string> = {};
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i];
       if (!p.name.trim()) {
-        setStepErrors(`Room #${i + 1}: Name is required.`);
-        return false;
+        errors[`panel-${p.id}-name`] = "Required";
       }
       if (!p.room.trim()) {
-        setStepErrors(`Room #${i + 1}: Physical location or room name is required.`);
-        return false;
+        errors[`panel-${p.id}-room`] = "Required";
       }
       if (p.judge_ids.length === 0) {
-        setStepErrors(
-          `Room "${p.name}" requires at least one assigned evaluator. If evaluators are not confirmed yet, uncheck "Configure presentation rooms now" to provision the round first.`
-        );
-        return false;
+        errors[`panel-${p.id}-judges`] = "Select at least one judge";
       }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const firstId = Object.keys(errors)[0];
+      document.getElementById(firstId)?.focus();
+      return false;
     }
     return true;
   };
@@ -831,33 +851,39 @@ export function RoundCreateDialog({
               </div>
 
               <Input
+                id="round-title"
                 label="Round Title *"
                 placeholder="e.g. Round 1 — Preliminary Pitch & Technical Demo"
                 value={roundName}
                 onChange={(e) => setRoundName(e.target.value)}
+                error={fieldErrors.roundName}
                 disabled={isLoading}
                 required
               />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                 <Input
+                  id="queue-buffer-depth"
                   label="Queue Buffer Depth (Staged Squads) *"
                   type="number"
                   min={1}
                   max={10}
                   value={bufferSize}
                   onChange={(e) => setBufferSize(Math.max(1, Number(e.target.value) || 1))}
+                  error={fieldErrors.bufferSize}
                   disabled={isLoading}
                   helperText="Number of squads staged on-deck outside the room."
                 />
 
                 <Input
+                  id="slot-duration"
                   label="Slot Duration (Minutes per Squad) *"
                   type="number"
                   min={1}
                   max={180}
                   value={slotDurationMins}
                   onChange={(e) => setSlotDurationMins(Math.max(1, Number(e.target.value) || 1))}
+                  error={fieldErrors.slotDurationMins}
                   disabled={isLoading}
                   helperText="Allocated pitch, presentation, and Q&A runtime."
                 />
@@ -968,6 +994,7 @@ export function RoundCreateDialog({
                           onChange={(e) =>
                             handleCriterionChange(i, "name", e.target.value)
                           }
+                          error={fieldErrors[`criterion-${i}-name`]}
                           className="h-9 text-xs"
                         />
                       </div>
@@ -987,8 +1014,9 @@ export function RoundCreateDialog({
                               Math.max(1, Number(e.target.value) || 1)
                             )
                           }
+                          error={fieldErrors[`criterion-${i}-max`]}
                           className="h-9 text-xs font-mono"
-                                                    placeholder="Max"
+                          placeholder="Max"
                         />
                       </div>
 
@@ -1008,8 +1036,9 @@ export function RoundCreateDialog({
                               Math.max(0.1, Number(e.target.value) || 1.0)
                             )
                           }
+                          error={fieldErrors[`criterion-${i}-weight`]}
                           className="h-9 text-xs font-mono"
-                                                    placeholder="Weight"
+                          placeholder="Weight"
                         />
                       </div>
                     </div>
@@ -1146,6 +1175,7 @@ export function RoundCreateDialog({
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input
+                          id={`panel-${p.id}-name`}
                           label="Panel Name *"
                           placeholder="e.g. Panel Alpha (or AI Track)"
                           value={p.name}
@@ -1157,10 +1187,12 @@ export function RoundCreateDialog({
                               )
                             );
                           }}
+                          error={fieldErrors[`panel-${p.id}-name`]}
                           className="h-8 text-xs"
                         />
 
                         <Input
+                          id={`panel-${p.id}-room`}
                           label="Physical or Virtual Location *"
                           placeholder="e.g. Room 101 — Main Hall / Zoom A"
                           value={p.room}
@@ -1172,19 +1204,29 @@ export function RoundCreateDialog({
                               )
                             );
                           }}
+                          error={fieldErrors[`panel-${p.id}-room`]}
                           className="h-8 text-xs"
                         />
                       </div>
 
                       {/* Evaluators Checkable Grid */}
                       <div className="space-y-1.5 pt-1">
-                        <div className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-baseline justify-between gap-2 text-[11px]">
                           <span className="font-semibold text-[var(--ink-secondary)]">
                             Assign Evaluators to this Room ({p.judge_ids.length} Selected) *
                           </span>
-                          <span className="text-[10px] text-[var(--ink-tertiary)]">
-                            Click to toggle judge assignment
-                          </span>
+                          {fieldErrors[`panel-${p.id}-judges`] ? (
+                            <span
+                              role="alert"
+                              className="text-[11px] font-medium text-[var(--color-coral)]"
+                            >
+                              {fieldErrors[`panel-${p.id}-judges`]}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-[var(--ink-tertiary)]">
+                              Click to toggle judge assignment
+                            </span>
+                          )}
                         </div>
 
                         {usersLoading ? (
@@ -1196,7 +1238,13 @@ export function RoundCreateDialog({
                             No evaluators match the filter. Create users with the judge role first.
                           </div>
                         ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1.5 rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
+                          <div
+                            className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1.5 rounded-[12px] border bg-[var(--card-solid-subtle)] transition-[border-color,box-shadow] ${
+                              fieldErrors[`panel-${p.id}-judges`]
+                                ? "border-[var(--color-coral)] ring-3 ring-[var(--color-coral)]/20"
+                                : "border-[var(--card-line)]"
+                            }`}
+                          >
                             {filteredEvaluators
                               // A judge can only sit on one panel per round: hide those picked for other rooms.
                               .filter(

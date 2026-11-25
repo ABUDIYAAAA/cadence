@@ -1,12 +1,16 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ArrowRight,
   Calendar,
-  ChevronRight,
+  Crown,
   Plus,
+  RefreshCw,
+  Search,
   Trash2,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useTenant } from "@/providers/tenant-provider";
@@ -20,17 +24,25 @@ import { getDashboardRoute } from "@/lib/auth-routes";
 import { slugify } from "@/lib/csv";
 import { apiErrorMessage } from "@/lib/utils";
 import { EventRole } from "@/types/auth";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { Alert } from "@/components/ui/alert";
 import { LogoUploadField } from "@/components/events/logo-upload-field";
 
-interface DisplayEventCard {
+interface DisplayEventRow {
   id: string;
   slug: string;
   name: string;
@@ -38,31 +50,89 @@ interface DisplayEventCard {
   logo_url?: string | null;
   member_count: number;
   role: EventRole;
+  updated_at?: string | null;
 }
 
-function EventsListSkeleton() {
+function EventsTableSkeleton() {
   return (
-    <div className="rounded-[10px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-card)] overflow-hidden divide-y divide-[var(--card-line)]">
-      {Array.from({ length: 3 }).map((_, idx) => (
-        <div key={idx} className="flex items-center justify-between gap-4 px-4 py-3.5">
-          <div className="flex items-center gap-3.5 min-w-0 flex-1">
-            <Skeleton className="h-10 w-10 shrink-0 rounded-[8px]" />
-            <div className="space-y-2 flex-1 max-w-[220px]">
-              <Skeleton className="h-4 w-3/4 rounded-[6px]" />
-              <Skeleton className="h-3 w-1/2 rounded-[6px]" />
-            </div>
-          </div>
-          <Skeleton className="h-4 w-4 shrink-0 rounded-[4px]" />
-        </div>
-      ))}
+    <div className="w-full overflow-x-auto font-sans">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Event</TableHead>
+            <TableHead className="hidden sm:table-cell">Slug</TableHead>
+            <TableHead>Members</TableHead>
+            <TableHead>Role</TableHead>
+            <TableHead className="hidden lg:table-cell">Updated</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <TableRow key={i}>
+              <TableCell>
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-9 w-9 shrink-0 rounded-[8px]" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3.5 w-36" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                </div>
+              </TableCell>
+              <TableCell className="hidden sm:table-cell">
+                <Skeleton className="h-3.5 w-28" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-3.5 w-20" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </TableCell>
+              <TableCell className="hidden lg:table-cell">
+                <Skeleton className="h-3.5 w-24" />
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="inline-flex items-center gap-1.5">
+                  <Skeleton className="h-8 w-16 rounded-[8px]" />
+                  <Skeleton className="h-8 w-8 rounded-[8px]" />
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
+}
+
+function renderRoleBadge(role: EventRole) {
+  switch (role) {
+    case "owner":
+      return (
+        <Badge variant="blue" size="sm" className="capitalize gap-1">
+          <Crown className="h-2.5 w-2.5" />
+          {role}
+        </Badge>
+      );
+    case "admin":
+      return (
+        <Badge variant="emerald" size="sm" className="capitalize">
+          {role}
+        </Badge>
+      );
+    default:
+      return (
+        <Badge variant="subtle" size="sm" className="capitalize">
+          {role}
+        </Badge>
+      );
+  }
 }
 
 export default function EventsSelectionPage() {
   const router = useRouter();
   const toast = useToast();
-  const { user, isAuthenticated, isLoading, isDev } = useAuth();
+  const { user, isAuthenticated, isDev } = useAuth();
   const {
     eventSlug: activeEventSlug,
     events: userEvents,
@@ -70,13 +140,21 @@ export default function EventsSelectionPage() {
     clearEvent,
   } = useTenant();
 
-  const { data: allEvents = [], isLoading: eventsLoading } = useEvents({
+  const {
+    data: allEvents = [],
+    isLoading: eventsLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useEvents({
     enabled: isAuthenticated,
   });
 
   const createEventMutation = useCreateEvent();
   const deleteEventMutation = useDeleteEvent();
 
+  const [searchQuery, setSearchQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -86,18 +164,13 @@ export default function EventsSelectionPage() {
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerName, setOwnerName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; slug?: string }>({});
 
-  const [deletingEvent, setDeletingEvent] = useState<DisplayEventCard | null>(
+  const [deletingEvent, setDeletingEvent] = useState<DisplayEventRow | null>(
     null
   );
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isLoading, isAuthenticated, router]);
-
-  const cards = useMemo<DisplayEventCard[]>(() => {
+  const rows = useMemo<DisplayEventRow[]>(() => {
     const bySlug = new Map(allEvents.map((e) => [e.slug, e]));
     const roleBySlug = new Map(userEvents.map((e) => [e.event_slug, e]));
 
@@ -108,8 +181,10 @@ export default function EventsSelectionPage() {
         name: ev.name,
         description: ev.description,
         logo_url: ev.logo_url ?? roleBySlug.get(ev.slug)?.logo_url ?? null,
-        member_count: ev.member_count ?? roleBySlug.get(ev.slug)?.member_count ?? 0,
+        member_count:
+          ev.member_count ?? roleBySlug.get(ev.slug)?.member_count ?? 0,
         role: roleBySlug.get(ev.slug)?.role ?? "owner",
+        updated_at: ev.updated_at ?? ev.created_at ?? null,
       }));
     }
 
@@ -123,11 +198,28 @@ export default function EventsSelectionPage() {
         logo_url: full?.logo_url ?? ue.logo_url ?? null,
         member_count: full?.member_count ?? ue.member_count ?? 0,
         role: ue.role,
+        updated_at: full?.updated_at ?? full?.created_at ?? null,
       };
     });
   }, [allEvents, userEvents, isDev]);
 
-  const handleSelectEvent = (item: DisplayEventCard) => {
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        item.slug.toLowerCase().includes(q) ||
+        (item.description && item.description.toLowerCase().includes(q))
+    );
+  }, [rows, searchQuery]);
+
+  const activeRow = useMemo(
+    () => rows.find((r) => r.slug === activeEventSlug) ?? null,
+    [rows, activeEventSlug]
+  );
+
+  const handleSelectEvent = (item: DisplayEventRow) => {
     selectEvent(item.slug);
     const effectiveRole = isDev ? "owner" : item.role;
     router.push(getDashboardRoute(effectiveRole));
@@ -142,6 +234,7 @@ export default function EventsSelectionPage() {
     setOwnerEmail("");
     setOwnerName("");
     setCreateError(null);
+    setFieldErrors({});
   };
 
   const handleCreateEvent = async (e: React.FormEvent) => {
@@ -151,14 +244,18 @@ export default function EventsSelectionPage() {
     const trimmedName = name.trim();
     const trimmedSlug = (slug.trim() || slugify(trimmedName)).toLowerCase();
 
+    const nextErrors: { name?: string; slug?: string } = {};
     if (trimmedName.length < 2) {
-      setCreateError("Event name must be at least 2 characters.");
-      return;
+      nextErrors.name = trimmedName ? "At least 2 characters" : "Required";
     }
     if (trimmedSlug.length < 2) {
-      setCreateError("Event slug must be at least 2 characters.");
+      nextErrors.slug = trimmedSlug ? "At least 2 characters" : "Required";
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       return;
     }
+    setFieldErrors({});
 
     try {
       const created = await createEventMutation.mutateAsync({
@@ -191,150 +288,296 @@ export default function EventsSelectionPage() {
     }
   };
 
-  if (isLoading || !isAuthenticated || !user) {
-    return (
-      <div className="mx-auto max-w-xl px-4 sm:px-6 py-10 sm:py-14 font-sans space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-28 rounded-[6px]" />
-          <Skeleton className="h-4 w-72 rounded-[6px]" />
-        </div>
-        <EventsListSkeleton />
-      </div>
-    );
-  }
-
   return (
-    <div className="mx-auto max-w-xl px-4 sm:px-6 py-10 sm:py-14 font-sans space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               Events
             </h1>
             <Badge variant="subtle" size="sm">
-              {cards.length} {cards.length === 1 ? "event" : "events"}
+              {rows.length} {rows.length === 1 ? "event" : "events"}
             </Badge>
+            {activeRow && (
+              <Badge variant="emerald" dot size="sm">
+                Active: {activeRow.name}
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-[var(--ink-secondary)] mt-1">
-            Select an event to open its workspace.
+            {isDev
+              ? "Manage platform events and open their workspaces."
+              : "Select an event to open its workspace."}
           </p>
         </div>
 
-        {isDev && (
-          <div className="flex flex-wrap items-center gap-2">
+        {/* Action Toolbar */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="h-9 px-3 text-xs gap-1.5"
+            title="Refresh events"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
+            />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+
+          {isDev && (
             <Button
               variant="primary"
               size="sm"
-              className="h-9 px-3.5 text-xs gap-1.5 font-semibold"
+              className="h-9 px-4 text-xs gap-1.5 font-semibold"
               onClick={() => {
                 resetCreateForm();
                 setCreateOpen(true);
               }}
             >
               <Plus className="h-3.5 w-3.5" />
-              Create event
+              <span>Create event</span>
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
-      {/* Centered Squared Event List */}
-      {eventsLoading && cards.length === 0 ? (
-        <EventsListSkeleton />
-      ) : cards.length === 0 ? (
-        <EmptyState
-          title="No events linked to your email yet"
-          description={`You are signed in as ${user.email}. Ask your event organizer to add this email address to their event.`}
-          action={
-            isDev ? (
-              <Button
-                variant="primary"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => {
-                  resetCreateForm();
-                  setCreateOpen(true);
-                }}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Create first event
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="rounded-[10px] border border-[var(--card-border)] bg-[var(--card-solid)] shadow-[var(--shadow-card)] overflow-hidden divide-y divide-[var(--card-line)]">
-          {cards.map((item) => {
-            const isSelected = activeEventSlug === item.slug;
-
-            return (
-              <div
-                key={item.slug}
-                onClick={() => handleSelectEvent(item)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleSelectEvent(item);
-                  }
-                }}
-                className={`group flex items-center justify-between gap-4 px-4 py-3.5 transition-colors duration-150 cursor-pointer hover:bg-[var(--card-solid-subtle)] ${
-                  isSelected ? "bg-[var(--card-solid-subtle)]" : ""
-                }`}
-              >
-                <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
-                    {item.logo_url ? (
-                      <img
-                        src={item.logo_url}
-                        alt={`${item.name} logo`}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <Calendar className="h-4 w-4 text-[var(--ink-secondary)]" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-sm font-semibold tracking-tight text-[var(--ink-primary)] truncate">
-                      {item.name}
-                    </h2>
-                    <p className="text-xs text-[var(--ink-secondary)] mt-0.5">
-                      {item.member_count}{" "}
-                      {item.member_count === 1 ? "member" : "members"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <Badge variant="subtle" size="sm" className="capitalize">
-                    {item.role}
-                  </Badge>
-
-                  {isDev && (
-                    <button
-                      type="button"
-                      aria-label={`Delete ${item.name}`}
-                      title="Delete event"
-                      className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--ink-tertiary)] hover:text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeletingEvent(item);
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-
-                  <ChevronRight className="h-4 w-4 text-[var(--ink-tertiary)] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-[var(--ink-primary)]" />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* Error State */}
+      {isError && (
+        <Alert variant="error" title="Could not load events">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span>
+              {apiErrorMessage(error, "Failed to fetch events from the server.")}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              className="h-8 px-3 text-xs shrink-0"
+            >
+              Try again
+            </Button>
+          </div>
+        </Alert>
       )}
+
+      {/* Primary Surface: Search + Events Table */}
+      <div className="bg-[var(--card-solid)] border border-[var(--card-line)] rounded-[16px] p-4 sm:p-5 space-y-4">
+        {rows.length > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-tertiary)]" />
+              <Input
+                placeholder="Search events by name, slug, or description..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-8 text-xs h-9"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-tertiary)] hover:text-[var(--ink-primary)] cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {searchQuery.trim() && (
+              <p className="text-xs text-[var(--ink-secondary)] tabular-nums">
+                Showing {filteredRows.length} of {rows.length}{" "}
+                {rows.length === 1 ? "event" : "events"}
+              </p>
+            )}
+          </div>
+        )}
+
+        {eventsLoading && rows.length === 0 ? (
+          <EventsTableSkeleton />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title="No events linked to your account yet"
+            description={
+              user?.email
+                ? `You are signed in as ${user.email}. ${
+                    isDev
+                      ? "Create your first event to provision a workspace."
+                      : "Ask your event organizer to add this email address to their event."
+                  }`
+                : "No events are available yet."
+            }
+            action={
+              isDev ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    resetCreateForm();
+                    setCreateOpen(true);
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Create first event
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : filteredRows.length === 0 ? (
+          <EmptyState
+            title="No matching events"
+            description={`No events matched "${searchQuery}".`}
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSearchQuery("")}
+              >
+                Clear search
+              </Button>
+            }
+          />
+        ) : (
+          <div className="w-full overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Event</TableHead>
+                  <TableHead className="hidden sm:table-cell">Slug</TableHead>
+                  <TableHead>Members</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead className="hidden lg:table-cell">
+                    Updated
+                  </TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredRows.map((item) => {
+                  const isSelected = activeEventSlug === item.slug;
+
+                  return (
+                    <TableRow
+                      key={item.slug}
+                      onClick={() => handleSelectEvent(item)}
+                      className={`group cursor-pointer ${
+                        isSelected ? "bg-[var(--card-solid-subtle)]" : ""
+                      }`}
+                    >
+                      {/* Event Identity */}
+                      <TableCell>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[8px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)]">
+                            {item.logo_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={item.logo_url}
+                                alt={`${item.name} logo`}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Calendar className="h-4 w-4 text-[var(--ink-secondary)]" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-[var(--ink-primary)] truncate group-hover:text-[var(--color-blue)] transition-colors">
+                                {item.name}
+                              </span>
+                              {isSelected && (
+                                <Badge variant="emerald" dot size="sm">
+                                  Active
+                                </Badge>
+                              )}
+                            </div>
+                            {item.description ? (
+                              <p className="text-xs text-[var(--ink-secondary)] truncate max-w-[340px] mt-0.5">
+                                {item.description}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-[var(--ink-tertiary)] sm:hidden font-mono mt-0.5 truncate">
+                                {item.slug}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+
+                      {/* Slug */}
+                      <TableCell className="hidden sm:table-cell font-mono text-xs text-[var(--ink-secondary)] whitespace-nowrap">
+                        {item.slug}
+                      </TableCell>
+
+                      {/* Members */}
+                      <TableCell className="text-xs tabular-nums whitespace-nowrap">
+                        <span className="font-semibold text-[var(--ink-primary)]">
+                          {item.member_count}
+                        </span>{" "}
+                        <span className="text-[var(--ink-secondary)]">
+                          {item.member_count === 1 ? "member" : "members"}
+                        </span>
+                      </TableCell>
+
+                      {/* Role */}
+                      <TableCell className="whitespace-nowrap">
+                        {renderRoleBadge(item.role)}
+                      </TableCell>
+
+                      {/* Updated */}
+                      <TableCell className="hidden lg:table-cell text-xs tabular-nums text-[var(--ink-secondary)] whitespace-nowrap">
+                        {item.updated_at
+                          ? new Date(item.updated_at).toLocaleDateString([], {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell
+                        className="text-right whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            onClick={() => handleSelectEvent(item)}
+                            className="h-8 px-2.5 text-xs gap-1 font-medium"
+                          >
+                            <span>Open</span>
+                            <ArrowRight className="h-3 w-3 text-[var(--ink-tertiary)] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-[var(--ink-primary)]" />
+                          </Button>
+
+                          {isDev && (
+                            <button
+                              type="button"
+                              aria-label={`Delete ${item.name}`}
+                              title="Delete event"
+                              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-[var(--ink-tertiary)] hover:text-[var(--color-coral)] hover:bg-[var(--color-coral-dim)] transition-colors cursor-pointer"
+                              onClick={() => setDeletingEvent(item)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
 
       {/* Dev: Create Event Dialog */}
       <Dialog
@@ -378,10 +621,13 @@ export default function EventsSelectionPage() {
             onChange={(e) => {
               const val = e.target.value;
               setName(val);
+              if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: undefined }));
               if (!slugTouched) {
                 setSlug(slugify(val));
+                if (fieldErrors.slug) setFieldErrors((prev) => ({ ...prev, slug: undefined }));
               }
             }}
+            error={fieldErrors.name}
             disabled={createEventMutation.isPending}
             required
           />
@@ -392,7 +638,9 @@ export default function EventsSelectionPage() {
             onChange={(e) => {
               setSlugTouched(true);
               setSlug(e.target.value.toLowerCase());
+              if (fieldErrors.slug) setFieldErrors((prev) => ({ ...prev, slug: undefined }));
             }}
+            error={fieldErrors.slug}
             disabled={createEventMutation.isPending}
             required
           />
@@ -427,7 +675,8 @@ export default function EventsSelectionPage() {
             />
           </div>
           <p className="text-[11px] text-[var(--ink-tertiary)]">
-            Leave owner email blank to assign yourself as the initial owner. An owner can only own one event at a time.
+            Leave owner email blank to assign yourself as the initial owner. An
+            owner can only own one event at a time.
           </p>
         </form>
       </Dialog>

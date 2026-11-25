@@ -47,17 +47,55 @@ export function TeamTable({
 }: TeamTableProps) {
   if (isLoading) {
     return (
-      <div className="space-y-3 font-sans">
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center space-x-4 py-2">
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/4" />
-              <Skeleton className="h-4 w-1/6" />
-              <Skeleton className="h-4 w-1/6" />
-            </div>
-          ))}
-        </div>
+      <div className="w-full overflow-x-auto font-sans">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Team Name</TableHead>
+              <TableHead>Team Leader</TableHead>
+              {showCodes && <TableHead>Join Code</TableHead>}
+              <TableHead>Roster Size</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Registered</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <TableRow key={i}>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-32" />
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3.5 w-28" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                </TableCell>
+                {showCodes && (
+                  <TableCell>
+                    <Skeleton className="h-5 w-20 rounded-[6px]" />
+                  </TableCell>
+                )}
+                <TableCell>
+                  <Skeleton className="h-3.5 w-16" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-3.5 w-20" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <Skeleton className="h-7 w-7 rounded-[6px]" />
+                    <Skeleton className="h-7 w-7 rounded-[6px]" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     );
   }
@@ -65,7 +103,8 @@ export function TeamTable({
   if (teams.length === 0) {
     return (
       <EmptyState
-        title="No Teams Found"
+        icon={Users}
+        title="No teams found"
         description="No teams matched your query. Teams appear here once participants create them."
       />
     );

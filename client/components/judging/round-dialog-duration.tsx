@@ -20,6 +20,7 @@ export function RoundDurationDialog({ round, open, onClose }: RoundDurationDialo
   const update = useUpdateRoundDuration();
   const [mins, setMins] = useState("");
   const [resetCustom, setResetCustom] = useState(false);
+  const [fieldError, setFieldError] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [prevRoundId, setPrevRoundId] = useState<string | null>(null);
 
@@ -28,6 +29,7 @@ export function RoundDurationDialog({ round, open, onClose }: RoundDurationDialo
     setPrevRoundId(roundId);
     setMins(String(round?.slot_duration_mins ?? 10));
     setResetCustom(false);
+    setFieldError(undefined);
     setError(null);
   }
   if (!open && prevRoundId) setPrevRoundId(null);
@@ -36,11 +38,13 @@ export function RoundDurationDialog({ round, open, onClose }: RoundDurationDialo
 
   const save = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    setError(null);
     const value = Number(mins);
     if (!Number.isInteger(value) || value < 1 || value > 600) {
-      setError("Enter a whole number of minutes between 1 and 600.");
+      setFieldError("Enter a whole number (1–600)");
       return;
     }
+    setFieldError(undefined);
     try {
       await update.mutateAsync({
         roundId: round.id,
@@ -84,8 +88,10 @@ export function RoundDurationDialog({ round, open, onClose }: RoundDurationDialo
           value={mins}
           onChange={(e) => {
             setMins(e.target.value);
+            if (fieldError) setFieldError(undefined);
             if (error) setError(null);
           }}
+          error={fieldError}
           disabled={update.isPending}
         />
         <label className="flex cursor-pointer items-start gap-2.5 select-none rounded-[12px] border border-[var(--card-line)] bg-[var(--card-solid-subtle)] p-3">

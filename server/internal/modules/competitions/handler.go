@@ -43,7 +43,7 @@ func (h *Handler) HandleCreateCompetition(w http.ResponseWriter, r *http.Request
 	comp, err := h.service.CreateCompetition(r.Context(), evCtx.EventID, req, evCtx.UserID)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrInvalidSlug):
+		case errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidTeamSizeRange):
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, ErrSlugAlreadyExists):
 			utils.ErrorJSON(w, http.StatusConflict, "competition slug is already taken in this event")
@@ -126,7 +126,7 @@ func (h *Handler) HandleUpdateCompetition(w http.ResponseWriter, r *http.Request
 	comp, err := h.service.UpdateCompetition(r.Context(), compCtx.EventID, compCtx.CompetitionID, compCtx.Slug, req, compCtx.UserID)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrInvalidSlug):
+		case errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidTeamSizeRange):
 			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, ErrSlugAlreadyExists):
 			utils.ErrorJSON(w, http.StatusConflict, "competition slug is already taken in this event")

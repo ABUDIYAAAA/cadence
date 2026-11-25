@@ -163,7 +163,7 @@ func TestTeamingWorkflow(t *testing.T) {
 	linkEventMember(t, pool, eventID, p2ID, "participant")
 	linkEventMember(t, pool, eventID, p3ID, "participant")
 
-	teamsRepo := NewRepository(pool, 4)
+	teamsRepo := NewRepository(pool)
 	eventsRepo := events.NewRepository(pool).WithTeamEvictor(teamsRepo)
 	usersRepo := users.NewRepository(pool).WithTeamEvictor(teamsRepo)
 
@@ -425,7 +425,7 @@ func TestTeamsHTTPRoutes(t *testing.T) {
 	linkEventMember(t, pool, eventID, p1ID, "participant")
 	linkEventMember(t, pool, eventID, p2ID, "participant")
 
-	teamsRepo := NewRepository(pool, 4)
+	teamsRepo := NewRepository(pool)
 	teamsService := NewService(teamsRepo, nil)
 	teamsHandler := NewHandler(teamsService, nil)
 
@@ -620,7 +620,7 @@ func TestTeamOwnershipEvictionAuditAndCompetitionScopedLookup(t *testing.T) {
 	linkEventMember(t, pool, eventID, u3ID, "participant")
 
 	auditor := &captureAuditRecorder{}
-	teamsRepo := NewRepository(pool, 4).WithAuditor(auditor)
+	teamsRepo := NewRepository(pool).WithAuditor(auditor)
 	eventsRepo := events.NewRepository(pool).WithTeamEvictor(teamsRepo)
 	eventsService := events.NewService(eventsRepo, nil, auditor)
 	usersRepo := users.NewRepository(pool).WithTeamEvictor(teamsRepo)

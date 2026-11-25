@@ -35,16 +35,17 @@ type AddMemberRequest struct {
 	UserID string `json:"user_id" validate:"required,uuid"`
 }
 
-// UpdateSettingsRequest changes global team settings.
+// UpdateSettingsRequest changes competition team settings.
 type UpdateSettingsRequest struct {
+	MinTeamSize *int `json:"min_team_size,omitempty" validate:"omitempty,min=1,max=100"`
 	MaxTeamSize *int `json:"max_team_size,omitempty" validate:"omitempty,min=1,max=100"`
 }
 
-// SettingsResponse describes global team settings.
+// SettingsResponse describes competition team settings.
 type SettingsResponse struct {
-	FrozenAll   bool `json:"frozen_all"`
-	MaxTeamSize int  `json:"max_team_size"`
-	// MaxTeamSizeSource is "database" once an admin saved a value, otherwise "environment".
+	FrozenAll         bool   `json:"frozen_all"`
+	MinTeamSize       int    `json:"min_team_size"`
+	MaxTeamSize       int    `json:"max_team_size"`
 	MaxTeamSizeSource string `json:"max_team_size_source"`
 }
 

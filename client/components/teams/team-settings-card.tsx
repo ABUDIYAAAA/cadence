@@ -16,7 +16,7 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 interface TeamSettingsCardProps {
-  /** Only admins change the default team size; volunteers can still freeze. */
+  /** Only admins change team size bounds; volunteers can still freeze. */
   canEditSize: boolean;
 }
 
@@ -25,16 +25,24 @@ export function TeamSettingsCard({ canEditSize }: TeamSettingsCardProps) {
   const { data: settings, isLoading } = useTeamSettings();
   const setAllFrozen = useSetAllTeamsFrozen();
   const updateSettings = useUpdateTeamSettings();
-  const [sizeDraft, setSizeDraft] = useState<string | null>(null);
+  const [minDraft, setMinDraft] = useState<string | null>(null);
+  const [maxDraft, setMaxDraft] = useState<string | null>(null);
 
   if (isLoading || !settings) {
     return <Skeleton className="h-24 w-full rounded-[16px]" />;
   }
 
-  const sizeValue = sizeDraft ?? String(settings.max_team_size);
-  const sizeNumber = Number(sizeValue);
-  const sizeValid = Number.isInteger(sizeNumber) && sizeNumber >= 1 && sizeNumber <= 100;
-  const sizeDirty = sizeDraft !== null && sizeNumber !== settings.max_team_size;
+  const minValue = minDraft ?? String(settings.min_team_size);
+  const maxValue = maxDraft ?? String(settings.max_team_size);
+  const minNumber = Number(minValue);
+  const maxNumber = Number(maxValue);
+
+  const minValid = Number.isInteger(minNumber) && minNumber >= 1 && minNumber <= 100;
+  const maxValid = Number.isInteger(maxNumber) && maxNumber >= 1 && maxNumber <= 100;
+  const rangeValid = minValid && maxValid && minNumber <= maxNumber;
+  const sizeDirty =
+    (minDraft !== null && minNumber !== settings.min_team_size) ||
+    (maxDraft !== null && maxNumber !== settings.max_team_size);
 
   const toggleFreezeAll = async () => {
     const next = !settings.frozen_all;
@@ -53,9 +61,16 @@ export function TeamSettingsCard({ canEditSize }: TeamSettingsCardProps) {
 
   const saveSize = async () => {
     try {
-      await updateSettings.mutateAsync({ max_team_size: sizeNumber });
-      setSizeDraft(null);
-      toast.success(`Teams can now have up to ${sizeNumber} members.`, "Team size updated");
+      await updateSettings.mutateAsync({
+        min_team_size: minNumber,
+        max_team_size: maxNumber,
+      });
+      setMinDraft(null);
+      setMaxDraft(null);
+      toast.success(
+        `Team size bounds updated to ${minNumber}–${maxNumber} members.`,
+        "Team size updated"
+      );
     } catch (err) {
       toast.error(errorMessage(err, "Failed to update team size"), "Error");
     }
@@ -91,23 +106,34 @@ export function TeamSettingsCard({ canEditSize }: TeamSettingsCardProps) {
         className="flex items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (sizeDirty && sizeValid) saveSize();
+          if (sizeDirty && rangeValid) saveSize();
         }}
       >
-        <div className="flex-1">
+        <div className="flex-1 grid grid-cols-2 gap-2">
           <Input
-            label="Max members per team"
+            label="Min members"
             type="number"
             min={1}
             max={100}
-            value={sizeValue}
-            onChange={(e) => setSizeDraft(e.target.value)}
+            value={minValue}
+            onChange={(e) => setMinDraft(e.target.value)}
             disabled={!canEditSize || updateSettings.isPending}
-            error={sizeDirty && !sizeValid ? "Enter a whole number from 1 to 100" : undefined}
-            helperText={
-              settings.max_team_size_source === "environment"
-                ? "Using the server default. Individual teams can override this."
-                : "Individual teams can override this."
+            error={sizeDirty && !minValid ? "1–100" : undefined}
+          />
+          <Input
+            label="Max members"
+            type="number"
+            min={1}
+            max={100}
+            value={maxValue}
+            onChange={(e) => setMaxDraft(e.target.value)}
+            disabled={!canEditSize || updateSettings.isPending}
+            error={
+              sizeDirty && !maxValid
+                ? "1–100"
+                : sizeDirty && minValid && maxValid && minNumber > maxNumber
+                ? "Must be ≥ min"
+                : undefined
             }
           />
         </div>
@@ -116,7 +142,7 @@ export function TeamSettingsCard({ canEditSize }: TeamSettingsCardProps) {
             variant="primary"
             size="sm"
             type="submit"
-            disabled={!sizeDirty || !sizeValid}
+            disabled={!sizeDirty || !rangeValid}
             isLoading={updateSettings.isPending}
           >
             Save

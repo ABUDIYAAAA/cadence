@@ -248,7 +248,10 @@ func (s *Service) AddEventUser(
 	return detail, createdAccount, nil
 }
 
-// BulkAddEventUsers adds multiple users to an event in bulk by email.
+// BulkAddEventUsers adds multiple users to an event in bulk by email,
+// optionally assigning participants to teams within named competitions.
+// Duplicate emails across rows (e.g. a participant registered in multiple competitions)
+// are deduplicated for account/event enrollment while processing each team assignment.
 func (s *Service) BulkAddEventUsers(
 	ctx context.Context,
 	eventID, actorID, actorRole string,
@@ -260,10 +263,13 @@ func (s *Service) BulkAddEventUsers(
 		SkippedErrors:  make([]string, 0),
 	}
 
+	seenUsers := make(map[string]*EventUserDetailResponse, len(req.Users))
+
 	for i, u := range req.Users {
-		if !isValidEmail(u.Email) {
+		normEmail := strings.TrimSpace(strings.ToLower(u.Email))
+		if !isValidEmail(normEmail) {
 			resp.SkippedCount++
-			resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("user %d (%s): invalid email address", i+1, u.Email))
+			resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): invalid email address", i+1, u.Email))
 			continue
 		}
 
@@ -272,34 +278,72 @@ func (s *Service) BulkAddEventUsers(
 			role = "participant"
 		}
 
-		detail, createdAccount, err := s.repo.AddEventUser(ctx, eventID, actorID, actorRole, u.Email, u.Name, u.PhoneNumber, role)
-		if err != nil {
-			resp.SkippedCount++
-			resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("user %d (%s): %v", i+1, u.Email, err))
-			continue
+		detail, alreadySeen := seenUsers[normEmail]
+		if !alreadySeen {
+			addedDetail, createdAccount, err := s.repo.AddEventUser(ctx, eventID, actorID, actorRole, normEmail, u.Name, u.PhoneNumber, role)
+			if err != nil {
+				resp.SkippedCount++
+				resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): %v", i+1, u.Email, err))
+				continue
+			}
+
+			if createdAccount {
+				resp.TotalCreated++
+			} else {
+				resp.TotalAdded++
+			}
+
+			if s.rdb != nil {
+				_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, addedDetail.ID), role, 15*time.Minute).Err()
+				_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", addedDetail.ID), eventID).Err()
+				s.clearRestoredSoftDeleteBlock(ctx, addedDetail.ID)
+			}
+
+			detail = addedDetail
+			seenUsers[normEmail] = detail
+			resp.Users = append(resp.Users, *detail)
 		}
 
-		if createdAccount {
-			resp.TotalCreated++
-		} else {
-			resp.TotalAdded++
+		compName := ""
+		if u.CompetitionName != nil {
+			compName = strings.TrimSpace(*u.CompetitionName)
+		}
+		teamName := ""
+		if u.TeamName != nil {
+			teamName = strings.TrimSpace(*u.TeamName)
 		}
 
-		if s.rdb != nil {
-			_ = s.rdb.Set(ctx, fmt.Sprintf("event:%s:member:%s", eventID, detail.ID), role, 15*time.Minute).Err()
-			_ = s.rdb.SAdd(ctx, fmt.Sprintf("user:%s:events", detail.ID), eventID).Err()
-			s.clearRestoredSoftDeleteBlock(ctx, detail.ID)
+		if teamName != "" || compName != "" {
+			if teamName == "" {
+				// competition_name without team_name: nothing to assign
+				continue
+			}
+			_, _, teamCreated, newlyAssigned, err := s.repo.AssignEventUserToCompetitionTeam(
+				ctx, eventID, actorID, detail.ID, detail.Role, compName, teamName,
+			)
+			if err != nil {
+				resp.SkippedCount++
+				resp.SkippedErrors = append(resp.SkippedErrors, fmt.Sprintf("row %d (%s): %v", i+1, u.Email, err))
+				continue
+			}
+			if teamCreated {
+				resp.TeamsCreated++
+			}
+			if newlyAssigned {
+				resp.TeamsAssigned++
+			}
 		}
-
-		resp.Users = append(resp.Users, *detail)
 	}
 
 	s.recordAudit(ctx, audit.ActionEventMemberAssign, eventID,
-		fmt.Sprintf("Bulk added users: %d created, %d added, %d skipped", resp.TotalCreated, resp.TotalAdded, resp.SkippedCount),
+		fmt.Sprintf("Bulk added users: %d created, %d added, %d teams created, %d team assignments, %d skipped",
+			resp.TotalCreated, resp.TotalAdded, resp.TeamsCreated, resp.TeamsAssigned, resp.SkippedCount),
 		&actorID, map[string]any{
 			"total_processed": resp.TotalProcessed,
 			"total_created":   resp.TotalCreated,
 			"total_added":     resp.TotalAdded,
+			"teams_created":   resp.TeamsCreated,
+			"teams_assigned":  resp.TeamsAssigned,
 			"skipped_count":   resp.SkippedCount,
 		},
 	)

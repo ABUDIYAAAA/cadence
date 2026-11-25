@@ -39,10 +39,12 @@ type AssignMemberRoleRequest struct {
 
 // AddEventUserRequest defines payload to add a single user to an event by email.
 type AddEventUserRequest struct {
-	Email       string  `json:"email" validate:"required,email,max=254"`
-	Name        *string `json:"name,omitempty" validate:"omitempty,max=255"`
-	Role        string  `json:"role" validate:"omitempty,oneof=admin volunteer judge participant"`
-	PhoneNumber *string `json:"phone_number,omitempty" validate:"omitempty,max=32"`
+	Email           string  `json:"email" validate:"required,email,max=254"`
+	Name            *string `json:"name,omitempty" validate:"omitempty,max=255"`
+	Role            string  `json:"role" validate:"omitempty,oneof=admin volunteer judge participant"`
+	PhoneNumber     *string `json:"phone_number,omitempty" validate:"omitempty,max=32"`
+	CompetitionName *string `json:"competition_name,omitempty" validate:"omitempty,max=255"`
+	TeamName        *string `json:"team_name,omitempty" validate:"omitempty,max=100"`
 }
 
 // BulkAddEventUsersRequest defines payload to bulk add users to an event via emails.
@@ -55,6 +57,8 @@ type BulkAddEventUsersResponse struct {
 	TotalProcessed int                       `json:"total_processed"`
 	TotalCreated   int                       `json:"total_created"`
 	TotalAdded     int                       `json:"total_added"`
+	TeamsCreated   int                       `json:"teams_created,omitempty"`
+	TeamsAssigned  int                       `json:"teams_assigned,omitempty"`
 	SkippedCount   int                       `json:"skipped_count"`
 	SkippedErrors  []string                  `json:"skipped_errors,omitempty"`
 	Users          []EventUserDetailResponse `json:"users"`

@@ -11,6 +11,8 @@ type Competition struct {
 	Slug        string    `json:"slug"`
 	Name        string    `json:"name"`
 	Description *string   `json:"description,omitempty"`
+	MinTeamSize int       `json:"min_team_size"`
+	MaxTeamSize int       `json:"max_team_size"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

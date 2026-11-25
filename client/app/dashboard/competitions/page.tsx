@@ -109,8 +109,15 @@ export default function CompetitionsPage() {
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [description, setDescription] = useState("");
+  const [minTeamSize, setMinTeamSize] = useState("");
+  const [maxTeamSize, setMaxTeamSize] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ name?: string; slug?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    slug?: string;
+    minTeamSize?: string;
+    maxTeamSize?: string;
+  }>({});
 
   // Delete confirmation Dialog state
   const [deletingCompetition, setDeletingCompetition] =
@@ -140,6 +147,8 @@ export default function CompetitionsPage() {
     setSlug("");
     setSlugTouched(false);
     setDescription("");
+    setMinTeamSize("");
+    setMaxTeamSize("");
     setFormError(null);
     setFieldErrors({});
     setDialogMode("create");
@@ -151,6 +160,8 @@ export default function CompetitionsPage() {
     setSlug(comp.slug);
     setSlugTouched(true);
     setDescription(comp.description || "");
+    setMinTeamSize(String(comp.min_team_size));
+    setMaxTeamSize(String(comp.max_team_size));
     setFormError(null);
     setFieldErrors({});
     setDialogMode("edit");
@@ -172,6 +183,10 @@ export default function CompetitionsPage() {
     router.push(getCompetitionSectionHref(comp.slug, defaultSection));
   };
 
+  const parsedMinSize = minTeamSize.trim() === "" ? NaN : Number(minTeamSize.trim());
+  const parsedMaxSize = maxTeamSize.trim() === "" ? NaN : Number(maxTeamSize.trim());
+  const teamSizesFilled = minTeamSize.trim() !== "" && maxTeamSize.trim() !== "";
+
   const handleSaveCompetition = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -180,21 +195,52 @@ export default function CompetitionsPage() {
     const trimmedSlug = (slug.trim() || slugify(trimmedName)).toLowerCase();
     const trimmedDescription = description.trim();
 
+    const nextErrors: {
+      name?: string;
+      slug?: string;
+      minTeamSize?: string;
+      maxTeamSize?: string;
+    } = {};
+
+    if (!trimmedName || trimmedName.length < 2) {
+      nextErrors.name = trimmedName ? "At least 2 characters" : "Required";
+    }
+    if (!trimmedSlug) {
+      nextErrors.slug = "Required";
+    }
+    if (minTeamSize.trim() === "") {
+      nextErrors.minTeamSize = "Required";
+    } else if (!Number.isInteger(parsedMinSize) || parsedMinSize < 1 || parsedMinSize > 100) {
+      nextErrors.minTeamSize = "Whole number 1–100";
+    }
+    if (maxTeamSize.trim() === "") {
+      nextErrors.maxTeamSize = "Required";
+    } else if (!Number.isInteger(parsedMaxSize) || parsedMaxSize < 1 || parsedMaxSize > 100) {
+      nextErrors.maxTeamSize = "Whole number 1–100";
+    }
+    if (
+      !nextErrors.minTeamSize &&
+      !nextErrors.maxTeamSize &&
+      parsedMinSize > parsedMaxSize
+    ) {
+      nextErrors.maxTeamSize = "Must be ≥ min size";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      return;
+    }
+
     const validationError = validateCompetitionInput({
       name: trimmedName,
       slug: trimmedSlug,
       description: trimmedDescription,
+      min_team_size: parsedMinSize,
+      max_team_size: parsedMaxSize,
     });
     if (validationError) {
-      const nextErrors: { name?: string; slug?: string } = {};
-      if (!trimmedName || trimmedName.length < 2) {
-        nextErrors.name = trimmedName ? "At least 2 characters" : "Required";
-      }
-      if (!trimmedSlug || validationError.toLowerCase().includes("slug")) {
-        nextErrors.slug = trimmedSlug ? validationError : "Required";
-      }
-      if (Object.keys(nextErrors).length > 0) {
-        setFieldErrors(nextErrors);
+      if (validationError.toLowerCase().includes("slug")) {
+        setFieldErrors({ slug: validationError });
       } else {
         setFormError(validationError);
       }
@@ -208,6 +254,8 @@ export default function CompetitionsPage() {
           name: trimmedName,
           slug: trimmedSlug,
           description: trimmedDescription || undefined,
+          min_team_size: parsedMinSize,
+          max_team_size: parsedMaxSize,
         });
         selectCompetition(created.slug);
         toast.success(
@@ -222,6 +270,8 @@ export default function CompetitionsPage() {
             name: trimmedName,
             slug: trimmedSlug,
             description: trimmedDescription,
+            min_team_size: parsedMinSize,
+            max_team_size: parsedMaxSize,
           },
         });
         const nextActive = resolveNextActiveCompetitionSlug({
@@ -436,6 +486,11 @@ export default function CompetitionsPage() {
                       <span className="font-mono text-[11px] text-[var(--ink-tertiary)] truncate">
                         /{comp.slug}
                       </span>
+                      <Badge variant="subtle" size="sm">
+                        {comp.min_team_size === comp.max_team_size
+                          ? `${comp.max_team_size} ${comp.max_team_size === 1 ? "member" : "members"}`
+                          : `${comp.min_team_size}–${comp.max_team_size} members`}
+                      </Badge>
                     </div>
 
                     {comp.description ? (
@@ -532,6 +587,7 @@ export default function CompetitionsPage() {
               size="sm"
               type="button"
               onClick={handleSaveCompetition}
+              disabled={!teamSizesFilled}
               isLoading={
                 createCompetition.isPending || updateCompetition.isPending
               }
@@ -592,6 +648,46 @@ export default function CompetitionsPage() {
               </span>
               .
             </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Min Team Members *"
+              type="number"
+              min={1}
+              max={100}
+              placeholder="e.g. 2"
+              value={minTeamSize}
+              onChange={(e) => {
+                setMinTeamSize(e.target.value);
+                if (fieldErrors.minTeamSize) {
+                  setFieldErrors((prev) => ({ ...prev, minTeamSize: undefined }));
+                }
+              }}
+              error={fieldErrors.minTeamSize}
+              disabled={
+                createCompetition.isPending || updateCompetition.isPending
+              }
+              required
+            />
+            <Input
+              label="Max Team Members *"
+              type="number"
+              min={1}
+              max={100}
+              placeholder="e.g. 4"
+              value={maxTeamSize}
+              onChange={(e) => {
+                setMaxTeamSize(e.target.value);
+                if (fieldErrors.maxTeamSize) {
+                  setFieldErrors((prev) => ({ ...prev, maxTeamSize: undefined }));
+                }
+              }}
+              error={fieldErrors.maxTeamSize}
+              disabled={
+                createCompetition.isPending || updateCompetition.isPending
+              }
+              required
+            />
           </div>
           <Textarea
             label="Description"

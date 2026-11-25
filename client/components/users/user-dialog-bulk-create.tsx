@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   BulkCreateResponse,
   BulkCreateUsersRequest,
@@ -19,10 +19,51 @@ interface UserBulkCreateDialogProps {
   isLoading: boolean;
 }
 
-const SAMPLE_CSV = `email,name,role,phone_number
-alice@example.com,Alice Smith,participant,+15550101
-bob@example.com,Bob Jones,participant,+15550102
-charlie@example.com,Charlie Brown,judge,`;
+const SAMPLE_CSV = `email,name,role,phone_number,competition_name,team_name
+alice@example.com,Alice Smith,participant,+15550101,AI Track,Neural Ninjas
+bob@example.com,Bob Jones,participant,+15550102,AI Track,Neural Ninjas
+alice@example.com,Alice Smith,participant,+15550101,Web Track,Pixel Forge
+charlie@example.com,Charlie Brown,judge,,,`;
+
+/** Splits a single CSV line, respecting double-quoted cells and escaped quotes (""). */
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function findColumn(header: string[], aliases: string[]): number {
+  for (const alias of aliases) {
+    const idx = header.indexOf(alias);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
 
 export function UserBulkCreateDialog({
   open,
@@ -34,6 +75,11 @@ export function UserBulkCreateDialog({
   const [parsedUsers, setParsedUsers] = useState<CreateUserRequest[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [result, setResult] = useState<BulkCreateResponse | null>(null);
+
+  const uniqueUserCount = useMemo(() => {
+    const emails = new Set(parsedUsers.map((u) => u.email.trim().toLowerCase()));
+    return emails.size;
+  }, [parsedUsers]);
 
   const resetDialog = () => {
     setCsvText("");
@@ -50,8 +96,9 @@ export function UserBulkCreateDialog({
   const parseCsv = (text: string) => {
     try {
       const lines = text
+        .replace(/^\uFEFF/, "")
         .trim()
-        .split("\n")
+        .split(/\r?\n/)
         .map((l) => l.trim())
         .filter(Boolean);
 
@@ -59,21 +106,23 @@ export function UserBulkCreateDialog({
         throw new Error("CSV must include a header line and at least one user record.");
       }
 
-      const header = lines[0].toLowerCase().split(",").map((h) => h.trim());
-      const emailIdx = header.indexOf("email");
-      const nameIdx = header.indexOf("name");
+      const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+      const emailIdx = findColumn(header, ["email"]);
+      const nameIdx = findColumn(header, ["name"]);
 
       if (emailIdx === -1 || nameIdx === -1) {
         throw new Error("CSV header must include 'email' and 'name' columns.");
       }
 
-      const roleIdx = header.indexOf("role");
-      const phoneIdx = header.indexOf("phone_number");
+      const roleIdx = findColumn(header, ["role"]);
+      const phoneIdx = findColumn(header, ["phone_number", "phone"]);
+      const compIdx = findColumn(header, ["competition_name", "competition", "competition_slug"]);
+      const teamIdx = findColumn(header, ["team_name", "team"]);
 
       const users: CreateUserRequest[] = [];
 
       for (let i = 1; i < lines.length; i++) {
-        const row = lines[i].split(",").map((c) => c.trim());
+        const row = parseCsvLine(lines[i]);
         const email = row[emailIdx] || "";
         const name = row[nameIdx] || "";
 
@@ -81,14 +130,22 @@ export function UserBulkCreateDialog({
           throw new Error(`Row ${i + 1}: email and name are required.`);
         }
 
-        const role = (roleIdx !== -1 && row[roleIdx] ? row[roleIdx] : "participant") as UserRole;
+        const role = (roleIdx !== -1 && row[roleIdx] ? row[roleIdx].toLowerCase() : "participant") as UserRole;
         const phone = phoneIdx !== -1 && row[phoneIdx] ? row[phoneIdx] : undefined;
+        const competitionName = compIdx !== -1 && row[compIdx] ? row[compIdx] : undefined;
+        const teamName = teamIdx !== -1 && row[teamIdx] ? row[teamIdx] : undefined;
+
+        if (teamName && !competitionName) {
+          throw new Error(`Row ${i + 1}: competition_name is required when team_name is provided.`);
+        }
 
         users.push({
           email,
           name,
           role,
           phone_number: phone,
+          competition_name: competitionName,
+          team_name: teamName,
         });
       }
 
@@ -123,12 +180,14 @@ export function UserBulkCreateDialog({
     }
   };
 
+  const hasDuplicates = parsedUsers.length > uniqueUserCount;
+
   return (
     <Dialog
       open={open}
       onClose={handleClose}
       title="Bulk Import Users (CSV)"
-      description="Import users from a CSV. They sign in with Google using their registered email address."
+      description="Import users and optionally assign participants to competitions and teams. Duplicate emails across competitions are automatically deduplicated."
       footer={
         <div className="flex justify-end gap-2">
           <Button
@@ -148,7 +207,9 @@ export function UserBulkCreateDialog({
               onClick={handleSubmit}
               isLoading={isLoading}
             >
-              Import {parsedUsers.length} Users
+              {hasDuplicates
+                ? `Import ${uniqueUserCount} Users (${parsedUsers.length} rows)`
+                : `Import ${parsedUsers.length} Users`}
             </Button>
           )}
         </div>
@@ -158,14 +219,26 @@ export function UserBulkCreateDialog({
         {result ? (
           <div className="space-y-3">
             <Alert variant="info" title="Bulk import complete">
-              Processed {result.total_processed} accounts.
+              Processed {result.total_processed} row{result.total_processed === 1 ? "" : "s"}.
             </Alert>
 
             <div className="rounded-[16px] border border-[var(--card-line)] divide-y divide-[var(--card-line)] bg-[var(--card-solid)] overflow-hidden">
               <div className="flex justify-between p-3">
-                <span className="text-[var(--ink-secondary)]">Total Created</span>
+                <span className="text-[var(--ink-secondary)]">Accounts Created / Enrolled</span>
                 <strong className="text-[var(--ink-primary)] font-mono">{result.total_created}</strong>
               </div>
+              {(result.teams_created ?? 0) > 0 && (
+                <div className="flex justify-between p-3">
+                  <span className="text-[var(--ink-secondary)]">Teams Created</span>
+                  <strong className="text-[var(--ink-primary)] font-mono">{result.teams_created}</strong>
+                </div>
+              )}
+              {(result.teams_assigned ?? 0) > 0 && (
+                <div className="flex justify-between p-3">
+                  <span className="text-[var(--ink-secondary)]">Team Assignments</span>
+                  <strong className="text-[var(--ink-primary)] font-mono">{result.teams_assigned}</strong>
+                </div>
+              )}
               <div className="flex justify-between p-3">
                 <span className="text-[var(--ink-secondary)]">Skipped Records</span>
                 <span className="font-semibold text-[var(--ink-primary)] font-mono">
@@ -187,7 +260,7 @@ export function UserBulkCreateDialog({
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] text-[var(--ink-secondary)] font-semibold uppercase">
                 CSV Input Data
               </span>
@@ -203,6 +276,15 @@ export function UserBulkCreateDialog({
                 Insert Sample Data
               </Button>
             </div>
+
+            <p className="text-[11px] font-sans text-[var(--ink-secondary)]">
+              Required: <code className="font-mono text-[var(--ink-primary)]">email</code>,{" "}
+              <code className="font-mono text-[var(--ink-primary)]">name</code>. Optional:{" "}
+              <code className="font-mono text-[var(--ink-primary)]">role</code>,{" "}
+              <code className="font-mono text-[var(--ink-primary)]">phone_number</code>,{" "}
+              <code className="font-mono text-[var(--ink-primary)]">competition_name</code>,{" "}
+              <code className="font-mono text-[var(--ink-primary)]">team_name</code>.
+            </p>
 
             <textarea
               rows={6}
@@ -230,7 +312,11 @@ export function UserBulkCreateDialog({
               {parsedUsers.length > 0 && (
                 <div className="flex items-center gap-1 text-[#2EB88A] font-semibold text-xs">
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>{parsedUsers.length} valid rows detected</span>
+                  <span>
+                    {hasDuplicates
+                      ? `${parsedUsers.length} rows · ${uniqueUserCount} unique users`
+                      : `${parsedUsers.length} valid rows detected`}
+                  </span>
                 </div>
               )}
             </div>

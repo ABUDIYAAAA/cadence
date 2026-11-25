@@ -99,6 +99,8 @@ export const eventsService = {
       total_processed: data.total_processed,
       total_created: (data.total_created ?? 0) + (data.total_added ?? 0),
       total_added: data.total_added,
+      teams_created: data.teams_created,
+      teams_assigned: data.teams_assigned,
       skipped_count: data.skipped_count,
       skipped_errors: data.skipped_errors,
       users: (data.users ?? []).map(normalizeEventUser),

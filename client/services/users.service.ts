@@ -88,6 +88,8 @@ export const usersService = {
           name: u.name,
           role: toAssignableRole(u.role),
           phone_number: u.phone_number,
+          competition_name: u.competition_name,
+          team_name: u.team_name,
         })),
       });
     }

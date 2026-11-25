@@ -2,8 +2,10 @@ package events
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -844,4 +846,154 @@ func (r *Repository) ListEventUsers(ctx context.Context, eventID string, filter 
 	}
 
 	return usersList, total, nil
+}
+
+const (
+	bulkJoinCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	bulkJoinCodeLength   = 6
+	bulkJoinCodeRetries  = 8
+)
+
+func generateBulkJoinCode() (string, error) {
+	max := big.NewInt(int64(len(bulkJoinCodeAlphabet)))
+	b := make([]byte, bulkJoinCodeLength)
+	for i := range b {
+		n, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return "", err
+		}
+		b[i] = bulkJoinCodeAlphabet[n.Int64()]
+	}
+	return string(b), nil
+}
+
+// AssignEventUserToCompetitionTeam resolves a competition by name or slug inside eventID,
+// finds or creates the named team inside that competition, and adds the participant to it.
+// Duplicate assignments to the same team are idempotent and return newlyAssigned=false.
+func (r *Repository) AssignEventUserToCompetitionTeam(
+	ctx context.Context,
+	eventID, actorID, userID, userRole, competitionName, teamName string,
+) (teamID string, resolvedTeamName string, teamCreated bool, newlyAssigned bool, err error) {
+	compQuery := strings.TrimSpace(competitionName)
+	teamQuery := strings.TrimSpace(teamName)
+	if compQuery == "" {
+		return "", "", false, false, errors.New("competition_name is required when team_name is specified")
+	}
+	if teamQuery == "" {
+		return "", "", false, false, errors.New("team_name cannot be empty")
+	}
+	if len(teamQuery) < 2 || len(teamQuery) > 100 {
+		return "", "", false, false, errors.New("team_name must be between 2 and 100 characters")
+	}
+	if userRole != "participant" {
+		return "", "", false, false, errors.New("only participants can be assigned to a team")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", "", false, false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var compID, compName string
+	var compMaxSize int
+	err = tx.QueryRow(ctx, `
+		SELECT id, name, max_team_size
+		FROM competitions
+		WHERE event_id = $1 AND (LOWER(name) = LOWER($2) OR LOWER(slug) = LOWER($2))
+		ORDER BY (LOWER(name) = LOWER($2)) DESC
+		LIMIT 1
+	`, eventID, compQuery).Scan(&compID, &compName, &compMaxSize)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", false, false, fmt.Errorf("competition %q not found in this event", compQuery)
+		}
+		return "", "", false, false, fmt.Errorf("lookup competition: %w", err)
+	}
+
+	// Check if user already belongs to a team in this competition.
+	var existingTeamID, existingTeamName string
+	err = tx.QueryRow(ctx, `
+		SELECT t.id, t.name
+		FROM team_members tm
+		JOIN teams t ON t.id = tm.team_id
+		WHERE tm.competition_id = $1 AND tm.user_id = $2
+	`, compID, userID).Scan(&existingTeamID, &existingTeamName)
+	if err == nil {
+		if strings.EqualFold(existingTeamName, teamQuery) {
+			return existingTeamID, existingTeamName, false, false, nil
+		}
+		return "", "", false, false, fmt.Errorf("already in team %q for competition %q", existingTeamName, compName)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", false, false, fmt.Errorf("check existing team membership: %w", err)
+	}
+
+	// Find or create the target team in this competition.
+	var teamMaxOverride *int
+	var leaderID *string
+	err = tx.QueryRow(ctx, `
+		SELECT id, name, max_size, leader_id
+		FROM teams
+		WHERE competition_id = $1 AND LOWER(name) = LOWER($2)
+		FOR UPDATE
+	`, compID, teamQuery).Scan(&teamID, &resolvedTeamName, &teamMaxOverride, &leaderID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var createErr error
+		for attempt := 0; attempt < bulkJoinCodeRetries; attempt++ {
+			code, genErr := generateBulkJoinCode()
+			if genErr != nil {
+				return "", "", false, false, fmt.Errorf("generate join code: %w", genErr)
+			}
+			createErr = tx.QueryRow(ctx, `
+				INSERT INTO teams (competition_id, name, join_code, leader_id, created_by)
+				VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid)
+				RETURNING id, name
+			`, compID, teamQuery, code, userID, actorID).Scan(&teamID, &resolvedTeamName)
+			if createErr == nil {
+				teamCreated = true
+				leaderID = &userID
+				break
+			}
+			if !strings.Contains(createErr.Error(), "teams_competition_id_join_code_key") {
+				return "", "", false, false, fmt.Errorf("create team %q: %w", teamQuery, createErr)
+			}
+		}
+		if createErr != nil {
+			return "", "", false, false, fmt.Errorf("create team %q: %w", teamQuery, createErr)
+		}
+	} else if err != nil {
+		return "", "", false, false, fmt.Errorf("lookup team %q: %w", teamQuery, err)
+	} else {
+		effectiveMax := compMaxSize
+		if teamMaxOverride != nil && *teamMaxOverride > 0 {
+			effectiveMax = *teamMaxOverride
+		}
+		var memberCount int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM team_members WHERE team_id = $1`, teamID).Scan(&memberCount); err != nil {
+			return "", "", false, false, fmt.Errorf("count team members: %w", err)
+		}
+		if memberCount >= effectiveMax {
+			return "", "", false, false, fmt.Errorf("team %q in %q is full (max %d)", resolvedTeamName, compName, effectiveMax)
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO team_members (team_id, user_id, competition_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (competition_id, user_id) DO NOTHING
+	`, teamID, userID, compID)
+	if err != nil {
+		return "", "", false, false, fmt.Errorf("add team member: %w", err)
+	}
+	newlyAssigned = tag.RowsAffected() > 0
+
+	if leaderID == nil {
+		_, _ = tx.Exec(ctx, `UPDATE teams SET leader_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND leader_id IS NULL`, userID, teamID)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", false, false, fmt.Errorf("commit team assignment: %w", err)
+	}
+
+	return teamID, resolvedTeamName, teamCreated, newlyAssigned, nil
 }

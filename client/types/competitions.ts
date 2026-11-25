@@ -6,6 +6,8 @@ export interface Competition {
   slug: string;
   name: string;
   description?: string | null;
+  min_team_size: number;
+  max_team_size: number;
   created_at: string;
   updated_at: string;
 }
@@ -23,10 +25,14 @@ export interface CreateCompetitionRequest {
   slug: string;
   name: string;
   description?: string;
+  min_team_size: number;
+  max_team_size: number;
 }
 
 export interface UpdateCompetitionRequest {
   slug?: string;
   name?: string;
   description?: string;
+  min_team_size?: number;
+  max_team_size?: number;
 }

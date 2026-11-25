@@ -47,6 +47,8 @@ export interface AddEventUserRequest {
   name?: string;
   role?: AssignableEventRole;
   phone_number?: string;
+  competition_name?: string;
+  team_name?: string;
 }
 
 export interface BulkAddEventUsersRequest {
@@ -74,6 +76,8 @@ export interface BulkAddEventUsersResponse {
   total_processed: number;
   total_created: number;
   total_added: number;
+  teams_created?: number;
+  teams_assigned?: number;
   skipped_count: number;
   skipped_errors?: string[];
   users: EventUserDetailResponse[];

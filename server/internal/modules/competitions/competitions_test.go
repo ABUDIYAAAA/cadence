@@ -150,11 +150,15 @@ func TestSlugRegexValidation(t *testing.T) {
 	}
 }
 
+func intPtr(v int) *int { return &v }
+
 func TestValidationDTOs(t *testing.T) {
 	t.Run("valid CreateCompetitionRequest passes", func(t *testing.T) {
 		req := CreateCompetitionRequest{
-			Slug: "hack-2026",
-			Name: "Hack 2026",
+			Slug:        "hack-2026",
+			Name:        "Hack 2026",
+			MinTeamSize: intPtr(2),
+			MaxTeamSize: intPtr(4),
 		}
 		errs := utils.ValidateStruct(req)
 		if len(errs) > 0 {
@@ -162,10 +166,23 @@ func TestValidationDTOs(t *testing.T) {
 		}
 	})
 
+	t.Run("missing min or max team size fails", func(t *testing.T) {
+		req := CreateCompetitionRequest{
+			Slug: "hack-2026",
+			Name: "Hack 2026",
+		}
+		errs := utils.ValidateStruct(req)
+		if len(errs) == 0 {
+			t.Fatalf("expected validation error when min_team_size and max_team_size are omitted")
+		}
+	})
+
 	t.Run("invalid slug too short fails", func(t *testing.T) {
 		req := CreateCompetitionRequest{
-			Slug: "a",
-			Name: "Hack 2026",
+			Slug:        "a",
+			Name:        "Hack 2026",
+			MinTeamSize: intPtr(1),
+			MaxTeamSize: intPtr(4),
 		}
 		errs := utils.ValidateStruct(req)
 		if len(errs) == 0 {
@@ -324,8 +341,10 @@ func TestCompetitionCRUDUnderEvents(t *testing.T) {
 
 	t.Run("create competition in Event A and same slug in Event B succeeds, duplicate in Event A fails", func(t *testing.T) {
 		compA, err := compSvc.CreateCompetition(ctx, evA.ID, CreateCompetitionRequest{
-			Slug: sharedCompSlug,
-			Name: "Hackathon in Event A",
+			Slug:        sharedCompSlug,
+			Name:        "Hackathon in Event A",
+			MinTeamSize: intPtr(2),
+			MaxTeamSize: intPtr(4),
 		}, creatorDevID)
 		if err != nil {
 			t.Fatalf("failed to create competition in event A: %v", err)
@@ -333,20 +352,38 @@ func TestCompetitionCRUDUnderEvents(t *testing.T) {
 		if compA.EventID != evA.ID {
 			t.Fatalf("expected event_id %s, got %s", evA.ID, compA.EventID)
 		}
+		if compA.MinTeamSize != 2 || compA.MaxTeamSize != 4 {
+			t.Fatalf("expected team size bounds 2..4, got %d..%d", compA.MinTeamSize, compA.MaxTeamSize)
+		}
 
 		// Duplicate slug inside the same event must fail
 		_, err = compSvc.CreateCompetition(ctx, evA.ID, CreateCompetitionRequest{
-			Slug: sharedCompSlug,
-			Name: "Duplicate in Event A",
+			Slug:        sharedCompSlug,
+			Name:        "Duplicate in Event A",
+			MinTeamSize: intPtr(1),
+			MaxTeamSize: intPtr(4),
 		}, creatorDevID)
 		if err != ErrSlugAlreadyExists {
 			t.Fatalf("expected ErrSlugAlreadyExists in same event, got %v", err)
 		}
 
+		// Invalid range (min > max) must fail
+		_, err = compSvc.CreateCompetition(ctx, evA.ID, CreateCompetitionRequest{
+			Slug:        sharedCompSlug + "-bad-range",
+			Name:        "Bad Range",
+			MinTeamSize: intPtr(5),
+			MaxTeamSize: intPtr(3),
+		}, creatorDevID)
+		if err != ErrInvalidTeamSizeRange {
+			t.Fatalf("expected ErrInvalidTeamSizeRange, got %v", err)
+		}
+
 		// Same slug inside Event B must succeed
 		compB, err := compSvc.CreateCompetition(ctx, evB.ID, CreateCompetitionRequest{
-			Slug: sharedCompSlug,
-			Name: "Hackathon in Event B",
+			Slug:        sharedCompSlug,
+			Name:        "Hackathon in Event B",
+			MinTeamSize: intPtr(1),
+			MaxTeamSize: intPtr(5),
 		}, creatorDevID)
 		if err != nil {
 			t.Fatalf("expected same slug in Event B to succeed, got %v", err)

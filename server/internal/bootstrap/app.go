@@ -157,7 +157,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	authMiddleware := auth.AuthMiddleware(cfg, cookieManager, redisClient)
 
 	// Teams module initialization
-	teamsRepo := teams.NewRepository(dbPool, cfg.DefaultMaxTeamSize).WithAuditor(auditQueue)
+	teamsRepo := teams.NewRepository(dbPool).WithAuditor(auditQueue)
 	teamsService := teams.NewService(teamsRepo, auditQueue)
 	teamsHandler := teams.NewHandler(teamsService, limiter)
 

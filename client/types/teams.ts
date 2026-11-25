@@ -75,11 +75,13 @@ export interface AddMemberRequest {
 
 export interface TeamSettings {
   frozen_all: boolean;
+  min_team_size: number;
   max_team_size: number;
   max_team_size_source: "database" | "environment";
 }
 
 export interface UpdateTeamSettingsRequest {
+  min_team_size?: number;
   max_team_size?: number;
 }
 

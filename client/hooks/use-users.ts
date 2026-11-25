@@ -107,6 +107,7 @@ export function useBulkCreateUsers() {
       usersService.bulkCreate(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
     },
   });
 }

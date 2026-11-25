@@ -16,8 +16,9 @@ import (
 )
 
 var (
-	slugRegex      = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-	ErrInvalidSlug = errors.New("slug must contain only lowercase letters, numbers, and single hyphens")
+	slugRegex               = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	ErrInvalidSlug          = errors.New("slug must contain only lowercase letters, numbers, and single hyphens")
+	ErrInvalidTeamSizeRange = errors.New("min_team_size must be at least 1 and cannot exceed max_team_size")
 )
 
 type Service struct {
@@ -39,8 +40,11 @@ func (s *Service) CreateCompetition(ctx context.Context, eventID string, req Cre
 	if !slugRegex.MatchString(req.Slug) {
 		return nil, ErrInvalidSlug
 	}
+	if req.MinTeamSize == nil || req.MaxTeamSize == nil || *req.MinTeamSize < 1 || *req.MaxTeamSize < *req.MinTeamSize || *req.MaxTeamSize > 100 {
+		return nil, ErrInvalidTeamSizeRange
+	}
 
-	comp, err := s.repo.CreateCompetition(ctx, eventID, req.Slug, req.Name, req.Description)
+	comp, err := s.repo.CreateCompetition(ctx, eventID, req.Slug, req.Name, req.Description, *req.MinTeamSize, *req.MaxTeamSize)
 	if err != nil {
 		logger.FromContext(ctx).Warn("failed to create competition",
 			slog.String("event_id", eventID),
@@ -57,9 +61,11 @@ func (s *Service) CreateCompetition(ctx context.Context, eventID string, req Cre
 	)
 
 	s.recordAudit(ctx, audit.ActionCompetitionCreate, eventID, comp.ID, fmt.Sprintf("Created competition %s (%s) in event %s", comp.Name, comp.Slug, eventID), &actorID, map[string]any{
-		"event_id": eventID,
-		"slug":     comp.Slug,
-		"name":     comp.Name,
+		"event_id":      eventID,
+		"slug":          comp.Slug,
+		"name":          comp.Name,
+		"min_team_size": comp.MinTeamSize,
+		"max_team_size": comp.MaxTeamSize,
 	})
 
 	return comp, nil
@@ -75,13 +81,30 @@ func (s *Service) GetCompetitionBySlug(ctx context.Context, eventID, slug string
 	return s.repo.GetCompetitionBySlug(ctx, eventID, slug)
 }
 
-// UpdateCompetition updates competition slug, name, and description and purges Redis cache.
+// UpdateCompetition updates competition metadata and team size bounds and purges Redis cache.
 func (s *Service) UpdateCompetition(ctx context.Context, eventID, compID, oldSlug string, req UpdateCompetitionRequest, actorID string) (*Competition, error) {
 	if req.Slug != nil && !slugRegex.MatchString(*req.Slug) {
 		return nil, ErrInvalidSlug
 	}
+	if req.MinTeamSize != nil || req.MaxTeamSize != nil {
+		current, err := s.repo.GetCompetitionByID(ctx, compID)
+		if err != nil {
+			return nil, err
+		}
+		effMin := current.MinTeamSize
+		effMax := current.MaxTeamSize
+		if req.MinTeamSize != nil {
+			effMin = *req.MinTeamSize
+		}
+		if req.MaxTeamSize != nil {
+			effMax = *req.MaxTeamSize
+		}
+		if effMin < 1 || effMax < effMin || effMax > 100 {
+			return nil, ErrInvalidTeamSizeRange
+		}
+	}
 
-	comp, err := s.repo.UpdateCompetition(ctx, compID, req.Slug, req.Name, req.Description)
+	comp, err := s.repo.UpdateCompetition(ctx, compID, req.Slug, req.Name, req.Description, req.MinTeamSize, req.MaxTeamSize)
 	if err != nil {
 		logger.FromContext(ctx).Warn("failed to update competition",
 			slog.String("competition_id", compID),
@@ -102,8 +125,10 @@ func (s *Service) UpdateCompetition(ctx context.Context, eventID, compID, oldSlu
 	)
 
 	s.recordAudit(ctx, audit.ActionCompetitionUpdate, eventID, comp.ID, fmt.Sprintf("Updated competition %s", comp.Slug), &actorID, map[string]any{
-		"slug": comp.Slug,
-		"name": comp.Name,
+		"slug":          comp.Slug,
+		"name":          comp.Name,
+		"min_team_size": comp.MinTeamSize,
+		"max_team_size": comp.MaxTeamSize,
 	})
 
 	return comp, nil

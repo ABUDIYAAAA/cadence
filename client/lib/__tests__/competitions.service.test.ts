@@ -116,6 +116,8 @@ describe("Seam 2: competitionsService HTTP seam", () => {
       slug: "cyber-sec",
       name: "Cyber Security",
       description: "CTF",
+      min_team_size: 2,
+      max_team_size: 4,
     });
     assert.equal(created.slug, "cyber-sec");
     assert.deepEqual(calls[0], {
@@ -125,6 +127,8 @@ describe("Seam 2: competitionsService HTTP seam", () => {
         slug: "cyber-sec",
         name: "Cyber Security",
         description: "CTF",
+        min_team_size: 2,
+        max_team_size: 4,
       },
     });
 

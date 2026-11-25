@@ -30,15 +30,15 @@ var (
 	ErrTeamFrozen        = errors.New("teams are frozen")
 	ErrNotLeader         = errors.New("only the team leader can do this")
 	ErrLeaderNotMember   = errors.New("leader must be a member of the team")
-	ErrCannotKickSelf    = errors.New("use leave to remove yourself from the team")
-	ErrUserIsBanned      = errors.New("you are banned from this event")
+	ErrCannotKickSelf       = errors.New("use leave to remove yourself from the team")
+	ErrUserIsBanned         = errors.New("you are banned from this event")
+	ErrInvalidTeamSizeRange = errors.New("min_team_size must be at least 1 and cannot exceed max_team_size")
 )
 
 const (
 	DefaultCompetitionID = "00000000-0000-0000-0000-000000000001"
 
-	settingFrozenAll   = "teams.frozen_all"
-	settingMaxTeamSize = "teams.max_size"
+	settingFrozenAll = "teams.frozen_all"
 
 	// Unambiguous alphabet: no 0/O or 1/I/L.
 	joinCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -54,9 +54,8 @@ type querier interface {
 }
 
 type Repository struct {
-	db             *pgxpool.Pool
-	defaultMaxSize int
-	auditor        audit.Recorder
+	db      *pgxpool.Pool
+	auditor audit.Recorder
 }
 
 // EvictedTeamChange captures a team dissolution or leadership succession caused by member eviction.
@@ -70,11 +69,8 @@ type EvictedTeamChange struct {
 	NewLeaderID   *string
 }
 
-func NewRepository(db *pgxpool.Pool, defaultMaxSize int) *Repository {
-	if defaultMaxSize <= 0 {
-		defaultMaxSize = 4
-	}
-	return &Repository{db: db, defaultMaxSize: defaultMaxSize}
+func NewRepository(db *pgxpool.Pool) *Repository {
+	return &Repository{db: db}
 }
 
 // WithAuditor attaches an audit recorder to the repository so cross-module evictions record team.update and team.delete audit events.
@@ -204,36 +200,30 @@ func (r *Repository) loadSettings(ctx context.Context, q querier) (SettingsRespo
 }
 
 func (r *Repository) loadSettingsForComp(ctx context.Context, q querier, compID string) (SettingsResponse, error) {
-	s := SettingsResponse{MaxTeamSize: r.defaultMaxSize, MaxTeamSizeSource: "environment"}
+	s := SettingsResponse{MinTeamSize: 1, MaxTeamSize: 4, MaxTeamSizeSource: "database"}
 	eventID := resolveEventIDFromContext(ctx)
 	frozenKey := compSettingKey(compID, settingFrozenAll)
-	maxSizeKey := compSettingKey(compID, settingMaxTeamSize)
 
-	rows, err := q.Query(ctx, `SELECT key, value FROM app_settings WHERE event_id = $1 AND key = ANY($2)`,
-		eventID, []string{frozenKey, maxSizeKey})
+	if compID != "" {
+		var minSize, maxSize int
+		if err := q.QueryRow(ctx, `SELECT min_team_size, max_team_size FROM competitions WHERE id = $1`, compID).Scan(&minSize, &maxSize); err == nil {
+			s.MinTeamSize = minSize
+			s.MaxTeamSize = maxSize
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return s, fmt.Errorf("load competition team size bounds: %w", err)
+		}
+	}
+
+	var raw json.RawMessage
+	err := q.QueryRow(ctx, `SELECT value FROM app_settings WHERE event_id = $1 AND key = $2`, eventID, frozenKey).Scan(&raw)
 	if err != nil {
-		return s, fmt.Errorf("load team settings: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var key string
-		var raw json.RawMessage
-		if err := rows.Scan(&key, &raw); err != nil {
-			return s, fmt.Errorf("scan team setting: %w", err)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return s, fmt.Errorf("load team settings: %w", err)
 		}
-		switch key {
-		case frozenKey:
-			_ = json.Unmarshal(raw, &s.FrozenAll)
-		case maxSizeKey:
-			var n int
-			if json.Unmarshal(raw, &n) == nil && n > 0 {
-				s.MaxTeamSize = n
-				s.MaxTeamSizeSource = "database"
-			}
-		}
+	} else {
+		_ = json.Unmarshal(raw, &s.FrozenAll)
 	}
-	return s, rows.Err()
+	return s, nil
 }
 
 func (r *Repository) GetSettings(ctx context.Context) (SettingsResponse, error) {
@@ -262,8 +252,36 @@ func (r *Repository) SetFrozenAll(ctx context.Context, frozen bool, updatedBy st
 	return r.setSetting(ctx, settingFrozenAll, frozen, updatedBy)
 }
 
-func (r *Repository) SetMaxTeamSize(ctx context.Context, size int, updatedBy string) error {
-	return r.setSetting(ctx, settingMaxTeamSize, size, updatedBy)
+func (r *Repository) SetTeamSizeBounds(ctx context.Context, minSize, maxSize *int) error {
+	compID, _ := resolveCompetitionIDFromContext(ctx)
+	if compID == "" {
+		compID = DefaultCompetitionID
+	}
+
+	var curMin, curMax int
+	if err := r.db.QueryRow(ctx, `SELECT min_team_size, max_team_size FROM competitions WHERE id = $1`, compID).Scan(&curMin, &curMax); err != nil {
+		return fmt.Errorf("load competition team size bounds: %w", err)
+	}
+
+	effMin, effMax := curMin, curMax
+	if minSize != nil {
+		effMin = *minSize
+	}
+	if maxSize != nil {
+		effMax = *maxSize
+	}
+	if effMin < 1 || effMax < effMin || effMax > 100 {
+		return ErrInvalidTeamSizeRange
+	}
+
+	_, err := r.db.Exec(ctx,
+		`UPDATE competitions SET min_team_size = $1, max_team_size = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+		effMin, effMax, compID,
+	)
+	if err != nil {
+		return fmt.Errorf("update competition team size bounds: %w", err)
+	}
+	return nil
 }
 
 // ---- participant flows ----

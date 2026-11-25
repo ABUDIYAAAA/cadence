@@ -192,9 +192,13 @@ export function useSetAllTeamsFrozen() {
 }
 
 export function useUpdateTeamSettings() {
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateTeams();
   return useMutation({
     mutationFn: (payload: UpdateTeamSettingsRequest) => teamsService.updateSettings(payload),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["competitions"] });
+    },
   });
 }

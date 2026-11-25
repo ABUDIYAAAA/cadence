@@ -24,15 +24,15 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 }
 
 // CreateCompetition inserts a new competition encapsulated inside eventID.
-func (r *Repository) CreateCompetition(ctx context.Context, eventID, slug, name string, description *string) (*Competition, error) {
+func (r *Repository) CreateCompetition(ctx context.Context, eventID, slug, name string, description *string, minTeamSize, maxTeamSize int) (*Competition, error) {
 	query := `
-		INSERT INTO competitions (event_id, slug, name, description)
-		VALUES ($1, LOWER($2), $3, $4)
-		RETURNING id, event_id, slug, name, description, created_at, updated_at
+		INSERT INTO competitions (event_id, slug, name, description, min_team_size, max_team_size)
+		VALUES ($1, LOWER($2), $3, $4, $5, $6)
+		RETURNING id, event_id, slug, name, description, min_team_size, max_team_size, created_at, updated_at
 	`
 	var c Competition
-	if err := r.db.QueryRow(ctx, query, eventID, slug, name, description).Scan(
-		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.CreatedAt, &c.UpdatedAt,
+	if err := r.db.QueryRow(ctx, query, eventID, slug, name, description, minTeamSize, maxTeamSize).Scan(
+		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.MinTeamSize, &c.MaxTeamSize, &c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		if strings.Contains(err.Error(), "uq_competitions_event_slug") || strings.Contains(err.Error(), "competitions_slug_key") {
 			return nil, ErrSlugAlreadyExists
@@ -45,13 +45,13 @@ func (r *Repository) CreateCompetition(ctx context.Context, eventID, slug, name 
 // GetCompetitionBySlug retrieves a competition by its eventID and vanity slug.
 func (r *Repository) GetCompetitionBySlug(ctx context.Context, eventID, slug string) (*Competition, error) {
 	query := `
-		SELECT id, event_id, slug, name, description, created_at, updated_at
+		SELECT id, event_id, slug, name, description, min_team_size, max_team_size, created_at, updated_at
 		FROM competitions
 		WHERE event_id = $1 AND LOWER(slug) = LOWER($2)
 	`
 	var c Competition
 	err := r.db.QueryRow(ctx, query, eventID, slug).Scan(
-		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.MinTeamSize, &c.MaxTeamSize, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -65,13 +65,13 @@ func (r *Repository) GetCompetitionBySlug(ctx context.Context, eventID, slug str
 // GetCompetitionByID retrieves a competition by its UUID.
 func (r *Repository) GetCompetitionByID(ctx context.Context, id string) (*Competition, error) {
 	query := `
-		SELECT id, event_id, slug, name, description, created_at, updated_at
+		SELECT id, event_id, slug, name, description, min_team_size, max_team_size, created_at, updated_at
 		FROM competitions
 		WHERE id = $1
 	`
 	var c Competition
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.MinTeamSize, &c.MaxTeamSize, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -85,7 +85,7 @@ func (r *Repository) GetCompetitionByID(ctx context.Context, id string) (*Compet
 // ListCompetitionsByEvent lists all competitions belonging to an event.
 func (r *Repository) ListCompetitionsByEvent(ctx context.Context, eventID string) ([]Competition, error) {
 	query := `
-		SELECT id, event_id, slug, name, description, created_at, updated_at
+		SELECT id, event_id, slug, name, description, min_team_size, max_team_size, created_at, updated_at
 		FROM competitions
 		WHERE event_id = $1
 		ORDER BY created_at ASC
@@ -99,7 +99,7 @@ func (r *Repository) ListCompetitionsByEvent(ctx context.Context, eventID string
 	list := make([]Competition, 0)
 	for rows.Next() {
 		var c Competition
-		if err := rows.Scan(&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.MinTeamSize, &c.MaxTeamSize, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan competition: %w", err)
 		}
 		list = append(list, c)
@@ -107,8 +107,8 @@ func (r *Repository) ListCompetitionsByEvent(ctx context.Context, eventID string
 	return list, rows.Err()
 }
 
-// UpdateCompetition updates metadata (slug, name, description) for a competition.
-func (r *Repository) UpdateCompetition(ctx context.Context, id string, slug, name, description *string) (*Competition, error) {
+// UpdateCompetition updates metadata and team size bounds for a competition.
+func (r *Repository) UpdateCompetition(ctx context.Context, id string, slug, name, description *string, minTeamSize, maxTeamSize *int) (*Competition, error) {
 	var sets []string
 	var args []any
 	argIndex := 1
@@ -128,17 +128,27 @@ func (r *Repository) UpdateCompetition(ctx context.Context, id string, slug, nam
 		args = append(args, *description)
 		argIndex++
 	}
+	if minTeamSize != nil {
+		sets = append(sets, fmt.Sprintf("min_team_size = $%d", argIndex))
+		args = append(args, *minTeamSize)
+		argIndex++
+	}
+	if maxTeamSize != nil {
+		sets = append(sets, fmt.Sprintf("max_team_size = $%d", argIndex))
+		args = append(args, *maxTeamSize)
+		argIndex++
+	}
 	if len(sets) == 0 {
 		return r.GetCompetitionByID(ctx, id)
 	}
 
 	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
-	query := fmt.Sprintf("UPDATE competitions SET %s WHERE id = $%d RETURNING id, event_id, slug, name, description, created_at, updated_at", strings.Join(sets, ", "), argIndex)
+	query := fmt.Sprintf("UPDATE competitions SET %s WHERE id = $%d RETURNING id, event_id, slug, name, description, min_team_size, max_team_size, created_at, updated_at", strings.Join(sets, ", "), argIndex)
 	args = append(args, id)
 
 	var c Competition
 	err := r.db.QueryRow(ctx, query, args...).Scan(
-		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.EventID, &c.Slug, &c.Name, &c.Description, &c.MinTeamSize, &c.MaxTeamSize, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

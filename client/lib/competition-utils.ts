@@ -15,6 +15,8 @@ export function validateCompetitionInput(input: {
   name: string;
   slug: string;
   description?: string | null;
+  min_team_size?: number;
+  max_team_size?: number;
 }): string | null {
   const name = input.name.trim();
   const slug = input.slug.trim();
@@ -34,6 +36,25 @@ export function validateCompetitionInput(input: {
   }
   if (description.length > 2000) {
     return "Description cannot exceed 2000 characters.";
+  }
+  if (
+    input.min_team_size === undefined ||
+    !Number.isInteger(input.min_team_size) ||
+    input.min_team_size < 1 ||
+    input.min_team_size > 100
+  ) {
+    return "Minimum team size must be a whole number from 1 to 100.";
+  }
+  if (
+    input.max_team_size === undefined ||
+    !Number.isInteger(input.max_team_size) ||
+    input.max_team_size < 1 ||
+    input.max_team_size > 100
+  ) {
+    return "Maximum team size must be a whole number from 1 to 100.";
+  }
+  if (input.min_team_size > input.max_team_size) {
+    return "Minimum team size cannot exceed maximum team size.";
   }
   return null;
 }

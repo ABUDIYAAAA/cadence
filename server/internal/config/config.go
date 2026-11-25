@@ -73,9 +73,6 @@ type Config struct {
 	// Background workers that send queued emails (password resets, passes). Raise if SMTP allows.
 	MailWorkers int `env:"MAIL_WORKERS" envDefault:"8"`
 
-	// Default maximum members per team; admins can override it in the UI or per team.
-	DefaultMaxTeamSize int `env:"DEFAULT_MAX_TEAM_SIZE" envDefault:"4"`
-
 	// Email domains of internal attendees (e.g. the college). Anyone else is external:
 	// they receive their QR by email and are the only ones who exit-scan.
 	InternalEmailDomains []string `env:"INTERNAL_EMAIL_DOMAINS" envSeparator:","`

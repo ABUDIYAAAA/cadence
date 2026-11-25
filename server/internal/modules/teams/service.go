@@ -274,16 +274,26 @@ func (s *Service) GetSettings(ctx context.Context) (*SettingsResponse, error) {
 }
 
 func (s *Service) UpdateSettings(ctx context.Context, req UpdateSettingsRequest) (*SettingsResponse, error) {
-	if req.MaxTeamSize != nil {
-		actor := ""
-		if claims, _ := auth.GetUserClaims(ctx); claims != nil {
-			actor = claims.UserID
-		}
-		if err := s.repo.SetMaxTeamSize(ctx, *req.MaxTeamSize, actor); err != nil {
+	if req.MinTeamSize != nil || req.MaxTeamSize != nil {
+		if err := s.repo.SetTeamSizeBounds(ctx, req.MinTeamSize, req.MaxTeamSize); err != nil {
 			return nil, err
 		}
-		s.record(ctx, audit.ActionTeamSettings, "", fmt.Sprintf("Set max team size to %d", *req.MaxTeamSize),
-			map[string]any{"max_team_size": *req.MaxTeamSize})
+		meta := map[string]any{}
+		if req.MinTeamSize != nil {
+			meta["min_team_size"] = *req.MinTeamSize
+		}
+		if req.MaxTeamSize != nil {
+			meta["max_team_size"] = *req.MaxTeamSize
+		}
+		desc := "Updated team size bounds"
+		if req.MinTeamSize != nil && req.MaxTeamSize != nil {
+			desc = fmt.Sprintf("Set team size bounds to %d–%d", *req.MinTeamSize, *req.MaxTeamSize)
+		} else if req.MaxTeamSize != nil {
+			desc = fmt.Sprintf("Set max team size to %d", *req.MaxTeamSize)
+		} else if req.MinTeamSize != nil {
+			desc = fmt.Sprintf("Set min team size to %d", *req.MinTeamSize)
+		}
+		s.record(ctx, audit.ActionTeamSettings, "", desc, meta)
 	}
 	return s.GetSettings(ctx)
 }

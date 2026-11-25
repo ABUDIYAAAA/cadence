@@ -385,6 +385,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	settings, err := h.service.UpdateSettings(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, ErrInvalidTeamSizeRange) {
+			utils.ErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		utils.ErrorJSON(w, http.StatusInternalServerError, "failed to update team settings")
 		return
 	}

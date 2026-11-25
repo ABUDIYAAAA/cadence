@@ -31,6 +31,8 @@ export interface CreateUserRequest {
   name: string;
   role?: UserRole;
   phone_number?: string;
+  competition_name?: string;
+  team_name?: string;
 }
 
 export interface BulkCreateUsersRequest {
@@ -41,6 +43,8 @@ export interface BulkCreateResponse {
   total_processed: number;
   total_created: number;
   total_added?: number;
+  teams_created?: number;
+  teams_assigned?: number;
   skipped_count: number;
   skipped_errors?: string[];
   users: UserDetailResponse[];

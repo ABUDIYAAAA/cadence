@@ -39,11 +39,23 @@ func RegisterEventScopedRoutes(
 			}
 		}
 
-		// Only event owners, admins, and devs can edit or delete competitions
+		// Competition member read + volunteer participant creation
+		r.Group(func(r chi.Router) {
+			r.Use(RequireCompetitionRoles("owner", "admin", "volunteer"))
+			r.Get("/users", h.HandleListCompetitionUsers)
+			r.Post("/users", h.HandleAddCompetitionUser)
+		})
+
+		// Only event owners, admins, and devs can edit/delete competitions or manage competition members
 		r.Group(func(r chi.Router) {
 			r.Use(RequireCompetitionRoles("owner", "admin"))
 			r.Patch("/", h.HandleUpdateCompetition)
 			r.Delete("/", h.HandleDeleteCompetition)
+			r.Post("/users/bulk", h.HandleBulkAddCompetitionUsers)
+			r.Patch("/members/{userId}", h.HandleUpdateCompetitionMemberRole)
+			r.Delete("/members/{userId}", h.HandleRemoveCompetitionMember)
+			r.Post("/members/{userId}/ban", h.HandleBanCompetitionMember)
+			r.Post("/members/{userId}/unban", h.HandleUnbanCompetitionMember)
 		})
 	})
 }

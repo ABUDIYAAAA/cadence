@@ -7,8 +7,21 @@ import {
   CreateCompetitionRequest,
   UpdateCompetitionRequest,
 } from "@/types/competitions";
+import {
+  AddEventUserRequest,
+  BanMemberRequest,
+  BulkAddEventUsersRequest,
+  EventUserFilter,
+  UpdateMemberRoleRequest,
+} from "@/types/events";
+import { USERS_QUERY_KEY } from "@/hooks/use-users";
 
 export const COMPETITIONS_QUERY_KEY = ["competitions"] as const;
+
+export const competitionUsersKey = (
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined
+) => [...COMPETITIONS_QUERY_KEY, eventSlug, competitionSlug, "users"] as const;
 
 export function useCompetitions(
   eventSlug: string | null | undefined,
@@ -84,6 +97,167 @@ export function useDeleteCompetition(eventSlug: string | null | undefined) {
       );
       queryClient.invalidateQueries({
         queryKey: [...COMPETITIONS_QUERY_KEY, eventSlug],
+      });
+    },
+  });
+}
+
+export function useCompetitionUsers(
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined,
+  filters?: EventUserFilter,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: [...competitionUsersKey(eventSlug, competitionSlug), filters],
+    queryFn: () =>
+      competitionsService.listCompetitionUsers(
+        eventSlug!,
+        competitionSlug!,
+        filters
+      ),
+    enabled:
+      Boolean(eventSlug) &&
+      Boolean(competitionSlug) &&
+      (options?.enabled ?? true),
+  });
+}
+
+export function useAddCompetitionUser(
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AddEventUserRequest) =>
+      competitionsService.addCompetitionUser(
+        eventSlug!,
+        competitionSlug!,
+        payload
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: competitionUsersKey(eventSlug, competitionSlug),
+      });
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+}
+
+export function useBulkAddCompetitionUsers(
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: BulkAddEventUsersRequest) =>
+      competitionsService.bulkAddCompetitionUsers(
+        eventSlug!,
+        competitionSlug!,
+        payload
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: competitionUsersKey(eventSlug, competitionSlug),
+      });
+      queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+}
+
+export function useUpdateCompetitionMemberRole(
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      payload,
+    }: {
+      userId: string;
+      payload: UpdateMemberRoleRequest;
+    }) =>
+      competitionsService.updateCompetitionMemberRole(
+        eventSlug!,
+        competitionSlug!,
+        userId,
+        payload
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: competitionUsersKey(eventSlug, competitionSlug),
+      });
+    },
+  });
+}
+
+export function useRemoveCompetitionMember(
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      competitionsService.removeCompetitionMember(
+        eventSlug!,
+        competitionSlug!,
+        userId
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: competitionUsersKey(eventSlug, competitionSlug),
+      });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+}
+
+export function useBanCompetitionMember(
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      payload,
+    }: {
+      userId: string;
+      payload?: BanMemberRequest;
+    }) =>
+      competitionsService.banCompetitionMember(
+        eventSlug!,
+        competitionSlug!,
+        userId,
+        payload
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: competitionUsersKey(eventSlug, competitionSlug),
+      });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+}
+
+export function useUnbanCompetitionMember(
+  eventSlug: string | null | undefined,
+  competitionSlug: string | null | undefined
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      competitionsService.unbanCompetitionMember(
+        eventSlug!,
+        competitionSlug!,
+        userId
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: competitionUsersKey(eventSlug, competitionSlug),
       });
     },
   });

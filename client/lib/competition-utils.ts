@@ -192,7 +192,7 @@ export function getCompetitionRouteContext(
 
 export function getCompetitionSectionHref(
   competitionSlug: string,
-  section: "teams" | "judging"
+  section: "teams" | "judging" | "users"
 ): string {
   return `/dashboard/competitions/${encodeURIComponent(competitionSlug)}/${section}`;
 }

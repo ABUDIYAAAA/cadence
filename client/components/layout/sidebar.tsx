@@ -595,6 +595,15 @@ export function Sidebar() {
 							icon: Award,
 							roles: ['owner', 'admin', 'judge', 'volunteer', 'participant'],
 						},
+						{
+							label: 'Users',
+							href: getCompetitionSectionHref(
+								competitionContext.competitionSlug,
+								'users',
+							),
+							icon: Users,
+							roles: ['owner', 'admin', 'volunteer'],
+						},
 					],
 				},
 		  ]

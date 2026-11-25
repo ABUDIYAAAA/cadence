@@ -409,5 +409,90 @@ func TestCompetitionCRUDUnderEvents(t *testing.T) {
 		if err != nil || len(listB) != 0 {
 			t.Fatalf("expected 0 competitions in Event B after delete, got %d (err: %v)", len(listB), err)
 		}
+
+		// --- Competition member management ---
+		var ownerAID string
+		if err := db.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, ownerAEmail).Scan(&ownerAID); err != nil {
+			t.Fatalf("failed to load owner A id: %v", err)
+		}
+		memberTS := time.Now().UnixNano()
+		aliceName := "Alice Comp"
+		aliceEmail := fmt.Sprintf("alice-comp-%d@example.com", memberTS)
+		bobName := "Bob Comp"
+		bobEmail := fmt.Sprintf("bob-comp-%d@example.com", memberTS)
+		teamAlpha := "Alpha Squad"
+
+		// Volunteer cannot add a judge
+		if _, err := compSvc.AddCompetitionUser(ctx, evA.ID, compA.ID, ownerAID, "volunteer", events.AddEventUserRequest{
+			Email: aliceEmail,
+			Name:  &aliceName,
+			Role:  "judge",
+		}); err != ErrPermissionDenied {
+			t.Fatalf("expected volunteer adding judge to fail with ErrPermissionDenied, got %v", err)
+		}
+
+		// Owner adds Alice as participant with team assignment
+		alice, err := compSvc.AddCompetitionUser(ctx, evA.ID, compA.ID, ownerAID, "owner", events.AddEventUserRequest{
+			Email:    aliceEmail,
+			Name:     &aliceName,
+			Role:     "participant",
+			TeamName: &teamAlpha,
+		})
+		if err != nil {
+			t.Fatalf("failed to add Alice to competition: %v", err)
+		}
+		defer func() {
+			_, _ = db.Exec(ctx, `DELETE FROM users WHERE email IN ($1, $2)`, aliceEmail, bobEmail)
+		}()
+
+		// Verify Alice was auto-enrolled in parent event
+		var inEvent bool
+		if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_events WHERE event_id = $1 AND user_id = $2)`, evA.ID, alice.ID).Scan(&inEvent); err != nil || !inEvent {
+			t.Fatalf("expected Alice to be auto-enrolled in parent event, inEvent=%v err=%v", inEvent, err)
+		}
+
+		// List competition users returns Alice with her team
+		listed, err := compSvc.ListCompetitionUsers(ctx, evA.ID, compA.ID, events.EventUserFilter{Page: 1, Limit: 25})
+		if err != nil || listed.Total != 1 || listed.Users[0].TeamName == nil || *listed.Users[0].TeamName != teamAlpha {
+			t.Fatalf("unexpected listed competition users: %+v err=%v", listed, err)
+		}
+
+		// Update Alice's competition role to judge
+		if err := compSvc.UpdateCompetitionMemberRole(ctx, evA.ID, compA.ID, ownerAID, "owner", alice.ID, "judge"); err != nil {
+			t.Fatalf("failed to update Alice competition role: %v", err)
+		}
+
+		// Ban Alice -> marks banned and evicts from competition team
+		if err := compSvc.BanCompetitionMember(ctx, evA.ID, compA.ID, ownerAID, "owner", alice.ID, nil); err != nil {
+			t.Fatalf("failed to ban Alice in competition: %v", err)
+		}
+		var teamMembershipCount int
+		if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM team_members WHERE competition_id = $1 AND user_id = $2`, compA.ID, alice.ID).Scan(&teamMembershipCount); err != nil || teamMembershipCount != 0 {
+			t.Fatalf("expected Alice evicted from competition team on ban, count=%d err=%v", teamMembershipCount, err)
+		}
+
+		// Unban Alice
+		if err := compSvc.UnbanCompetitionMember(ctx, evA.ID, compA.ID, ownerAID, alice.ID); err != nil {
+			t.Fatalf("failed to unban Alice: %v", err)
+		}
+
+		// Bulk import Bob into competition
+		bulkResp, err := compSvc.BulkAddCompetitionUsers(ctx, evA.ID, compA.ID, ownerAID, "owner", events.BulkAddEventUsersRequest{
+			Users: []events.AddEventUserRequest{
+				{Email: bobEmail, Name: &bobName, Role: "participant", TeamName: &teamAlpha},
+			},
+		})
+		if err != nil || bulkResp.TotalCreated != 1 || bulkResp.TeamsAssigned != 1 {
+			t.Fatalf("unexpected bulk import response: %+v err=%v", bulkResp, err)
+		}
+
+		// Remove Alice from competition (still remains in parent event)
+		if err := compSvc.RemoveCompetitionMember(ctx, evA.ID, compA.ID, ownerAID, "owner", alice.ID); err != nil {
+			t.Fatalf("failed to remove Alice from competition: %v", err)
+		}
+		listedAfterRemove, err := compSvc.ListCompetitionUsers(ctx, evA.ID, compA.ID, events.EventUserFilter{Page: 1, Limit: 25})
+		if err != nil || listedAfterRemove.Total != 1 || listedAfterRemove.Users[0].Email != bobEmail {
+			t.Fatalf("expected only Bob after removing Alice, got %+v err=%v", listedAfterRemove, err)
+		}
 	})
 }
